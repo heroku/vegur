@@ -8,6 +8,7 @@
      ,stdlib
      ,stillir
      ,cowboy
+     ,hackney
     ]}
   ,{mod, { hstub_app, []} }
   ,{env,
