@@ -1,0 +1,20 @@
+{application, hstub,
+ [
+   {description, "hstub"}
+  ,{vsn, "0.1.0"}
+  ,{registered, [hstub_sup]}
+  ,{applications,
+    [kernel
+     ,stdlib
+     ,stillir
+     ,cowboy
+    ]}
+  ,{mod, { hstub_app, []} }
+  ,{env,
+    [{http_listen_port, 9880}
+     ,{http_acceptors, 100}
+    ]}
+  ,{start_phases,
+    [{listen, []}
+    ]}
+ ]}.
