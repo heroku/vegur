@@ -62,7 +62,8 @@ start_phase(listen, _Type, _Args) ->
     Dispatch = cowboy_router:compile(dispatch_rules()),
     cowboy:start_http(?APP, config(http_acceptors),
                       [{port, config(http_listen_port)}],
-                      [{env, [{dispatch, Dispatch}]}]),
+                      [{env, [{dispatch, Dispatch}]}
+                      ,{onrequest, fun hstub_log_hook:on_request/1}]),
     ok.
 
 dispatch_rules() ->
