@@ -68,7 +68,7 @@ start_phase(listen, _Type, _Args) ->
 
 dispatch_rules() ->
     [{'_',
-      [{'_', hstub_http_handler, []}]}
+      [{'_', hstub_cc_handler, []}]}
     ].
 
 %%%===================================================================
