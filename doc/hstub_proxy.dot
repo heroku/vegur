@@ -1,0 +1,62 @@
+digraph {
+    new_request;
+    new_request -> read_request_headers;
+    read_request_headers -> routing_decision;
+    
+    routing_decision [shape=diamond];
+    routing_decision -> respond_404 [label="No Route"];
+    routing_decision -> connect_to_dyno [label="Routed"];
+
+    connect_to_dyno [shape=diamond];
+    connect_to_dyno -> respond_error [label="Can't connect"];
+    connect_to_dyno -> relay_request_headers [label = "Connected"];
+    respond_error;  
+
+    relay_request_headers -> request_is_upgrade;
+    request_is_upgrade [shape=diamond];
+    request_is_upgrade -> read_upgrade_status [label = "Upgrade"];
+    request_is_upgrade -> request_expects_continue [label = "Not Upgrade"];
+
+    read_upgrade_status -> switching_protocols;
+    switching_protocols [shape=diamond];
+    switching_protocols -> byte_proxy [label = "Switched Protocols"];
+    switching_protocols -> relay_request_body [label = "Switch refused"];
+
+    request_expects_continue -> read_continue_status;
+    read_continue_status -> "100 Continue";
+    "100 Continue" [shape=diamond];
+    "100 Continue" -> skip_request_body [label = "Continue refused"];
+    "100 Continue" -> relay_request_body [label = "Continue"];
+    "100 Continue" -> relay_request_body [label = "Timeout"];
+
+    skip_request_body -> relay_response;
+
+    subgraph cluster_relay_request {
+        relay_request_body -> request_has_body;
+        request_has_body [shape=diamond];
+        request_has_body -> relay_response [label="No body"];
+        request_has_body -> relay_body_bytes [label="Content Length > 0"];
+        request_has_body -> respond_error [label="HTTP/1.0 && no Content Length"];
+        request_has_body -> relay_chunked_body [label="HTTP/1.1, Transfer-Encoding: chunked"];
+        relay_body_bytes -> relay_response;
+        relay_chunked_body -> relay_response;
+    }
+
+    subgraph cluster_relay_response {
+        relay_response;
+        relay_response -> read_response_status;
+        read_response_status -> read_response_headers;
+        read_response_headers -> "1xx Response";
+        "1xx Response" [shape=diamond];
+        "1xx Response" -> relay_response_headers [label="Status =/= 1xx"];
+        "1xx Response" -> relay_1xx_response [label="Status =:= 1xx"];
+        relay_1xx_response -> relay_response;
+
+        relay_response_headers -> response_has_body;
+        response_has_body [shape=diamond];
+        response_has_body -> read_response_body [label="Body present"];
+        response_has_body -> done [label="No body"];
+        read_response_body -> relay_response_body;
+        relay_response_body -> done;
+    }
+}
