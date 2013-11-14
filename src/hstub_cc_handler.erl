@@ -126,13 +126,10 @@ parse_request(Req) ->
 
 ip_to_tuple(IP) when is_binary(IP) ->
     IPs = binary_to_list(IP),
-    case string:tokens(IPs, ".") of
-        [A,B,C,D] ->
-            {list_to_integer(A),
-             list_to_integer(B),
-             list_to_integer(C),
-             list_to_integer(D)};
-        _ ->
+    case inet:parse_address(IPs) of
+        {ok, Parsed} ->
+            Parsed;
+        {error, einval} ->
             IPs
     end.
 
