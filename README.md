@@ -22,6 +22,7 @@ Reference Material
 ------------------
 
 * [HTTP Made Easy](http://www.jmarshall.com/easy/http/)
+* [HTTPbis Wiki](http://trac.tools.ietf.org/wg/httpbis/trac/wiki)
 * [HTTPbis RFC - Messaging](http://tools.ietf.org/html/draft-ietf-httpbis-p1-messaging-24)
 * [HTTPbis RFC - Semantics](http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24)
 * [The Cowboy Guide](http://ninenines.eu/docs/en/cowboy/HEAD/guide/introduction)
