@@ -51,12 +51,12 @@ route(Req, State) ->
     end.
 
 connect(Req, State = #state{backend_addr={IP, Port}}) ->
-    {ok, Client} = cowboy_client:init([]),
-    case cowboy_client:connect(ranch_tcp,
-                               ip_to_tuple(IP),
-                               Port,
-                               100,
-                               Client) of
+    {ok, Client} = hstub_client:init([]),
+    case hstub_client:connect(ranch_tcp,
+                              ip_to_tuple(IP),
+                              Port,
+                              100,
+                              Client) of
         {ok, Client2} ->
             {connected, Req, State#state{backend_client=Client2}};
         {error, _} = Err ->
@@ -81,15 +81,15 @@ proxy(Req, State) ->
 
 send_request({Method, Headers, Body, URL, Path},
              State = #state{backend_client=Client}) ->
-    Request = cowboy_client:request_to_iolist(Method,
-                                              request_headers(Headers),
-                                              Body,
-                                              'HTTP/1.1',
-                                              URL,
-                                              Path),
-    case cowboy_client:raw_request(Request, Client) of
+    Request = hstub_client:request_to_iolist(Method,
+                                             request_headers(Headers),
+                                             Body,
+                                             'HTTP/1.1',
+                                             URL,
+                                             Path),
+    case hstub_client:raw_request(Request, Client) of
         {ok, Client2} ->
-            case cowboy_client:response(Client2) of
+            case hstub_client:response(Client2) of
                 {error, _} = Err -> Err;
                 {ok, Status, RespHeaders, Client3} ->
                     {ok, Status, RespHeaders,
@@ -100,11 +100,11 @@ send_request({Method, Headers, Body, URL, Path},
 
 backend_close(State = #state{backend_client = undefined}) -> State;
 backend_close(State = #state{backend_client = Client}) ->
-    cowboy_client:close(Client),
+    hstub_client:close(Client),
     State#state{backend_client = undefined}.
 
 body(State = #state{backend_client = Client}) ->
-    case cowboy_client:response_body(Client) of
+    case hstub_client:response_body(Client) of
         {error, _Err} = Err -> Err;
         {ok, Body, Client2} ->
             {ok, Body, State#state{backend_client = Client2}}
