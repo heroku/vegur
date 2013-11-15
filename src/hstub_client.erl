@@ -195,7 +195,9 @@ response(Client=#client{state=request}) ->
     end.
 
 response_body(Client=#client{state=response_body}) ->
-    response_body_loop(Client, <<>>).
+    response_body_loop(Client, <<>>);
+response_body(Client=#client{state=request, connection=close}) ->
+    response_body_close(Client, <<>>).
 
 response_body_loop(Client, Acc) ->
     case stream_body(Client) of
@@ -205,6 +207,25 @@ response_body_loop(Client, Acc) ->
             {ok, Acc, Client2};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+%% Stream the body until the socket is closed.
+response_body_close(Client=#client{buffer=Buffer, response_body=undefined}, Acc) ->
+    case byte_size(Buffer) of
+        0 ->
+            case recv(Client) of
+                {ok, Body} ->
+                    response_body_close(Client#client{buffer=Body}, Acc);
+                {error, closed} ->
+                    {ok, Acc, Client};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        _ ->
+            response_body_close(
+                Client#client{buffer = <<>>},
+                <<Acc/binary, Buffer/binary>>
+            )
     end.
 
 skip_body(Client=#client{state=response_body}) ->
@@ -272,6 +293,12 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                     Length = list_to_integer(binary_to_list(Value)),
                     if Length >= 0 -> ok end,
                     Client#client{response_body=Length};
+                <<"connection">> ->
+                    case cowboy_bstr:to_lower(Value) of
+                        <<"close">> -> Client#client{connection=close};
+                        <<"keepalive">> -> Client#client{connection=keepalive};
+                        _ -> Client
+                    end;
                 _ ->
                     Client
             end,
