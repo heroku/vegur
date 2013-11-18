@@ -194,6 +194,8 @@ response(Client=#client{state=request}) ->
             {error, Reason}
     end.
 
+response_body(Client=#client{response_body=chunked}) ->
+    response_body_chunk(Client, <<>>);
 response_body(Client=#client{state=response_body}) ->
     response_body_loop(Client, <<>>);
 response_body(Client=#client{state=request, connection=close}) ->
@@ -205,6 +207,36 @@ response_body_loop(Client, Acc) ->
             response_body_loop(Client2, << Acc/binary, Data/binary >>);
         {done, Client2} ->
             {ok, Acc, Client2};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+%% WARNING: we only support chunked reading where we get back
+%% a bunch of raw chunks. As a proxy, we have no interest into
+%% decoding chunks for humans, just for the next hop.
+response_body_chunk(Client, Acc) ->
+    case chunk_body(Client) of
+        {ok, Data, Client2} ->
+            response_body_chunk(Client2, [Acc, Data]);
+        {done, Buf, Client2} ->
+            {ok, [Acc, Buf], Client2};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+chunk_body(Client) -> chunk_body(Client, undefined).
+
+chunk_body(Client=#client{buffer=Buffer}, Cont) ->
+    case hstub_chunked:next_chunk(Buffer, Cont) of
+        {done, Buf, Rest} ->
+            {done, Buf, Client#client{buffer=Rest, response_body=undefined}};
+        {chunk, Buf, Rest} ->
+            {ok, Buf, Client#client{buffer=Rest}};
+        {more, State} ->
+            case recv(Client) of
+                {ok, Data} -> chunk_body(Client#client{buffer=Data}, State);
+                {error, Reason} -> {error, Reason}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -293,6 +325,11 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                     Length = list_to_integer(binary_to_list(Value)),
                     if Length >= 0 -> ok end,
                     Client#client{response_body=Length};
+                <<"transfer-encoding">> ->
+                    case cowboy_bstr:to_lower(Value) of
+                        <<"chunked">> -> Client#client{response_body=chunked};
+                        _ -> Client
+                    end;
                 <<"connection">> ->
                     case cowboy_bstr:to_lower(Value) of
                         <<"close">> -> Client#client{connection=close};
