@@ -59,7 +59,6 @@ stop(_State) ->
     ok.
 
 start_phase(listen, _Type, _Args) ->
-    io:format("HI ~p", [config(http_listen_port)]),
     Dispatch = cowboy_router:compile(dispatch_rules()),
     {ok, _} = cowboy:start_http(?APP, config(http_acceptors),
                                 [{port, config(http_listen_port)}],

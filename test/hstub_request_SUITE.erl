@@ -83,7 +83,6 @@ invalid_expect(Config) ->
     % Send invalid expect header (not 100-continue). Expect 417 back.
     Port = ?config(hstub_port, Config),
     Url = "http://localhost:" ++ integer_to_list(Port),
-    error_logger:info_msg("Url is ~p", [Url]),
     {ok, {{_, 417, _}, _, _}} = httpc:request(get, {Url, [{"expect", "100-stay"}]}, [], []),
     Config.
 
