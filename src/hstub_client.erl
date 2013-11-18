@@ -326,21 +326,19 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                     if Length >= 0 -> ok end,
                     Client#client{response_body=Length};
                 <<"transfer-encoding">> ->
-                    case binary:match(cowboy_bstr:to_lower(Value), <<"chunked">>) of
-                        {_,_} -> Client#client{response_body=chunked};
-                        nomatch -> Client
+                    case lists:member(<<"chunked">>, header_list_values(Value)) of
+                        true -> Client#client{response_body=chunked};
+                        false -> Client
                     end;
                 <<"connection">> ->
-                    Vals = cowboy_bstr:to_lower(Value),
-                    case binary:match(Vals, <<"close">>) of
-                        {_,_} -> Client#client{connection=close};
-                        nomatch ->
-                            case binary:match(Vals, <<"keepalive">>) of
-                                {_,_} -> Client#client{connection=keepalive};
-                                nomatch -> Client
-                            end;
-                        _ ->
-                            Client
+                    Values = header_list_values(Value),
+                    case lists:member(<<"close">>, Values) of
+                        true -> Client#client{connection=close};
+                        false ->
+                            case lists:member(<<"keepalive">>, Values) of
+                                true -> Client#client{connection=keepalive};
+                                false -> Client
+                            end
                     end;
                 _ ->
                     Client
@@ -384,6 +382,9 @@ stream_body(Client=#client{state=response_body, buffer=Buffer,
 
 recv(#client{socket=Socket, transport=Transport, read_timeout=Timeout}) ->
     Transport:recv(Socket, 0, Timeout).
+
+header_list_values(Value) ->
+    cowboy_http:nonempty_list(Value, fun cowboy_http:token_ci/2).
 
 auth_header("") ->
     [];
