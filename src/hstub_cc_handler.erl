@@ -139,7 +139,7 @@ response_headers(Headers0) ->
                         F(H)
                 end,
                 Headers0,
-                [fun delete_connection_header/1
+                [fun delete_keepalive_header/1
                 ]).
 %% Strip Connection header on request.
 request_headers(Headers0) ->
@@ -147,17 +147,20 @@ request_headers(Headers0) ->
                         F(H)
                 end,
                 Headers0,
-                [fun delete_connection_header/1
+                [fun delete_keepalive_header/1
                 ,fun delete_host_header/1
                 ,fun add_connection_close/1
                 ]).
 
 
-delete_connection_header(Hdrs) ->
-    lists:keydelete(<<"connection">>, 1, Hdrs).
+delete_keepalive_header(Hdrs) ->
+    lists:delete({<<"connection">>, <<"keepalive">>}, Hdrs).
 
 delete_host_header(Hdrs) ->
     lists:keydelete(<<"host">>, 1, Hdrs).
 
 add_connection_close(Hdrs) ->
-    [{<<"Connection">>, <<"close">>} | Hdrs].
+    case lists:keymember(<<"connection">>, 1, Hdrs) of
+        true -> Hdrs;
+        false -> [{<<"connection">>, <<"close">>} | Hdrs]
+    end.
