@@ -150,6 +150,7 @@ request_headers(Headers0) ->
                 [fun delete_keepalive_header/1
                 ,fun delete_host_header/1
                 ,fun add_connection_close/1
+                ,fun delete_content_length_header/1
                 ]).
 
 
@@ -158,6 +159,9 @@ delete_keepalive_header(Hdrs) ->
 
 delete_host_header(Hdrs) ->
     lists:keydelete(<<"host">>, 1, Hdrs).
+
+delete_content_length_header(Hdrs) ->
+    lists:keydelete(<<"content-length">>, 1, Hdrs).
 
 add_connection_close(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
