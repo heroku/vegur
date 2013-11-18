@@ -65,7 +65,7 @@ start_phase(listen, _Type, _Args) ->
                                 [{port, config(http_listen_port)}],
                                 [{env, [{dispatch, Dispatch}]},
                                  {onrequest, fun hstub_log_hook:on_request/1},
-                                 {middlewares, [cowboy_router, hstub_validate_headers, cowboy_handler]}
+                                 {middlewares, [hstub_validate_headers, cowboy_handler]}
                                 ]),
     ok.
 
