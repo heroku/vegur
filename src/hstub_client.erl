@@ -326,9 +326,9 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                     if Length >= 0 -> ok end,
                     Client#client{response_body=Length};
                 <<"transfer-encoding">> ->
-                    case cowboy_bstr:to_lower(Value) of
-                        <<"chunked">> -> Client#client{response_body=chunked};
-                        _ -> Client
+                    case binary:match(cowboy_bstr:to_lower(Value), <<"chunked">>) of
+                        {_,_} -> Client#client{response_body=chunked};
+                        nomatch -> Client
                     end;
                 <<"connection">> ->
                     Vals = cowboy_bstr:to_lower(Value),
