@@ -14,6 +14,7 @@ groups() ->
      {hstub_request_handling, [], [no_host
                                    ,empty_host
                                    ,invalid_expect
+                                   ,elb_healthcheck
                                   ]}
     ].
 
@@ -47,6 +48,8 @@ init_per_testcase(empty_host, Config) ->
     Config;
 init_per_testcase(invalid_expect, Config) ->
     Config;
+init_per_testcase(elb_healthcheck, Config) ->
+    [{elb_endpoint, <<"F3DA8257-B28C-49DF-AACD-8171464E1D1D">>} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -84,6 +87,17 @@ invalid_expect(Config) ->
     Port = ?config(hstub_port, Config),
     Url = "http://localhost:" ++ integer_to_list(Port),
     {ok, {{_, 417, _}, _, _}} = httpc:request(get, {Url, [{"expect", "100-stay"}]}, [], []),
+    Config.
+
+elb_healthcheck(Config) ->
+    % Make a request the upstream healthcheck. @todo To ELBs set a Host header for healthchecks?
+    % if they do we should check for it in the handlers.
+    Endpoint = ?config(elb_endpoint, Config),
+    Port = ?config(hstub_port, Config),
+    Url = "http://localhost:" ++ integer_to_list(Port) ++ "/" ++ binary_to_list(Endpoint),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(Url),
+    application:set_env(hstub, proxy_deny, true),
+    {ok, {{_, 500, _}, _, _}} = httpc:request(Url),
     Config.
 
 %%%%%%%%%%%%%%%%%%%%%
