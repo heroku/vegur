@@ -331,10 +331,16 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                         _ -> Client
                     end;
                 <<"connection">> ->
-                    case cowboy_bstr:to_lower(Value) of
-                        <<"close">> -> Client#client{connection=close};
-                        <<"keepalive">> -> Client#client{connection=keepalive};
-                        _ -> Client
+                    Vals = cowboy_bstr:to_lower(Value),
+                    case binary:match(Vals, <<"close">>) of
+                        {_,_} -> Client#client{connection=close};
+                        nomatch ->
+                            case binary:match(Vals, <<"keepalive">>) of
+                                {_,_} -> Client#client{connection=keepalive};
+                                nomatch -> Client
+                            end;
+                        _ ->
+                            Client
                     end;
                 _ ->
                     Client
