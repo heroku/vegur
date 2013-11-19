@@ -17,6 +17,7 @@ groups() ->
                                    ,elb_healthcheck
                                    ,lockstep_healthcheck
                                    ,healthcheck_endpoint
+                                   ,absolute_uri
                                   ]}
     ].
 
@@ -117,6 +118,18 @@ healthcheck_endpoint(Config) ->
     Domain = binary_to_list(hstub_app:config(herokuapp_domain)),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/healthcheck",
     {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes."++Domain}]}, [], []),
+    Config.
+
+absolute_uri(Config) ->
+    % Make a request with a absolute URI. This is a valid request (used for CONNECT among other things
+    % but it is not supported by us, we expect a 400 back. This is handled by Cowboy.
+    Port = ?config(hstub_port, Config),
+    Req = "CONNECT http://example.com:80 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    {ok, Socket} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket, Req),
+    Data = get_until_closed(Socket, <<>>),
+    M = binary:match(Data, <<"400">>),
+    true = is_tuple(M),
     Config.
 
 %%%%%%%%%%%%%%%%%%%%%
