@@ -3,11 +3,13 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    % Check for empty host
     {Host, Req1} = cowboy_req:host(Req),
     validate_host(Host, Req1, Env).
-    %{ok, Req, Env}.
 
+-spec validate_host(binary(), cowboy_req:req(), any()) ->
+                           {error, 400, cowboy_req:req()} |
+                           {error, 417, cowboy_req:req()} |
+                           {ok, cowboy_req:req(), any()}.
 validate_host(<<>>, Req, _Env) ->
     % The Host header is empty, return 400
     {error, 400, Req};
