@@ -15,6 +15,8 @@ groups() ->
                                    ,empty_host
                                    ,invalid_expect
                                    ,elb_healthcheck
+                                   ,lockstep_healthcheck
+                                   ,healthcheck_endpoint
                                   ]}
     ].
 
@@ -98,6 +100,23 @@ elb_healthcheck(Config) ->
     {ok, {{_, 200, _}, _, _}} = httpc:request(Url),
     application:set_env(hstub, proxy_deny, true),
     {ok, {{_, 500, _}, _, _}} = httpc:request(Url),
+    Config.
+
+lockstep_healthcheck(Config) ->
+    % Make a request to hermes.localhost/lockstep, it calls the stubbed out healthchecks module
+    Port = ?config(hstub_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/lockstep",
+    {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes.localhost"}]}, [], []),
+    application:set_env(hstub, lockstep_fresh, false),
+    {ok, {{_, 500, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes.localhost"}]}, [], []),
+    Config.
+
+healthcheck_endpoint(Config) ->
+    % Make a request to hermes.HEROKUAPP/healthcheck. I have *no* idea why this endpoint exists
+    Port = ?config(hstub_port, Config),
+    Domain = binary_to_list(hstub_app:config(herokuapp_domain)),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/healthcheck",
+    {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes."++Domain}]}, [], []),
     Config.
 
 %%%%%%%%%%%%%%%%%%%%%
