@@ -59,7 +59,8 @@ start_phase(listen, _Type, _Args) ->
                                  {middlewares, [hstub_healthcheck_middleware,
                                                 hstub_validate_headers,
                                                 hstub_lookup_middleware,
-                                                hstub_maintenance_middleware
+                                                hstub_maintenance_middleware,
+                                                hstub_upgrade_middleware,
                                                ]}
                                 ]),
     ok.

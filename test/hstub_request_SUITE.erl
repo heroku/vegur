@@ -8,7 +8,8 @@
 
 all() ->
     [{group, hstub_request_handling},
-     {group, hstub_request_mocks}
+     {group, hstub_request_mocks},
+     {group, hstub_request_upgrade},
     ].
 
 groups() ->
@@ -23,7 +24,10 @@ groups() ->
                                   ]},
      {hstub_request_mocks, [], [herokuapp_redirect
                                 ,maintainance_mode_on
-                               ]}
+                               ]},
+     {hstub_request_upgrade, [], [upgrade_invalid
+                                  ,upgrade_websockets
+                                 ]}
     ].
 
 init_per_suite(Config) ->
@@ -45,10 +49,33 @@ init_per_group(hstub_request_handling, Config) ->
 init_per_group(hstub_request_mocks, Config) ->
     {ok, MeckStarted} = application:ensure_all_started(meck),
     [{meck_started, MeckStarted} | Config];
+init_per_group(hstub_request_upgrade, Config) ->
+    {ok, MeckStarted} = application:ensure_all_started(meck),
+    TestDomain = <<"hstubtest.testdomain">>,
+    meck:expect(hstub_domains, lookup,
+                fun(Domain) ->
+                        Domain = TestDomain,
+                        {ok, undefined, mocked_domain_group}
+                end),
+    meck:expect(hstub_domains, in_maintenance_mode,
+                fun(mocked_domain_group) ->
+                        false
+                end),
+    meck:expect(hstub_service, lookup,
+                fun(_) ->
+                        {route, undefined}
+                end),
+    [{meck_started, MeckStarted},
+     {test_domain, TestDomain} | Config];
 init_per_group(_, Config) ->
     Config.
-    
 
+end_per_group(hstub_request_mocks, Config) ->
+    [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
+    Config;
+end_per_group(hstub_request_upgrade, Config) ->
+    [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
+    Config;
 end_per_group(_GroupName, Config) ->
     Config.
 
@@ -75,7 +102,7 @@ init_per_testcase(maintainance_mode_on, Config) ->
                         Domain = TestDomain,
                         {ok, undefined, mocked_domain_group}
                 end),
-    meck:expect(hstub_domains, in_maintainance_mode,
+    meck:expect(hstub_domains, in_maintenance_mode,
                 fun(mocked_domain_group) ->
                         true
                 end),
@@ -84,6 +111,9 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(herokuapp_redirect, Config) ->
+    meck:unload(hstub_domains),
+    Config;
+end_per_testcase(maintainance_mode_on, Config) ->
     meck:unload(hstub_domains),
     Config;
 end_per_testcase(_, Config) ->
@@ -180,6 +210,26 @@ maintainance_mode_on(Config) ->
     {ok, {{_, 503, _}, _, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [], []),
     Config.
 
+upgrade_invalid(Config) ->
+    Port = ?config(hstub_port, Config),
+    Domain = ?config(test_domain, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 400, _}, _, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)},
+                                                          {"upgrade", "invalid_upgrade"},
+                                                          {"connection", "upgrade"}]}, [], []),
+    Config.
+
+upgrade_websockets(Config) ->
+    Port = ?config(hstub_port, Config),
+    Domain = ?config(test_domain, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, X, _}, _, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)},
+                                                        {"upgrade", "WebSockets"},
+                                                        {"connection", "Upgrade Keep-Alive"},
+                                                        {"sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="}
+                                                       ]}, [], []),
+    true = X < 300,
+    Config.
 %%%%%%%%%%%%%%%%%%%%%
 %%% SETUP HELPERS %%%
 %%%%%%%%%%%%%%%%%%%%%
