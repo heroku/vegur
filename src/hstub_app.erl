@@ -11,6 +11,7 @@
 -behaviour(application).
 
 -define(APP, hstub).
+-define(HTTP_REF, hstub_http).
 
 %% Application callbacks
 -export([start_phase/3, start/2, stop/1]).
@@ -52,7 +53,7 @@ stop(_State) ->
     ok.
 
 start_phase(listen, _Type, _Args) ->
-    cowboy:start_http(?APP, config(http_acceptors),
+    cowboy:start_http(?HTTP_REF, config(http_acceptors),
                       [{port, config(http_listen_port)}],
                       [{env, [{handler, hstub_cc_handler}
                              ,{handler_opts, []}]}
