@@ -4,17 +4,15 @@
 
 -type domain() :: binary().
 -type reason() :: herokuapp_redirect.
--opaque domain_group() :: term().
 
 -export_type([domain/0,
-              reason/0,
-              domain_group/0
+              reason/0
              ]).
 
 -spec lookup_domain(domain()) ->
                            {error, not_found} |
-                           {redirect, reason(), domain_group(), domain()} |
-                           {ok, domain(), domain_group()}.
+                           {redirect, reason(), hstub_domains:domain_group(), domain()} |
+                           {ok, hstub_domains:domain_group()}.
 lookup_domain(Domain) ->
     case hstub_domains:lookup(Domain) of
         undefined ->
@@ -22,8 +20,8 @@ lookup_domain(Domain) ->
         {error, {herokuapp, DomainGroup, SuperDomain}} ->
             RedirectTo = create_redirect(SuperDomain),
             {redirect, herokuapp_redirect, DomainGroup, RedirectTo};
-        {ok, SuperDomain, DomainGroup} ->
-            {ok, SuperDomain, DomainGroup}
+        {ok, _SuperDomain, DomainGroup} ->
+            {ok, DomainGroup}
     end.
 
 %% Internal

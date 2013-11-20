@@ -10,10 +10,12 @@ execute(Req, Env) ->
     handle_domain_lookup(Res, Req1, Env).
 
 
-handle_domain_lookup({error, not_found}, Req, Env) ->
+handle_domain_lookup({error, not_found}, Req, _Env) ->
+    % No app associated with the domain
     {error, 404, Req};
 handle_domain_lookup({redirect, herokuapp_redirect, _DomainGroup, RedirectTo}, Req, _Env) ->
-    %% REDIRECT
+    % This is a old app running on appname.heroku.com,
+    % it should be redirected to appname.herokuapp.com.
     {Path, Req2} = cowboy_req:path(Req),
     {Qs, Req3} = cowboy_req:qs(Req2),
     Qs2 = case Qs of
@@ -25,8 +27,9 @@ handle_domain_lookup({redirect, herokuapp_redirect, _DomainGroup, RedirectTo}, R
     FullLocation = [Proto, <<"://">>, RedirectTo, Path, Qs2],
     {ok, Req5} = cowboy_req:reply(301, [{"location", FullLocation}], Req4),
     {halt, Req5};
-handle_domain_lookup({ok, SuperDomain, DomainGroup}, Req, Env) ->
-    {error, 500, Req}.
+handle_domain_lookup({ok, DomainGroup}, Req, Env) ->
+    Req1 = cowboy_req:set_meta(domain_group, DomainGroup, Req),
+    {ok, Req1, Env}.
 
 % Internal
 get_proto(<<"https">>) ->
