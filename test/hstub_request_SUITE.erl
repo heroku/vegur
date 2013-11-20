@@ -22,6 +22,7 @@ groups() ->
                                    ,absolute_uri
                                   ]},
      {hstub_request_mocks, [], [herokuapp_redirect
+                                ,maintainance_mode_on
                                ]}
     ].
 
@@ -67,9 +68,24 @@ init_per_testcase(herokuapp_redirect, Config) ->
     HerokuDomain = hstub_app:config(heroku_domain),
     TestDomain = <<"hstubtest.", HerokuDomain/binary>>,
     [{test_domain, TestDomain} | Config];
+init_per_testcase(maintainance_mode_on, Config) ->
+    TestDomain = <<"hstubtest.testdomain">>,
+    meck:expect(hstub_domains, lookup,
+                fun(Domain) ->
+                        Domain = TestDomain,
+                        {ok, undefined, mocked_domain_group}
+                end),
+    meck:expect(hstub_domains, in_maintainance_mode,
+                fun(mocked_domain_group) ->
+                        true
+                end),
+    [{test_domain, TestDomain} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
+end_per_testcase(herokuapp_redirect, Config) ->
+    meck:unload(hstub_domains),
+    Config;
 end_per_testcase(_, Config) ->
     Config.
 
@@ -154,6 +170,14 @@ herokuapp_redirect(Config) ->
     Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/query_line?foo=bar",
     {ok, {{_, 301, "Moved Permanently"}, Headers, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [{autoredirect, false}], []),
     "http://hstubtest.hstub/query_line?foo=bar" = proplists:get_value("location", Headers),
+    Config.
+
+maintainance_mode_on(Config) ->
+    % Request a fake domain that's configured in maintainance mode.
+    Port = ?config(hstub_port, Config),
+    Domain = ?config(test_domain, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 503, _}, _, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [], []),
     Config.
 
 %%%%%%%%%%%%%%%%%%%%%
