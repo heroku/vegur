@@ -17,6 +17,7 @@
      ,{proxy_deny, false}
      ,{lockstep_fresh, true}
      ,{herokuapp_domain, <<"hstub">>}
+     ,{heroku_domain, <<"oldstub">>}
     ]}
   ,{start_phases,
     [{listen, []}

@@ -7,7 +7,9 @@
 %%%===================================================================
 
 all() ->
-    [{group, hstub_request_handling}].
+    [{group, hstub_request_handling},
+     {group, hstub_request_mocks}
+    ].
 
 groups() ->
     [
@@ -18,32 +20,36 @@ groups() ->
                                    ,lockstep_healthcheck
                                    ,healthcheck_endpoint
                                    ,absolute_uri
-                                  ]}
+                                  ]},
+     {hstub_request_mocks, [], [herokuapp_redirect
+                               ]}
     ].
 
 init_per_suite(Config) ->
     {ok, Cowboy} = application:ensure_all_started(cowboy),
     {ok, Inets} = application:ensure_all_started(inets),
     application:load(hstub),
-    [{started, Cowboy++Inets} | Config].
+    HstubPort = 9333,
+    application:set_env(hstub, http_listen_port, HstubPort),
+    {ok, HstubStarted} = application:ensure_all_started(hstub),
+    [{started, Cowboy++Inets++HstubStarted},
+     {hstub_port, HstubPort} | Config].
 
 end_per_suite(Config) ->
     [application:stop(App) || App <- lists:reverse(?config(started, Config))],
     ok.
 
 init_per_group(hstub_request_handling, Config) ->
-    HstubPort = 9333,
-    application:set_env(hstub, http_listen_port, HstubPort),
-    {ok, _} = application:ensure_all_started(hstub),
-    [{hstub_port, HstubPort} | Config];
+    Config;
+init_per_group(hstub_request_mocks, Config) ->
+    {ok, MeckStarted} = application:ensure_all_started(meck),
+    [{meck_started, MeckStarted} | Config];
 init_per_group(_, Config) ->
     Config.
+    
 
-end_per_group(hstub_request_handling, Config) ->
-    application:stop(hstub),
-    Config;
-end_per_group(_GroupName, _Config) ->
-    ok.
+end_per_group(_GroupName, Config) ->
+    Config.
 
 init_per_testcase(no_host, Config) ->
     Config;
@@ -53,6 +59,14 @@ init_per_testcase(invalid_expect, Config) ->
     Config;
 init_per_testcase(elb_healthcheck, Config) ->
     [{elb_endpoint, <<"F3DA8257-B28C-49DF-AACD-8171464E1D1D">>} | Config];
+init_per_testcase(herokuapp_redirect, Config) ->
+    meck:expect(hstub_domains, lookup,
+                fun(Domain) ->
+                        {error, {herokuapp, [], Domain}}
+                end),
+    HerokuDomain = hstub_app:config(heroku_domain),
+    TestDomain = <<"hstubtest.", HerokuDomain/binary>>,
+    [{test_domain, TestDomain} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -130,6 +144,16 @@ absolute_uri(Config) ->
     Data = get_until_closed(Socket, <<>>),
     M = binary:match(Data, <<"400">>),
     true = is_tuple(M),
+    Config.
+
+herokuapp_redirect(Config) ->
+    % Get the 'automatic' redirect from old heroku domains (foo.HEROKU_DOMAIN) to new heroku domains
+    % (foo.HEROKUAPP_DOMAIN).
+    Port = ?config(hstub_port, Config),
+    Domain = ?config(test_domain, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/query_line?foo=bar",
+    {ok, {{_, 301, "Moved Permanently"}, Headers, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [{autoredirect, false}], []),
+    "http://hstubtest.hstub/query_line?foo=bar" = proplists:get_value("location", Headers),
     Config.
 
 %%%%%%%%%%%%%%%%%%%%%

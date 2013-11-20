@@ -56,7 +56,7 @@ start_phase(listen, _Type, _Args) ->
                                 [{port, config(http_listen_port)}],
                                 [{env, []},
                                  {onrequest, fun hstub_log_hook:on_request/1},
-                                 {middlewares, [hstub_healthcheck_middleware, hstub_validate_headers]}
+                                 {middlewares, [hstub_healthcheck_middleware, hstub_validate_headers, hstub_lookup_middleware]}
                                 ]),
     ok.
 
