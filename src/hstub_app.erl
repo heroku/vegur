@@ -18,8 +18,6 @@
 -export([config/0, config/1, config/2,
          start/0]).
 
--export([update_dispatch_rules/0]).
-
 %%%===================================================================
 %%% Convenience Functions
 %%%===================================================================
@@ -42,11 +40,6 @@ config(Key) ->
 config() ->
     application:get_all_env(?APP).
 
-update_dispatch_rules() ->
-    cowboy:set_env(?APP,
-                   dispatch,
-                   cowboy_router:compile(dispatch_rules())).
-
 %% ===================================================================
 %% Application callbacks
 %% ===================================================================
@@ -59,17 +52,13 @@ stop(_State) ->
     ok.
 
 start_phase(listen, _Type, _Args) ->
-    Dispatch = cowboy_router:compile(dispatch_rules()),
     cowboy:start_http(?APP, config(http_acceptors),
                       [{port, config(http_listen_port)}],
-                      [{env, [{dispatch, Dispatch}]}
+                      [{env, [{handler, hstub_cc_handler}
+                             ,{handler_opts, []}]}
+                      ,{middlewares, [cowboy_handler]}
                       ,{onrequest, fun hstub_log_hook:on_request/1}]),
     ok.
-
-dispatch_rules() ->
-    [{'_',
-      [{'_', hstub_cc_handler, []}]}
-    ].
 
 %%%===================================================================
 %%% Internal functions
