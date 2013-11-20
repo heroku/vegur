@@ -6,3 +6,6 @@ c_src/*.o
 .eunit/*
 .#*
 deps/*
+logs/
+*.swp
+*.swo
