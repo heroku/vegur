@@ -12,6 +12,7 @@
 
 -define(APP, hstub).
 -define(HTTP_REF, hstub_http).
+-define(PROXY_REF, hstub_proxy).
 
 %% Application callbacks
 -export([start_phase/3, start/2, stop/1]).
@@ -59,6 +60,14 @@ start_phase(listen, _Type, _Args) ->
                              ,{handler_opts, []}]}
                       ,{middlewares, [cowboy_handler]}
                       ,{onrequest, fun hstub_log_hook:on_request/1}]),
+    ranch:start_listener(?PROXY_REF, config(proxy_acceptors),
+                         ranch_proxy_transport,
+                         [{port, config(proxy_listen_port)}],
+                         cowboy_protocol,
+                         [{env, [{handler, hstub_cc_handler}
+                                ,{handler_opts, []}]}
+                         ,{middlewares, [cowboy_handler]}
+                         ,{onrequest, fun hstub_log_hook:on_request/1}]),
     ok.
 
 %%%===================================================================

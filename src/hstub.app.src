@@ -15,6 +15,8 @@
     [{http_listen_port, 9880}
      ,{http_acceptors, 100}
      ,{backend, {<<"127.0.0.1">>, 9881}}
+    ,{proxy_listen_port, 1457}
+    ,{proxy_acceptors, 100}
     ]}
   ,{start_phases,
     [{listen, []}
