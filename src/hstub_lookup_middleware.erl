@@ -9,7 +9,6 @@ execute(Req, Env) ->
     Res = hstub_lookup:lookup_domain(Host),
     handle_domain_lookup(Res, Req1, Env).
 
-
 handle_domain_lookup({error, not_found}, Req, _Env) ->
     % No app associated with the domain
     {error, 404, Req};

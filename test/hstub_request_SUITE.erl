@@ -10,6 +10,7 @@ all() ->
     [{group, hstub_request_handling},
      {group, hstub_request_mocks},
      {group, hstub_request_upgrade},
+     {group, hstub_request_lookups}
     ].
 
 groups() ->
@@ -27,6 +28,20 @@ groups() ->
                                ]},
      {hstub_request_upgrade, [], [upgrade_invalid
                                   ,upgrade_websockets
+                                 ]},
+     {hstub_request_lookups, [], [no_route
+                                  ,backlog_timeout
+                                  ,backlog_too_deep
+                                  ,conn_limit_reached
+                                  ,route_lookup_failed
+                                  ,no_web_processes
+                                  ,crashed
+                                  ,backends_quarantined
+                                  ,backends_starting
+                                  ,backends_idle
+                                  ,app_blank
+                                  ,app_not_found
+                                  ,app_lookup_failed
                                  ]}
     ].
 
@@ -67,6 +82,20 @@ init_per_group(hstub_request_upgrade, Config) ->
                 end),
     [{meck_started, MeckStarted},
      {test_domain, TestDomain} | Config];
+init_per_group(hstub_request_lookups, Config) ->
+        {ok, MeckStarted} = application:ensure_all_started(meck),
+    TestDomain = <<"hstubtest.testdomain">>,
+    meck:expect(hstub_domains, lookup,
+                fun(Domain) ->
+                        Domain = TestDomain,
+                        {ok, undefined, mocked_domain_group}
+                end),
+    meck:expect(hstub_domains, in_maintenance_mode,
+                fun(mocked_domain_group) ->
+                        false
+                end),
+    [{meck_started, MeckStarted},
+     {test_domain, TestDomain} | Config];
 init_per_group(_, Config) ->
     Config.
 
@@ -74,6 +103,10 @@ end_per_group(hstub_request_mocks, Config) ->
     [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
     Config;
 end_per_group(hstub_request_upgrade, Config) ->
+    [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
+    Config;
+end_per_group(hstub_request_lookups, Config) ->
+    [meck:unload(Mod) || Mod <- [hstub_domains, hstub_service]],
     [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
     Config;
 end_per_group(_GroupName, Config) ->
@@ -230,6 +263,72 @@ upgrade_websockets(Config) ->
                                                        ]}, [], []),
     true = X < 300,
     Config.
+
+no_route(Config) ->
+    ok = mock_service_reply({error, no_route_id}),
+    {ok, {{_, 502, _}, _, _}} = service_request(Config),
+    Config.
+
+backlog_timeout(Config) ->
+    ok = mock_service_reply({error, {backlog_timeout, 100, 100}}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+backlog_too_deep(Config) ->
+    ok = mock_service_reply({error, {backlog_too_deep, 100, 100}}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+conn_limit_reached(Config) ->
+    ok = mock_service_reply({error, {conn_limit_reached, 100, 100}}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+route_lookup_failed(Config) ->
+    ok = mock_service_reply({error, route_lookup_failed}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+no_web_processes(Config) ->
+    ok = mock_service_reply({error, no_web_processes}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+crashed(Config) ->
+    ok = mock_service_reply({error, crashed}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+backends_quarantined(Config) ->
+    ok = mock_service_reply({error, backends_quarantined}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+backends_starting(Config) ->
+    ok = mock_service_reply({error, backends_starting}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+backends_idle(Config) ->
+    ok = mock_service_reply({error, backends_idle}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+app_blank(Config) ->
+    ok = mock_service_reply({error, app_blank}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
+app_not_found(Config) ->
+    ok = mock_service_reply({error, app_not_found}),
+    {ok, {{_, 404, _}, _, _}} = service_request(Config),
+    Config.
+
+app_lookup_failed(Config) ->
+    ok = mock_service_reply({error, app_lookup_failed}),
+    {ok, {{_, 503, _}, _, _}} = service_request(Config),
+    Config.
+
 %%%%%%%%%%%%%%%%%%%%%
 %%% SETUP HELPERS %%%
 %%%%%%%%%%%%%%%%%%%%%
@@ -240,3 +339,15 @@ get_until_closed(Socket, Data) ->
         {error, closed} ->
             Data
     end.
+
+service_request(Config) ->
+    Port = ?config(hstub_port, Config),
+    Domain = ?config(test_domain, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [], []).
+
+mock_service_reply(Res) ->
+    meck:expect(hstub_service, lookup,
+                fun(_) ->
+                        Res
+                end).

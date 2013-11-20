@@ -61,6 +61,8 @@ start_phase(listen, _Type, _Args) ->
                                                 hstub_lookup_middleware,
                                                 hstub_maintenance_middleware,
                                                 hstub_upgrade_middleware,
+                                                hstub_lookup_service_middleware,
+                                                hstub_proxy_middleware
                                                ]}
                                 ]),
     ok.
