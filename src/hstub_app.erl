@@ -61,7 +61,7 @@ start_phase(listen, _Type, _Args) ->
                       ,{middlewares, [cowboy_handler]}
                       ,{onrequest, fun hstub_log_hook:on_request/1}]),
     ranch:start_listener(?PROXY_REF, config(proxy_acceptors),
-                         ranch_proxy_transport,
+                         ranch_proxy,
                          [{port, config(proxy_listen_port)}],
                          cowboy_protocol,
                          [{env, [{handler, hstub_cc_handler}
