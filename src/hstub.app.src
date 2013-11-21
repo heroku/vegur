@@ -8,13 +8,16 @@
      ,stdlib
      ,stillir
      ,cowboy
-     ,hackney
     ]}
   ,{mod, { hstub_app, []} }
   ,{env,
     [{http_listen_port, 9880}
      ,{http_acceptors, 100}
      ,{backend, {<<"127.0.0.1">>, 9881}}
+     ,{proxy_deny, false}
+     ,{lockstep_fresh, true}
+     ,{herokuapp_domain, <<"hstub">>}
+     ,{heroku_domain, <<"oldstub">>}
     ]}
   ,{start_phases,
     [{listen, []}
