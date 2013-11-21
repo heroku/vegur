@@ -1,4 +1,4 @@
--module(hstub_lookup_middleware).
+-module(hstub_lookup_domain_middleware).
 
 -behaviour(cowboy_middleware).
 -export([execute/2]).
@@ -9,6 +9,16 @@ execute(Req, Env) ->
     Res = hstub_lookup:lookup_domain(Host),
     handle_domain_lookup(Res, Req1, Env).
 
+-spec handle_domain_lookup({error, not_found} |
+                           {redirect, Reason, DomainGroup, Domain} |
+                           {ok, DomainGroup}, Req, Env) ->
+                                  {error, ErrorCode, Req} |
+                                  {halt, Req} |
+                                  {ok, Req, Env} when
+      Reason :: hstub_lookup:redirect_reason(),
+      DomainGroup :: hstub_domains:domain_group(),
+      Domain :: hstub_lookup:domain(),
+      ErrorCode :: 404.
 handle_domain_lookup({error, not_found}, Req, _Env) ->
     % No app associated with the domain
     {error, 404, Req};

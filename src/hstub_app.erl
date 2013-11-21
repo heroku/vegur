@@ -58,7 +58,7 @@ start_phase(listen, _Type, _Args) ->
                                  {onrequest, fun hstub_log_hook:on_request/1},
                                  {middlewares, [hstub_healthcheck_middleware,
                                                 hstub_validate_headers,
-                                                hstub_lookup_middleware,
+                                                hstub_lookup_domain_middleware,
                                                 hstub_maintenance_middleware,
                                                 hstub_upgrade_middleware,
                                                 hstub_lookup_service_middleware,
