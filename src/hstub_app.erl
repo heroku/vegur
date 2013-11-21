@@ -54,18 +54,19 @@ stop(_State) ->
     ok.
 
 start_phase(listen, _Type, _Args) ->
-    cowboy:start_http(?HTTP_REF, config(http_acceptors),
-                      [{port, config(http_listen_port)}],
-                      [{env, cowboy_env()}
-                      ,{middlewares, middleware_stack()}
-                      ,{onrequest, fun hstub_log_hook:on_request/1}]),
-    ranch:start_listener(?PROXY_REF, config(proxy_acceptors),
-                         ranch_proxy,
-                         [{port, config(proxy_listen_port)}],
-                         cowboy_protocol,
-                         [{env, cowboy_env()}
-                         ,{middlewares, middleware_stack()}
-                         ,{onrequest, fun hstub_log_hook:on_request/1}]),
+    {ok, _} = cowboy:start_http(?HTTP_REF, config(http_acceptors),
+                                [{port, config(http_listen_port)}],
+                                [{env, cowboy_env()}
+                                ,{middlewares, middleware_stack()}
+                                ,{onrequest, fun hstub_log_hook:on_request/1}]),
+    {ok, _} = ranch:start_listener(?PROXY_REF, config(proxy_acceptors),
+                                   ranch_proxy,
+                                   [{port, config(proxy_listen_port)}],
+                                   cowboy_protocol,
+                                   [{env, cowboy_env()}
+                                   ,{middlewares, middleware_stack()}
+                                   ,{onrequest,
+                                     fun hstub_log_hook:on_request/1}]),
     ok.
 
 %%%===================================================================
@@ -78,7 +79,14 @@ cowboy_env() ->
     ].
 
 middleware_stack() ->
-    [cowboy_handler
+    [hstub_healthcheck_middleware
+    ,hstub_validate_headers
+    ,hstub_lookup_domain_middleware
+    ,hstub_maintenance_middleware
+    ,hstub_upgrade_middleware
+    ,hstub_lookup_service_middleware
+    ,hstub_proxy_middleware
+    ,cowboy_handler
     ].
 
 env_specs() ->
