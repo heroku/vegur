@@ -4,15 +4,15 @@
          lookup_service/1]).
 
 -type domain() :: binary().
--type reason() :: herokuapp_redirect.
+-type redirect_reason() :: herokuapp_redirect.
 
 -export_type([domain/0,
-              reason/0
+              redirect_reason/0
              ]).
 
 -spec lookup_domain(domain()) ->
                            {error, not_found} |
-                           {redirect, reason(), hstub_domains:domain_group(), domain()} |
+                           {redirect, redirect_reason(), hstub_domains:domain_group(), domain()} |
                            {ok, hstub_domains:domain_group()}.
 lookup_domain(Domain) ->
     case hstub_domains:lookup(Domain) of
@@ -26,20 +26,7 @@ lookup_domain(Domain) ->
     end.
 
 -spec lookup_service(hstub_domains:domain_group()) ->
-                            {route, hstub_services:service()} |
-                            {error, no_route_id} |
-                            {error, {backlog_timeout, QueueLen, WaitTime}} |
-                            {error, {backlog_too_deep, QueueLen, WaitTime}} |
-                            {error, {conn_limit_reached, QueueLen, WaitTime}} |
-                            {error, route_lookup_failed} |
-                            {error, no_web_processes} |
-                            {error, crashed} |
-                            {error, backends_quarantined} |
-                            {error, backends_starting} |
-                            {error, backends_idle} |
-                            {error, app_blank} |
-                            {error, app_not_found} |
-                            {error, app_lookup_failed}.
+                            hstub_service:service_lookup_result().
 lookup_service(DomainGroup) ->
     hstub_service:lookup(DomainGroup).
 

@@ -8,6 +8,12 @@ execute(Req, Env) ->
     Service = hstub_lookup:lookup_service(DomainGroup),
     handle_service(Service, Req1, Env).
 
+-spec handle_service(hstub_service:service_lookup_result(), Req, Env) ->
+                            {ok, Req, Env} |
+                            {error, ErrorCode, Req} when
+      Req :: cowboy_req:req(),
+      Env :: cowboy_middleware:env(),
+      ErrorCode :: 404 | 502 | 503.
 handle_service({route, Service}, Req, Env) ->
     % We have a service to route to, moving on
     Req1 = cowboy_req:set_meta(service, Service, Req),

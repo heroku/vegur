@@ -25,9 +25,10 @@ execute(Req, Env) ->
 % http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.42
 -spec handle_upgrade(undefined|[binary()] | {error, term()}, Req, Env) ->
                             {ok, Req, Env} |
-                            {error, 400, Req} when
+                            {error, ErrorCode, Req} when
       Req :: cowboy_req:req(),
-      Env :: any().
+      Env :: cowboy_middleware:env(),
+      ErrorCode :: 400.
 handle_upgrade(undefined, Req, Env) ->
     % No Upgrade header
     {ok, Req, Env};

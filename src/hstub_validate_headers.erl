@@ -6,10 +6,12 @@ execute(Req, Env) ->
     {Host, Req1} = cowboy_req:host(Req),
     validate_host(Host, Req1, Env).
 
--spec validate_host(binary(), cowboy_req:req(), any()) ->
-                           {error, 400, cowboy_req:req()} |
-                           {error, 417, cowboy_req:req()} |
-                           {ok, cowboy_req:req(), any()}.
+-spec validate_host(binary(), Req, Env) ->
+                           {error, 400, Req} |
+                           {error, 417, Req} |
+                           {ok, Req, Env} when
+      Req :: cowboy_req:req(),
+      Env :: cowboy_middleware:env().
 validate_host(<<>>, Req, _Env) ->
     % The Host header is empty, return 400
     {error, 400, Req};

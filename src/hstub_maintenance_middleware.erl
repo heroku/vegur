@@ -11,9 +11,10 @@ execute(Req, Env) ->
 
 -spec handle_maintenance_mode(boolean(), Req, Env) ->
                                      {ok, cowboy_req:req(), Env} |
-                                     {error, 503, cowboy_req:req()} when
+                                     {error, ErrorCode, cowboy_req:req()} when
       Req :: cowboy_req:req(),
-      Env :: any().
+      Env :: cowboy_middleware:env(),
+      ErrorCode :: 503.
 handle_maintenance_mode(false, Req, Env) ->
     {ok, Req, Env};
 handle_maintenance_mode(true, Req, _Env) ->
