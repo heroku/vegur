@@ -56,22 +56,22 @@ stop(_State) ->
 start_phase(listen, _Type, _Args) ->
     {ok, _} = cowboy:start_http(?HTTP_REF, config(http_acceptors),
                                 [{port, config(http_listen_port)}],
-                                [{env, cowboy_env()}
-                                ,{middlewares, middleware_stack()}
-                                ,{onrequest, fun hstub_log_hook:on_request/1}]),
+                                cowboy_opts()),
     {ok, _} = ranch:start_listener(?PROXY_REF, config(proxy_acceptors),
                                    ranch_proxy,
                                    [{port, config(proxy_listen_port)}],
                                    cowboy_protocol,
-                                   [{env, cowboy_env()}
-                                   ,{middlewares, middleware_stack()}
-                                   ,{onrequest,
-                                     fun hstub_log_hook:on_request/1}]),
+                                   cowboy_opts()),
     ok.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+cowboy_opts() ->
+    [{env, cowboy_env()}
+    ,{middlewares, middleware_stack()}
+    ,{onrequest, fun hstub_log_hook:on_request/1}].
 
 cowboy_env() ->
     [{handler, hstub_cc_handler}
