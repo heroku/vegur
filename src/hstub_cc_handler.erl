@@ -14,6 +14,8 @@
         {backend_addr,
          backend_client}).
 
+-define(BUFFER_LIMIT, 1024). % in bytes
+
 init({_Any, http}, Req, []) ->
     {ok, Req, #state{}}.
 
@@ -37,7 +39,7 @@ respond(Code, Headers, Body, Req, State) ->
                                   Headers,
                                   Body,
                                   Req),
-    {ok, Req2, State}.
+    {ok, Req2, backend_close(State)}.
 
 
 terminate(_Reason, _Req, _State) ->
@@ -67,14 +69,7 @@ proxy(Req, State) ->
     {BackendReq, Req2} = parse_request(Req),
     case send_request(BackendReq, State) of
         {ok, Status, RespHeaders, State2} ->
-            case body(State2) of
-                {ok, Body, State3} ->
-                    respond(Status, response_headers(RespHeaders),
-                            Body, Req2,
-                            State3);
-                {error, _} = Err ->
-                    respond_err(Err, Req, backend_close(State))
-            end;
+            relay(Req2, Status, RespHeaders, State2);
         {error, _} = Err ->
             respond_err(Err, Req, backend_close(State))
     end.
@@ -128,11 +123,101 @@ backend_close(State = #state{backend_client = Client}) ->
     hstub_client:close(Client),
     State#state{backend_client = undefined}.
 
-body(State = #state{backend_client = Client}) ->
+relay(Req, Status, RespHeaders, State = #state{backend_client = Client}) ->
+    Headers = response_headers(RespHeaders),
+    case hstub_client:body_type(Client) of
+        {content_size, N} when N =< ?BUFFER_LIMIT ->
+            relay_full_body(Req, Status, Headers, State);
+        {content_size, N} ->
+            relay_stream_body(Req, Status, Headers, N, fun stream_body/2, State);
+        stream_close -> % unknown content-lenght, stream until connection close
+            relay_stream_body(Req, Status, Headers, undefined, fun stream_close/2, State);
+        chunked ->
+            relay_chunked(Req, Status, Headers, State)
+    end.
+
+relay_full_body(Req, Status, Headers, State = #state{backend_client=Client}) ->
     case hstub_client:response_body(Client) of
-        {error, _Err} = Err -> Err;
         {ok, Body, Client2} ->
-            {ok, Body, State#state{backend_client = Client2}}
+            respond(Status, Headers, Body, Req, State#state{backend_client=Client2});
+        {error, Reason} ->
+            respond_err({error, Reason}, Req, backend_close(State))
+    end.
+
+relay_stream_body(Req, Status, Headers, Size, StreamFun,
+                  State=#state{backend_client=Client}) ->
+    %% Use cowboy's partial response delivery to stream contents.
+    %% We use exceptions (throws) to detect bad transfers and close
+    %% both connections when this happens.
+    Fun = fun(Socket, Transport) ->
+        case StreamFun({Transport,Socket}, Client) of
+            {ok, _Client2} -> ok;
+            {error, Reason} -> throw({stream_error, Reason})
+        end
+    end,
+    Req2 = case Size of
+        undefined -> cowboy_req:set_resp_body_fun(Fun, Req); % end on close
+        _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req)    % end on size
+    end,
+    try cowboy_req:reply(Status, Headers, Req2) of
+        {ok, Req3} ->
+            {ok, Req3, backend_close(State)}
+    catch
+        {stream_error, _} ->
+            {shutdown, Req2, backend_close(State)}
+    end.
+
+relay_chunked(Req, Status, Headers, State = #state{backend_client = Client}) ->
+    %% This is a special case. We stream pre-delimited chunks raw instead
+    %% of using cowboy, which would have to recalculate and re-delimitate
+    %% sizes all over after we parsed them first. We save time by just using
+    %% raw chunks.
+    {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
+    {RawSocket, Req3} = cowboy_req:raw_socket(Req2, [no_buffer]),
+    case stream_chunked(RawSocket, Client) of
+        {ok, Client2} ->
+            {ok, Req3, State#state{backend_client=Client2}};
+        {error, _} -> % uh-oh, we died during the transfer
+            {shutdown, Req3, backend_close(State)}
+    end.
+
+stream_body({Transport,Sock}=Raw, Client) ->
+    %% Stream the body until as much data is sent as there
+    %% was in its content-length initially.
+    case hstub_client:stream_body(Client) of
+        {ok, Data, Client2} ->
+            Transport:send(Sock, Data),
+            stream_body(Raw, Client2);
+        {done, Client2} ->
+            {ok, Client2};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+stream_close({Transport,Sock}=Raw, Client) ->
+    %% Stream the body until the connection is closed.
+    case hstub_client:stream_close(Client) of
+        {ok, Data, Client2} ->
+            Transport:send(Sock, Data),
+            stream_close(Raw, Client2);
+        {done, Client2} ->
+            {ok, Client2};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+stream_chunked({Transport,Sock}=Raw, Client) ->
+    %% Fetch chunks one by one (including length and line-delimitation)
+    %% and forward them over the raw socket.
+    case hstub_client:next_chunk(Client) of
+        {ok, Data, Client2} ->
+            Transport:send(Sock, Data),
+            stream_chunked(Raw, Client2);
+        {done, Data, Client2} ->
+            Transport:send(Sock, Data),
+            {ok, Client2};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 parse_request(Req) ->
