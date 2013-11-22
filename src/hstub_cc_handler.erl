@@ -98,6 +98,31 @@ send_request({Method, Headers, Body, URL, Path},
         {error, _Err} = Err -> Err
     end.
 
+upgrade(Request, Req, State0) ->
+    case send_request(Request, State0) of
+        {ok, 101, RespHeaders, State=#state{backend_client=Client}} ->
+            %% fetch raw sockets and buffers
+            {HStub={TransStub,SockStub}, BufStub, NewClient} = hstub_client:raw_socket(Client),
+            {Cow={TransCow,SockCow}, BufCow, NewReq} = cowboy_req:raw_socket(Req),
+            %% Send the response to the caller
+            Headers = hstub_client:headers_to_iolist(request_headers(RespHeaders)),
+            TransCow:send(SockCow,
+                          [<<"HTTP/1.1 101 Switching Protocols\r\n">>,
+                           Headers, <<"\r\n">>,
+                           BufStub]),
+            %% Flush leftover buffer data from the client, if any
+            TransStub:send(SockStub, BufCow),
+            {upgraded,
+                Cow,    % acts as client
+                HStub,  % acts as server
+                NewReq,
+                State#state{backend_client=NewClient}};
+        {ok, Code, RespHeaders, State} ->
+            {http, Code, RespHeaders, State};
+        {error, _Err} = Err ->
+            Err
+    end.
+
 backend_close(State = #state{backend_client = undefined}) -> State;
 backend_close(State = #state{backend_client = Client}) ->
     hstub_client:close(Client),

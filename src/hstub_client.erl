@@ -50,11 +50,13 @@
 -export([stream_body/1]).
 
 -export([request_to_iolist/6]).
+-export([headers_to_iolist/1]).
+-export([raw_socket/1]).
 -export([auth_header/1]).
 
 
 -record(client, {
-    state = wait :: wait | request | response | response_body,
+    state = wait :: wait | request | response | response_body | raw,
     opts = [] :: [any()],
     socket = undefined :: undefined | inet:socket(),
     transport = undefined :: module(),
@@ -145,11 +147,16 @@ request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
                         0 -> [];
                         Length -> [{<<"Content-Length">>, integer_to_list(Length)}]
                     end,
-    HeadersData = [[Name, <<": ">>, Value, <<"\r\n">>]
-                   || {Name, Value} <-
-                          Headers2 ++ ContentLength],
+    HeadersData = headers_to_iolist(Headers2++ContentLength),
     [Method, <<" ">>, Path, <<" ">>, VersionBin, <<"\r\n">>,
      HeadersData, <<"\r\n">>, Body].
+
+headers_to_iolist(HeadersData) ->
+    [[Name, <<": ">>, Value, <<"\r\n">>]
+     || {Name, Value} <- HeadersData].
+
+raw_socket(Client=#client{transport=T, socket=S, buffer=Buf}) ->
+    {{T,S}, Buf, Client#client{buffer= <<>>, state=raw}}.
 
 parse_url(<< "https://", Rest/binary >>) ->
     parse_url(Rest, ranch_ssl);
