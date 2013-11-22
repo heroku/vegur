@@ -30,7 +30,9 @@
                 server_transport :: module(),
                 server_port :: any(),
                 server_msg :: {OK::atom(), Closed::atom(), Error::atom()},
-                on_close :: fun()}).
+                timeout=infinity :: infinity | non_neg_integer(),
+                on_close :: fun(),
+                on_timeout :: fun()}).
 
 %% @doc Equivalent to `start_link(Client, Server, [])'.
 -spec start_link(Client, Server) -> {ok, pid()} when
@@ -97,7 +99,9 @@ become({TransC, PortC}, {TransS, PortS}, Opts) ->
                    server_transport=TransS,
                    server_port=PortS,
                    server_msg=TransS:messages(),
-                   on_close=proplists:get_value(on_close, Opts, fun cb_close/5)},
+                   timeout=proplists:get_value(timeout, Opts, infinity),
+                   on_close=proplists:get_value(on_close, Opts, fun cb_close/5),
+                   on_timeout=proplists:get_value(on_timeout, Opts, fun cb_close/5)},
     ok = TransC:setopts(PortC, [{active, once}]),
     ok = TransS:setopts(PortS, [{active, once}]),
     loop(State).
@@ -113,7 +117,9 @@ init(Parent, {TransC, PortC}, {TransS, PortS}, Opts) ->
                    server_transport=TransS,
                    server_port=PortS,
                    server_msg=TransS:messages(),
-                   on_close=proplists:get_value(on_close, Opts, fun cb_exit/5)},
+                   timeout=proplists:get_value(timeout, Opts, infinity),
+                   on_close=proplists:get_value(on_close, Opts, fun cb_exit/5),
+                   on_timeout=proplists:get_value(on_timeout, Opts, fun cb_exit/5)},
     Ref = make_ref(),
     proc_lib:init_ack(Parent, {ok, self(), Ref}),
     receive
@@ -134,7 +140,10 @@ cb_close(TransC, PortC, TransS, PortS, Event) ->
         {_, PortC} -> TransS:close(PortS);
         {_, PortS} -> TransC:close(PortC);
         {_, PortC, _Reason} -> TransS:close(PortS);
-        {_, PortS, _Reason} -> TransC:close(PortC)
+        {_, PortS, _Reason} -> TransC:close(PortC);
+        timeout ->
+            TransC:close(PortC),
+            TransS:close(PortS)
     end,
     ok.
 
@@ -146,14 +155,15 @@ cb_exit(TransC, PortC, TransS, PortS, Event) ->
     cb_close(TransC, PortC, TransS, PortS, Event),
     exit(Event).
 
-
 %% @private core loop that does transportation based on
 %% whatever each port receives.
 loop(S=#state{client_transport=TransC, client_port=PortC,
               client_msg={OKC, ClosedC, ErrC},
               server_transport=TransS, server_port=PortS,
               server_msg={OKS, ClosedS, ErrS},
-              on_close=Callback}) ->
+              timeout=Timeout,
+              on_close=CloseCallback,
+              on_timeout=TimeoutCallback}) ->
     receive
         {OKC, PortC, Data} ->
             TransS:send(PortS, Data),
@@ -164,11 +174,13 @@ loop(S=#state{client_transport=TransC, client_port=PortC,
             TransS:setopts(PortS, [{active,once}]),
             loop(S);
         {ClosedC, PortC} = Event ->
-            Callback(TransC, PortC, TransS, PortS, Event);
+            CloseCallback(TransC, PortC, TransS, PortS, Event);
         {ClosedS, PortS} = Event ->
-            Callback(TransC, PortC, TransS, PortS, Event);
+            CloseCallback(TransC, PortC, TransS, PortS, Event);
         {ErrC, PortC, _Reason} = Event ->
-            Callback(TransC, PortC, TransS, PortS, Event);
+            CloseCallback(TransC, PortC, TransS, PortS, Event);
         {ErrS, PortS, _Reason} = Event ->
-            Callback(TransC, PortC, TransS, PortS, Event)
+            CloseCallback(TransC, PortC, TransS, PortS, Event)
+    after Timeout ->
+        TimeoutCallback(TransC, PortC, TransS, PortS, timeout)
     end.

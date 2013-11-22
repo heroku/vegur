@@ -8,7 +8,8 @@
 %%%===================================================================
 
 all() ->
-    [pipe_proc, pipe_proc_callback, pipe_become, pipe_become_callback].
+    [pipe_proc, pipe_proc_callback, pipe_proc_timeout,
+     pipe_become, pipe_become_callback, pipe_become_timeout].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -112,6 +113,33 @@ pipe_proc_callback(Config) ->
         error(bad_callback)
     end.
 
+pipe_proc_timeout(Config) ->
+    %% Both A and B are processes implementing ranch_transport, allowing
+    %% to control them more flexibly than raw TCP ports, of the form
+    %% {Transport, Resource}.
+    %%
+    %% This test verifies that using hstub_bytepipe with a process (started
+    %% with start_link/2) handles timing out properly based on its callback
+    %% and configured timeout value.
+    Client = ?config(client, Config),
+    Server = ?config(server, Config),
+    Parent = self(),
+    Callback = fun(TransC, PortC, TransS, PortS, timeout) ->
+        TransC:close(PortC),
+        TransS:close(PortS),
+        Parent ! timeout
+    end,
+    {ok, Pipe} = hstub_bytepipe:start_link(
+        Client,
+        Server,
+        [{on_timeout, Callback}, {timeout, 500}]
+    ),
+    unlink(Pipe),
+    timer:sleep(1000),
+    closed(Server),
+    closed(Client),
+    false = is_process_alive(Pipe).
+
 pipe_become(Config) ->
     %% Both A and B are processes implementing ranch_transport, allowing
     %% to control them more flexibly than raw TCP ports, of the form
@@ -145,6 +173,28 @@ pipe_become(Config) ->
     closed(Client).
 
 pipe_become_callback(Config) ->
+    %% Both A and B are processes implementing ranch_transport, allowing
+    %% to control them more flexibly than raw TCP ports, of the form
+    %% {Transport, Resource}.
+    %%
+    %% This test verifies that using hstub_bytepipe:become/3 allows the
+    %% current process to become a pipeline and that it handles the proper
+    %% configured timeouts and callbacks afterwards.
+    Client = ?config(client, Config),
+    Server = ?config(server, Config),
+    Callback = fun(TransC, PortC, TransS, PortS, timeout) ->
+        TransC:close(PortC),
+        TransS:close(PortS),
+        timeout
+    end,
+    timeout = hstub_bytepipe:become(
+        Client,
+        Server,
+        [{on_timeout, Callback}, {timeout, 200}]),
+    closed(Server),
+    closed(Client).
+
+pipe_become_timeout(Config) ->
     %% Both A and B are processes implementing ranch_transport, allowing
     %% to control them more flexibly than raw TCP ports, of the form
     %% {Transport, Resource}. The data they send and receive is stored in
