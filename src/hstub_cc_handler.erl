@@ -67,9 +67,30 @@ connect(Req, State = #state{backend_addr={IP, Port}}) ->
 
 proxy(Req, State) ->
     {BackendReq, Req2} = parse_request(Req),
-    case send_request(BackendReq, Req2, State) of
-        {ok, Status, RespHeaders, State2, Req3} ->
-            relay(Req3, Status, RespHeaders, State2);
+    %% By making this call, we're restricting upgrades to websocket only.
+    %% If we called upgrade/3 directly here, we'd be supporting all protocol
+    %% upgrades.
+    case cowboy_req:meta(websocket_connection, Req2, true) of
+        {false, Req3} ->
+            http_request(BackendReq, Req3, State);
+        {true, Req3} ->
+            websocket_request(BackendReq, Req3, State)
+    end.
+
+http_request(BackendReq, Req, State) ->
+    case send_request(BackendReq, Req, State) of
+        {ok, Status, RespHeaders, State2, Req2} ->
+            relay(Req2, Status, RespHeaders, State2);
+        {error, _} = Err ->
+            respond_err(Err, Req, backend_close(State))
+    end.
+
+websocket_request(BackendReq, Req, State) ->
+    case upgrade(BackendReq, Req, State) of
+        {http, Status, RespHeaders, State2, Req2} ->
+            relay(Req2, Status, RespHeaders, State2);
+        {upgraded, Cowboy, HStub, State2, Req2} ->
+            pipe(Req2, Cowboy, HStub, State2);
         {error, _} = Err ->
             respond_err(Err, Req, backend_close(State))
     end.
@@ -142,8 +163,8 @@ upgrade(Request, Req, State0) ->
             {upgraded,
                 Cow,    % acts as client
                 HStub,  % acts as server
-                Req3,
-                State#state{backend_client=NewClient}};
+                State#state{backend_client=NewClient},
+                Req3};
         {ok, Code, RespHeaders, State, Req2} ->
             {http, Code, RespHeaders, State, Req2};
         {error, _Err} = Err ->
@@ -169,6 +190,10 @@ relay(Req, Status, RespHeaders, State = #state{backend_client = Client}) ->
         chunked ->
             relay_chunked(Req, Status, Headers, State)
     end.
+
+pipe(Req, Cli, Serv, State) ->
+    ok = hstub_bytepipe:become(Cli, Serv, [{timeout, timer:seconds(60)}]),
+    {ok, Req, State#state{backend_client=undefined}}.
 
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Req, Status, Headers, State = #state{backend_client=Client}) ->

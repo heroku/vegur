@@ -36,7 +36,7 @@ execute(Req, Env) ->
 handle_upgrade(undefined, Req, Env) ->
     % No Upgrade header
     {ok, Req, Env};
-handle_upgrade([<<"websockets">>], Req, Env) ->
+handle_upgrade([<<"websocket">>], Req, Env) ->
     % Websockets connection
     {SecWebSocketKey, Req1} = cowboy_req:header(<<"sec-websocket-key">>, Req),
     case SecWebSocketKey of
