@@ -220,7 +220,7 @@ relay_chunked(Req, Status, Headers, State = #state{backend_client = Client}) ->
 
 %% Custom decoder for Cowboy that will allow to stream data without modifying
 %% it, in bursts, directly to the dyno without accumulating it in memory.
-decode_raw(Data, {Streamed, Total}) when Total-Streamed >= ?BUFFER_LIMIT ->
+decode_raw(Data, {Streamed, Total}) when Streamed + byte_size(Data) < Total ->
     %% Still a lot to go, we return it all as a frame
     {ok, Data, <<>>, {Streamed+iolist_size(Data), Total}};
 decode_raw(Data, {Streamed, Total}) ->
