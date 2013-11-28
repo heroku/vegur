@@ -43,11 +43,17 @@
 -export([request/5]).
 -export([response/1]).
 -export([response_body/1]).
+-export([next_chunk/1]).
+-export([next_chunk/2]).
 -export([skip_body/1]).
 -export([stream_status/1]).
 -export([stream_headers/1]).
 -export([stream_header/1]).
 -export([stream_body/1]).
+-export([stream_close/1]).
+-export([stream_chunk/1]).
+
+-export([body_type/1]).
 
 -export([request_to_iolist/6]).
 -export([headers_to_iolist/1]).
@@ -139,6 +145,18 @@ request(Method, URL, Headers, Body, Client=#client{
                              Path),
     raw_request(Data, Client2).
 
+request_to_iolist(Method, Headers, {stream, Length}, Version, FullHost, Path) ->
+    VersionBin = atom_to_binary(Version, latin1),
+    %% @todo do keepalive too, allow override...
+    Headers2 = [{<<"Host">>, FullHost} | Headers],
+    ContentLength = case Length of
+                        0 -> [];
+                        chunked -> [];
+                        Length -> [{<<"Content-Length">>, integer_to_list(Length)}]
+                    end,
+    HeadersData = headers_to_iolist(Headers2++ContentLength),
+    [Method, <<" ">>, Path, <<" ">>, VersionBin, <<"\r\n">>,
+     HeadersData, <<"\r\n">>];
 request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     VersionBin = atom_to_binary(Version, latin1),
     %% @todo do keepalive too, allow override...
@@ -201,6 +219,11 @@ response(Client=#client{state=request}) ->
             {error, Reason}
     end.
 
+body_type(#client{response_body=chunked}) -> chunked;
+body_type(#client{state=request, connection=close}) -> stream_close;
+body_type(#client{state=response_body, response_body=Length}) ->
+    {content_size, Length}.
+
 response_body(Client=#client{response_body=chunked}) ->
     response_body_chunk(Client, <<>>);
 response_body(Client=#client{state=response_body}) ->
@@ -222,7 +245,7 @@ response_body_loop(Client, Acc) ->
 %% a bunch of raw chunks. As a proxy, we have no interest into
 %% decoding chunks for humans, just for the next hop.
 response_body_chunk(Client, Acc) ->
-    case chunk_body(Client) of
+    case next_chunk(Client) of
         {ok, Data, Client2} ->
             response_body_chunk(Client2, [Acc, Data]);
         {done, Buf, Client2} ->
@@ -231,9 +254,9 @@ response_body_chunk(Client, Acc) ->
             {error, Reason}
     end.
 
-chunk_body(Client) -> chunk_body(Client, undefined).
+next_chunk(Client) -> next_chunk(Client, undefined).
 
-chunk_body(Client=#client{buffer=Buffer}, Cont) ->
+next_chunk(Client=#client{buffer=Buffer}, Cont) ->
     case hstub_chunked:next_chunk(Buffer, Cont) of
         {done, Buf, Rest} ->
             {done, Buf, Client#client{buffer=Rest, response_body=undefined}};
@@ -241,30 +264,61 @@ chunk_body(Client=#client{buffer=Buffer}, Cont) ->
             {ok, Buf, Client#client{buffer=Rest}};
         {more, State} ->
             case recv(Client) of
-                {ok, Data} -> chunk_body(Client#client{buffer=Data}, State);
+                {ok, Data} -> next_chunk(Client#client{buffer=Data}, State);
                 {error, Reason} -> {error, Reason}
             end;
         {error, Reason} ->
             {error, Reason}
     end.
 
+stream_chunk({Client, Cont}) -> stream_chunk(Client, Cont);
+stream_chunk(Client) -> stream_chunk(Client, undefined).
+
+stream_chunk(Client=#client{buffer=Buffer}, Cont) ->
+    case iolist_size(Buffer) of
+        0 ->
+            case recv(Client) of
+                {ok, Data} -> stream_chunk(Client#client{buffer=Data}, Cont);
+                {error, Reason} -> {error, Reason}
+            end;
+        _ ->
+            case hstub_chunked:stream_chunk(Buffer, Cont) of
+                {done, Buf, Rest} ->
+                    {done, Buf, Client#client{buffer=Rest,
+                                              response_body=undefined}};
+                {chunk, Buf, Rest} ->
+                    {ok, Buf, Client#client{buffer=Rest}};
+                {more, Len, Buf, State} ->
+                    {more, Len, Buf, {Client#client{buffer = <<>>}, State}};
+                {error, Reason} ->
+                    {error, Reason}
+            end
+    end.
+
 %% Stream the body until the socket is closed.
-response_body_close(Client=#client{buffer=Buffer, response_body=undefined}, Acc) ->
+response_body_close(Client, Acc) ->
+    case stream_close(Client) of
+        {done, Client2} ->
+            {ok, Acc, Client2};
+        {ok, Body, Client2} ->
+            response_body_close(Client2, [Acc, Body]);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+stream_close(Client=#client{buffer=Buffer, response_body=undefined}) ->
     case byte_size(Buffer) of
         0 ->
             case recv(Client) of
                 {ok, Body} ->
-                    response_body_close(Client#client{buffer=Body}, Acc);
+                    {ok, Body, Client};
                 {error, closed} ->
-                    {ok, Acc, Client};
+                    {done, Client};
                 {error, Reason} ->
                     {error, Reason}
             end;
         _ ->
-            response_body_close(
-                Client#client{buffer = <<>>},
-                <<Acc/binary, Buffer/binary>>
-            )
+            {ok, Buffer, Client#client{buffer = <<>>}}
     end.
 
 skip_body(Client=#client{state=response_body}) ->

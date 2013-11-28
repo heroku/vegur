@@ -6,7 +6,11 @@
 execute(Req, Env) ->
     % Check if this connection should be upgraded. We only support upgrades to websockets
     % at this time. If it's a websocket connection, validate it and mark it as such.
-    {ok, ConnectionTokens, Req1} = cowboy_req:parse_header(<<"connection">>, Req),
+    {ConnectionTokens,Req1} = case cowboy_req:parse_header(<<"connection">>, Req) of
+        {ok, L, Req0} when is_list(L) -> {L, Req0};
+        {ok, Term, Req0} -> {[Term], Req0};
+        {undefined, undefined, Req0} -> {[], Req0}
+    end,
     case lists:member(<<"upgrade">>, ConnectionTokens) of
         false ->
             {ok, Req1, Env};

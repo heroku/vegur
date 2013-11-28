@@ -31,16 +31,40 @@
 %%% not returned decoded chunks for final consumption, but only chunk sequences
 %%% useful for proxying and delimiting requests.
 -module(hstub_chunked).
--export([next_chunk/1, next_chunk/2, all_chunks/1]).
+-export([next_chunk/1, next_chunk/2,
+         stream_chunk/1, stream_chunk/2,
+         all_chunks/1]).
 -record(state, {buffer = [] :: iodata(),
                 length :: non_neg_integer(),
                 trailers = undefined}).
 
+%% Parses a binary stream to get the next chunk in it.
 next_chunk(Bin) -> next_chunk(Bin, undefined).
 
 next_chunk(Bin, undefined) -> chunk_size(Bin, #state{});
 next_chunk(Bin, {Fun,State=#state{}}) -> Fun(Bin, State).
 
+%% Parses a binary stream to get chunk delimitation. The difference from
+%% next_chunk/1-2 is that this will not accumulate data, but simply return it
+%% at each iteration, allowing to return partial chunks and a continuation
+%% to get more later on without interrupting the parsing.
+%%
+%% This allows to know where the end of a message is in a stream, without
+%% keeping any data in memory longer than necessary.
+stream_chunk(Bin) -> stream_chunk(Bin, undefined).
+
+stream_chunk(Bin, undefined) -> stream_chunk(Bin, {fun chunk_size/2, #state{}});
+stream_chunk(Bin, {Fun, State=#state{}}) ->
+    case Fun(Bin, State) of
+        {done, Buf, Rest} -> {done, Buf, Rest};
+        {error, Reason} -> {error, Reason};
+        {chunk, Buf, Rest} -> {chunk, Buf, Rest};
+        {more, {NewFun, S=#state{buffer=Buf, length=Len}}} ->
+            {more, Len, Buf, {NewFun,S#state{buffer=[]}}}
+    end.
+
+%% Fetch all the chunks in a binary stream, and error out if they're not
+%% all there.
 all_chunks(Bin) -> all_chunks(Bin, []).
 
 all_chunks(Bin, Acc) ->
