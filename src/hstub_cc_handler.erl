@@ -192,7 +192,7 @@ relay(Status, RespHeaders, Req, State = #state{backend_client = Client}) ->
     end.
 
 pipe(Cli, Serv, Req, State) ->
-    ok = hstub_bytepipe:become(Cli, Serv, [{timeout, timer:seconds(60)}]),
+    ok = hstub_bytepipe:become(Cli, Serv, [{timeout, timer:seconds(55)}]),
     {ok, Req, State#state{backend_client=undefined}}.
 
 %% The entire body is known and we can pipe it through as is.
