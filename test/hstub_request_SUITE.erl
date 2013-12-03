@@ -238,7 +238,6 @@ upgrade_invalid(Config) ->
     Domain = ?config(test_domain, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     {ok, {{_, 400, _}, _, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)},
-                                                          {"upgrade", "invalid_upgrade"},
                                                           {"connection", "upgrade"}]}, [], []),
     Config.
 

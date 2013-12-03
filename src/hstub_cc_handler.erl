@@ -67,26 +67,7 @@ connect(Req, State = #state{backend_addr={IP, Port}}) ->
 
 proxy(Req, State) ->
     {BackendReq, Req2} = parse_request(Req),
-    %% By making this call, we're restricting upgrades to websocket only.
-    %% If we called upgrade/3 directly here, we'd be supporting all protocol
-    %% upgrades.
-    case cowboy_req:meta(websocket_connection, Req2, true) of
-        {false, Req3} ->
-            http_request(BackendReq, Req3, State);
-        {true, Req3} ->
-            websocket_request(BackendReq, Req3, State)
-    end.
-
-http_request(BackendReq, Req, State) ->
-    case send_request(BackendReq, Req, State) of
-        {ok, Status, RespHeaders, Req2, State2} ->
-            relay(Status, RespHeaders, Req2, State2);
-        {error, _} = Err ->
-            respond_err(Err, Req, backend_close(State))
-    end.
-
-websocket_request(BackendReq, Req, State) ->
-    case upgrade(BackendReq, Req, State) of
+    case upgrade(BackendReq, Req2, State) of
         {http, Status, RespHeaders, Req2, State2} ->
             relay(Status, RespHeaders, Req2, State2);
         {upgraded, Cowboy, HStub, Req2, State2} ->
