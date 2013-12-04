@@ -66,14 +66,12 @@ connect(Req, State = #state{backend_addr={IP, Port}}) ->
     end.
 
 proxy(Req, State) ->
-    {BackendReq, Req2} = parse_request(Req),
-    case upgrade(BackendReq, Req2, State) of
-        {http, Status, RespHeaders, Req2, State2} ->
-            relay(Status, RespHeaders, Req2, State2);
-        {upgraded, Cowboy, HStub, Req2, State2} ->
-            pipe(Cowboy, HStub, Req2, State2);
-        {error, _} = Err ->
-            respond_err(Err, Req, backend_close(State))
+    {BackendReq, Req1} = parse_request(Req),
+    case cowboy_req:meta(upgrade_requested, Req1, false) of
+        {false, Req2} ->
+            http_request(BackendReq, Req2, State);
+        {true, Req2} ->
+            http_upgrade(BackendReq, Req2, State)
     end.
 
 send_request({Method, Headers, {stream,BodyLen}, URL, Path}, Req, State) ->
@@ -125,6 +123,24 @@ client_response(Req, State=#state{backend_client=Client}) ->
         {ok, Status, RespHeaders, Client2} ->
             {ok, Status, RespHeaders, Req,
                  State#state{backend_client=Client2}}
+    end.
+
+http_request(BackendReq, Req, State) ->
+    case send_request(BackendReq, Req, State) of
+        {ok, Status, RespHeaders, Req2, State2} ->
+            relay(Status, RespHeaders, Req2, State2);
+        {error, _} = Err ->
+            respond_err(Err, Req, backend_close(State))
+    end.
+
+http_upgrade(BackendReq, Req, State) ->
+    case upgrade(BackendReq, Req, State) of
+        {http, Status, RespHeaders, Req2, State2} ->
+            relay(Status, RespHeaders, Req2, State2);
+        {upgraded, Cowboy, HStub, Req2, State2} ->
+            pipe(Cowboy, HStub, Req2, State2);
+        {error, _} = Err ->
+            respond_err(Err, Req, backend_close(State))
     end.
 
 upgrade(Request, Req, State0) ->
