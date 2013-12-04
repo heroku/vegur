@@ -37,7 +37,7 @@ handle_upgrade(undefined, Req, Env) ->
     % No Upgrade header
     {ok, Req, Env};
 handle_upgrade(UpgradeTokens, Req, Env) when is_list(UpgradeTokens) ->
-    Req2 = cowboy_req:set_meta(upgraded, true, Req),
+    Req2 = cowboy_req:set_meta(upgrade_requested, true, Req),
     {ok, Req2, Env};
 handle_upgrade({error, _}, Req, _Env) ->
     {error, 400, Req};
