@@ -66,12 +66,12 @@ connect(Req, State = #state{backend_addr={IP, Port}}) ->
     end.
 
 proxy(Req, State) ->
-    {BackendReq, Req2} = parse_request(Req),
-    case send_request(BackendReq, Req2, State) of
-        {ok, Status, RespHeaders, State2, Req3} ->
-            relay(Req3, Status, RespHeaders, State2);
-        {error, _} = Err ->
-            respond_err(Err, Req, backend_close(State))
+    {BackendReq, Req1} = parse_request(Req),
+    case cowboy_req:meta(upgrade_requested, Req1, false) of
+        {false, Req2} ->
+            http_request(BackendReq, Req2, State);
+        {true, Req2} ->
+            http_upgrade(BackendReq, Req2, State)
     end.
 
 send_request({Method, Headers, {stream,BodyLen}, URL, Path}, Req, State) ->
@@ -102,7 +102,7 @@ send_request({Method, Headers, Body, URL, Path}, Req,
                                              URL,
                                              Path),
     case hstub_client:raw_request(Request, Client) of
-        {ok, Client2} -> client_response(State#state{backend_client=Client2}, Req);
+        {ok, Client2} -> client_response(Req, State#state{backend_client=Client2});
         {error, _Err} = Err -> Err
     end.
 
@@ -111,23 +111,41 @@ send_request({Method, Headers, Body, URL, Path}, Req,
 stream_request(Buf, Req, State=#state{backend_client=Client}) ->
     {ok, _} = hstub_client:raw_request(Buf, Client),
     case cowboy_req:stream_body(Req) of
-        {done, Req2} -> client_response(State, Req2);
+        {done, Req2} -> client_response(Req2, State);
         {ok, Data, Req2} -> stream_request(Data, Req2, State);
         {error, Err} -> {error, Err}
     end.
 
 %% Fetch the response from the call sent.
-client_response(State=#state{backend_client=Client}, Req) ->
+client_response(Req, State=#state{backend_client=Client}) ->
     case hstub_client:response(Client) of
         {error, _} = Err -> Err;
         {ok, Status, RespHeaders, Client2} ->
-            {ok, Status, RespHeaders,
-                State#state{backend_client=Client2}, Req}
+            {ok, Status, RespHeaders, Req,
+                 State#state{backend_client=Client2}}
+    end.
+
+http_request(BackendReq, Req, State) ->
+    case send_request(BackendReq, Req, State) of
+        {ok, Status, RespHeaders, Req2, State2} ->
+            relay(Status, RespHeaders, Req2, State2);
+        {error, _} = Err ->
+            respond_err(Err, Req, backend_close(State))
+    end.
+
+http_upgrade(BackendReq, Req, State) ->
+    case upgrade(BackendReq, Req, State) of
+        {http, Status, RespHeaders, Req2, State2} ->
+            relay(Status, RespHeaders, Req2, State2);
+        {upgraded, Cowboy, HStub, Req2, State2} ->
+            pipe(Cowboy, HStub, Req2, State2);
+        {error, _} = Err ->
+            respond_err(Err, Req, backend_close(State))
     end.
 
 upgrade(Request, Req, State0) ->
     case send_request(Request, Req, State0) of
-        {ok, 101, RespHeaders, State=#state{backend_client=Client}, Req2} ->
+        {ok, 101, RespHeaders, Req2, State=#state{backend_client=Client}} ->
             %% fetch raw sockets and buffers
             {HStub={TransStub,SockStub}, BufStub, NewClient} = hstub_client:raw_socket(Client),
             {Cow={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_socket(Req2),
@@ -144,8 +162,8 @@ upgrade(Request, Req, State0) ->
                 HStub,  % acts as server
                 Req3,
                 State#state{backend_client=NewClient}};
-        {ok, Code, RespHeaders, State, Req2} ->
-            {http, Code, RespHeaders, State, Req2};
+        {ok, Code, RespHeaders, Req2, State} ->
+            {http, Code, RespHeaders, Req2, State};
         {error, _Err} = Err ->
             Err
     end.
@@ -157,21 +175,25 @@ backend_close(State = #state{backend_client = Client}) ->
 
 %% Dispatch data from hstub_client down into the cowboy connection, either
 %% in batch or directly.
-relay(Req, Status, RespHeaders, State = #state{backend_client = Client}) ->
+relay(Status, RespHeaders, Req, State = #state{backend_client = Client}) ->
     Headers = response_headers(RespHeaders),
     case hstub_client:body_type(Client) of
         {content_size, N} when N =< ?BUFFER_LIMIT ->
-            relay_full_body(Req, Status, Headers, State);
+            relay_full_body(Status, Headers, Req, State);
         {content_size, N} ->
-            relay_stream_body(Req, Status, Headers, N, fun stream_body/2, State);
+            relay_stream_body(Status, Headers, N, fun stream_body/2, Req, State);
         stream_close -> % unknown content-lenght, stream until connection close
-            relay_stream_body(Req, Status, Headers, undefined, fun stream_close/2, State);
+            relay_stream_body(Status, Headers, undefined, fun stream_close/2, Req, State);
         chunked ->
-            relay_chunked(Req, Status, Headers, State)
+            relay_chunked(Status, Headers, Req, State)
     end.
 
+pipe(Cli, Serv, Req, State) ->
+    ok = hstub_bytepipe:become(Cli, Serv, [{timeout, timer:seconds(55)}]),
+    {ok, Req, State#state{backend_client=undefined}}.
+
 %% The entire body is known and we can pipe it through as is.
-relay_full_body(Req, Status, Headers, State = #state{backend_client=Client}) ->
+relay_full_body(Status, Headers, Req, State = #state{backend_client=Client}) ->
     case hstub_client:response_body(Client) of
         {ok, Body, Client2} ->
             respond(Status, Headers, Body, Req, State#state{backend_client=Client2});
@@ -181,7 +203,7 @@ relay_full_body(Req, Status, Headers, State = #state{backend_client=Client}) ->
 
 %% The body is large and may need to be broken in multiple parts. Send them as
 %% they come.
-relay_stream_body(Req, Status, Headers, Size, StreamFun,
+relay_stream_body(Status, Headers, Size, StreamFun, Req,
                   State=#state{backend_client=Client}) ->
     %% Use cowboy's partial response delivery to stream contents.
     %% We use exceptions (throws) to detect bad transfers and close
@@ -204,7 +226,7 @@ relay_stream_body(Req, Status, Headers, Size, StreamFun,
             {shutdown, Req2, backend_close(State)}
     end.
 
-relay_chunked(Req, Status, Headers, State = #state{backend_client = Client}) ->
+relay_chunked(Status, Headers, Req, State = #state{backend_client = Client}) ->
     %% This is a special case. We stream pre-delimited chunks raw instead
     %% of using cowboy, which would have to recalculate and re-delimitate
     %% sizes all over after we parsed them first. We save time by just using

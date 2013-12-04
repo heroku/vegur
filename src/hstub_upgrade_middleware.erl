@@ -4,8 +4,6 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    % Check if this connection should be upgraded. We only support upgrades to websockets
-    % at this time. If it's a websocket connection, validate it and mark it as such.
     {ConnectionTokens,Req1} = case cowboy_req:parse_header(<<"connection">>, Req) of
         {ok, L, Req0} when is_list(L) -> {L, Req0};
         {ok, Term, Req0} -> {[Term], Req0};
@@ -17,6 +15,8 @@ execute(Req, Env) ->
         true ->
             %% The connection should be upgraded
             case cowboy_req:parse_header(<<"upgrade">>, Req1) of
+                {ok, undefined, Req2} ->
+                    {error, 400, Req2};
                 {ok, Upgrade, Req2} ->
                     handle_upgrade(Upgrade, Req2, Env);
                 {undefined, _, Req2} ->
@@ -36,19 +36,9 @@ execute(Req, Env) ->
 handle_upgrade(undefined, Req, Env) ->
     % No Upgrade header
     {ok, Req, Env};
-handle_upgrade([<<"websockets">>], Req, Env) ->
-    % Websockets connection
-    {SecWebSocketKey, Req1} = cowboy_req:header(<<"sec-websocket-key">>, Req),
-    case SecWebSocketKey of
-        undefined ->
-            % The request is invalid
-            {error, 400, Req};
-        _Key ->
-            % The request has a SecWebSocketKey. This is enough for us to deem it
-            % a possible websocket connection. Mark it as such and pass it on.
-            Req2 = cowboy_req:set_meta(websocket_connection, true, Req1),
-            {ok, Req2, Env}
-    end;
+handle_upgrade(UpgradeTokens, Req, Env) when is_list(UpgradeTokens) ->
+    Req2 = cowboy_req:set_meta(upgrade_requested, true, Req),
+    {ok, Req2, Env};
 handle_upgrade({error, _}, Req, _Env) ->
     {error, 400, Req};
 handle_upgrade(_, Req, _Env) ->

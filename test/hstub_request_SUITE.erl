@@ -65,25 +65,12 @@ init_per_group(hstub_request_mocks, Config) ->
     {ok, MeckStarted} = application:ensure_all_started(meck),
     [{meck_started, MeckStarted} | Config];
 init_per_group(hstub_request_upgrade, Config) ->
-    {ok, MeckStarted} = application:ensure_all_started(meck),
     TestDomain = <<"hstubtest.testdomain">>,
-    meck:expect(hstub_domains, lookup,
-                fun(Domain) ->
-                        Domain = TestDomain,
-                        {ok, undefined, mocked_domain_group}
-                end),
-    meck:expect(hstub_domains, in_maintenance_mode,
-                fun(mocked_domain_group) ->
-                        false
-                end),
-    meck:expect(hstub_service, lookup,
-                fun(_) ->
-                        {route, undefined}
-                end),
-    [{meck_started, MeckStarted},
+    {ok, OldMiddlewares} = set_middlewares(hstub_http, [hstub_upgrade_middleware]),
+    [{old_middlewares, OldMiddlewares},
      {test_domain, TestDomain} | Config];
 init_per_group(hstub_request_lookups, Config) ->
-        {ok, MeckStarted} = application:ensure_all_started(meck),
+    {ok, MeckStarted} = application:ensure_all_started(meck),
     TestDomain = <<"hstubtest.testdomain">>,
     meck:expect(hstub_domains, lookup,
                 fun(Domain) ->
@@ -103,7 +90,10 @@ end_per_group(hstub_request_mocks, Config) ->
     [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
     Config;
 end_per_group(hstub_request_upgrade, Config) ->
-    [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
+    Middlewares = ?config(old_middlewares, Config),
+    {ok, _} = set_middlewares(hstub_http, Middlewares),
+    ok = application:stop(inets),
+    ok = application:start(inets),
     Config;
 end_per_group(hstub_request_lookups, Config) ->
     [meck:unload(Mod) || Mod <- [hstub_domains, hstub_service]],
@@ -248,7 +238,6 @@ upgrade_invalid(Config) ->
     Domain = ?config(test_domain, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     {ok, {{_, 400, _}, _, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)},
-                                                          {"upgrade", "invalid_upgrade"},
                                                           {"connection", "upgrade"}]}, [], []),
     Config.
 
@@ -257,7 +246,7 @@ upgrade_websockets(Config) ->
     Domain = ?config(test_domain, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     {ok, {{_, X, _}, _, _}} = httpc:request(get, {Url, [{"host", binary_to_list(Domain)},
-                                                        {"upgrade", "WebSockets"},
+                                                        {"upgrade", "WebSocket"},
                                                         {"connection", "Upgrade Keep-Alive"},
                                                         {"sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="}
                                                        ]}, [], []),
@@ -351,3 +340,10 @@ mock_service_reply(Res) ->
                 fun(_) ->
                         Res
                 end).
+
+set_middlewares(RanchRef, Middlewares) ->
+    OldOpts = ranch:get_protocol_options(RanchRef),
+    OldMiddlewares = proplists:get_value(middlewares, OldOpts),
+    Opts2 = lists:keyreplace(middlewares, 1, OldOpts, {middlewares, Middlewares}),
+    ok = ranch:set_protocol_options(RanchRef, Opts2),
+    {ok, OldMiddlewares}.
