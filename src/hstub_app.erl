@@ -74,9 +74,7 @@ cowboy_opts() ->
     ,{onrequest, fun hstub_log_hook:on_request/1}].
 
 cowboy_env() ->
-    [{handler, hstub_cc_handler}
-    ,{handler_opts, []}
-    ].
+    [].
 
 middleware_stack() ->
     [hstub_healthcheck_middleware
@@ -86,9 +84,8 @@ middleware_stack() ->
     ,hstub_upgrade_middleware
     ,hstub_lookup_service_middleware
     ,hstub_proxy_middleware
-    ,cowboy_handler
     ].
 
 env_specs() ->
     [{http_listen_port, "PORT", [{transform, integer}]}
-     ].
+    ].

@@ -5,17 +5,28 @@
          route_id/1
         ]).
 
--opaque domain_group() :: term().
--export_type([domain_group/0]).
+-record(domain_group, {domain :: domain()}).
+-opaque domain_group() :: #domain_group{}.
+-type domain() :: binary().
+-export_type([domain_group/0
+              ,domain/0
+             ]).
 
--spec lookup(binary()) -> ok.
-lookup(_Domain) ->
-    %% STUB for mocking.
-    ok.
+-spec lookup(binary()) ->
+                    undefined |
+                    {error, {herokuapp, domain_group(), domain()}} |
+                    {ok, domain(), domain_group()}.
+lookup(Domain) ->
+    case hstub_app:config(domain) of
+        Domain ->
+            {ok, Domain, #domain_group{domain=Domain}};
+        _ ->
+            undefined
+    end.
 
 -spec route_id(domain_group()) ->
                       undefined | binary().
-route_id(_DomainGroup) ->
+route_id(#domain_group{}) ->
     ok.
 
 -spec in_maintenance_mode(domain_group()) ->
