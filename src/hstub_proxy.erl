@@ -119,8 +119,15 @@ relay(Status, Headers, Req, Client) ->
         stream_close -> % unknown content-lenght, stream until connection close
             relay_stream_body(Status, Headers, undefined, fun stream_close/2, Req, Client);
         chunked ->
-            relay_chunked(Status, Headers, Req, Client)
+            relay_chunked(Status, Headers, Req, Client);
+        no_body ->
+            relay_no_body(Status, Headers, Req, Client)
     end.
+
+%% There is no body to relay
+relay_no_body(Status, Headers, Req, Client) ->
+    Req1 = respond(Status, Headers, <<>>, Req),
+    {ok, Req1, Client}.
 
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Status, Headers, Req, Client) ->
