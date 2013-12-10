@@ -64,8 +64,7 @@ upgrade_request(101, Headers, Req, #state{backend_client=BackendClient,
 upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
 
-http_request(Code, Headers, Req, #state{backend_client=BackendClient,
-                                        env=Env}) ->
+http_request(Code, Headers, Req, #state{backend_client=BackendClient, env=Env}) ->
     case hstub_proxy:relay(Code, Headers, Req, BackendClient) of
         {ok, Req1, _Client1} ->
             {ok, Req1, Env};
@@ -94,4 +93,43 @@ parse_request(Req) ->
             false ->
                 {<<>>, Req6}
         end,
-    {{Method, Headers, Body, Path, Url}, Req7}.
+    {Headers2, Req9} = add_proxy_headers(Headers, Req7),
+    {{Method, Headers2, Body, Path, Url}, Req9}.
+
+add_proxy_headers(Headers, Req) ->
+    {Headers1, Req1} = add_request_id(Headers, Req),
+    {Headers2, Req2} = add_forwarded(Headers1, Req1),
+    {Headers3, Req3} = add_via(Headers2, Req2),
+    {Headers3, Req3}.
+
+add_request_id(Headers, Req) ->
+    {RequestId, Req1} = cowboy_req:meta(request_id, Req),
+    RequestId1 = [integer_to_list(B, 16) || <<B>> <= RequestId],
+    hstub_utils:add_if_missing_header(<<"request-id">>, RequestId1, Headers, Req1).
+
+add_forwarded(Headers, Req) ->
+    Transport = cowboy_req:get(transport, Req),
+    {{PeerAddress, PeerPort}, Req1} =
+        case Transport:name() of
+            proxy_protocol_tcp ->
+                ProxySocket = cowboy_req:get(socket, Req),
+                {ok, {PeerInfo, _}} = Transport:proxyname(ProxySocket),
+                {PeerInfo, Req};
+            _ ->
+                cowboy_req:peer(Req)
+        end,
+    {Headers1, Req2} = hstub_utils:add_or_append_header(<<"x-forwarded-for">>, inet_parse:ntoa(PeerAddress),
+                                                        Headers, Req1),
+    Headers2 =
+        case PeerPort of
+            80 ->
+                Headers1 ++ [{<<"x-forwarded-proto">>, <<"http">>}];
+            443 ->
+                Headers1 ++ [{<<"x-forwarded-proto">>, <<"https">>}];
+            _ ->
+                Headers1
+        end,
+    {Headers2, Req2}.
+
+add_via(Headers, Req) ->
+    hstub_utils:add_or_append_header(<<"via">>, <<"hstub">>, Headers, Req).
