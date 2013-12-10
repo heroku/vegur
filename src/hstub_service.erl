@@ -44,6 +44,6 @@ lookup(DomainGroup) ->
     end.
 
 -spec backend(service()) ->
-                     {ok, {inet:ip_address(), inet:port_number()}}.
+                     {inet:ip_address(), inet:port_number()}.
 backend(#service{backend=Backend}) ->
     Backend.
