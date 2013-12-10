@@ -83,10 +83,12 @@ request_id(Config) ->
 forwarded_for(Config) ->
     Port = ?config(hstub_port, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
-    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
     receive
         {req, Req} ->
-            {<<"127.0.0.1">>, _} = cowboy_req:header(<<"x-forwarded-for">>, Req)
+            {<<"127.0.0.1">>, _} = cowboy_req:header(<<"x-forwarded-for">>, Req),
+            {DestPort, _} = cowboy_req:header(<<"x-forwarded-port">>, Req),
+            Port = list_to_integer(binary_to_list(DestPort))
     after 5000 ->
             throw(timeout)
     end,
@@ -94,14 +96,24 @@ forwarded_for(Config) ->
                                                           {"x-forwarded-for", "10.0.0.1"}]}, [], []),
     receive
         {req, Req1} ->
-            {<<"10.0.0.1, 127.0.0.1">>, _} = cowboy_req:header(<<"x-forwarded-for">>, Req1)
+            {<<"10.0.0.1, 127.0.0.1">>, _} = cowboy_req:header(<<"x-forwarded-for">>, Req1),
+            {<<"80">>, _} = cowboy_req:header(<<"x-forwarded-port">>, Req1),
+            {<<"http">>, _} = cowboy_req:header(<<"x-forwarded-proto">>, Req1)
+    after 5000 ->
+            throw(timeout)
+    end,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:443"}]}, [], []),
+    receive
+        {req, Req2} ->
+            {<<"443">>, _} = cowboy_req:header(<<"x-forwarded-port">>, Req2),
+            {<<"https">>, _} = cowboy_req:header(<<"x-forwarded-proto">>, Req2)
     after 5000 ->
             throw(timeout)
     end,
     Config.
 
 via(Config) ->
-        Port = ?config(hstub_port, Config),
+    Port = ?config(hstub_port, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive

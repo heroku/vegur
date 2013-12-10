@@ -2,7 +2,8 @@
 
 -export([parse_header/2
          ,add_or_append_header/4
-         ,add_if_missing_header/4]).
+         ,add_if_missing_header/4
+         ,add_or_replace_header/3]).
 
 -spec parse_header(binary(), cowboy_req:req()) ->
                           {[]|[binary()], cowboy_req:req()}.
@@ -43,3 +44,11 @@ add_if_missing_header(Key, Val, Headers, Req) ->
                 {CurrentVal, Req1}
         end,
     {Headers ++ [{Key, NewVal}], Req2}.
+
+-spec add_or_replace_header(Key, Value, Headers) ->
+                                    Headers when
+      Key :: iolist(),
+      Value :: iolist(),
+      Headers :: [{iolist, iolist()}]|[].
+add_or_replace_header(Key, Value, Headers) ->
+    lists:keystore(Key, 1, Headers, {Key, Value}).

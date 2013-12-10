@@ -109,27 +109,31 @@ add_request_id(Headers, Req) ->
 
 add_forwarded(Headers, Req) ->
     Transport = cowboy_req:get(transport, Req),
-    {{PeerAddress, PeerPort}, Req1} =
+    {{PeerAddress, DestPort}, Req1} =
         case Transport:name() of
             proxy_protocol_tcp ->
                 ProxySocket = cowboy_req:get(socket, Req),
-                {ok, {PeerInfo, _}} = Transport:proxyname(ProxySocket),
-                {PeerInfo, Req};
+                {ok, {{PeerIp, _}, {_, DestPort1}}} = Transport:proxyname(ProxySocket),
+                {{PeerIp, DestPort1}, Req};
             _ ->
-                cowboy_req:peer(Req)
+                {{PeerIp, _}, Req3} = cowboy_req:peer(Req),
+                {Port, Req4} = cowboy_req:port(Req3),
+                {{PeerIp, Port}, Req4}
         end,
     {Headers1, Req2} = hstub_utils:add_or_append_header(<<"x-forwarded-for">>, inet_parse:ntoa(PeerAddress),
                                                         Headers, Req1),
     Headers2 =
-        case PeerPort of
+        case DestPort of
             80 ->
-                Headers1 ++ [{<<"x-forwarded-proto">>, <<"http">>}];
+                hstub_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"http">>, Headers1);
             443 ->
-                Headers1 ++ [{<<"x-forwarded-proto">>, <<"https">>}];
+                hstub_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"https">>, Headers1);
             _ ->
                 Headers1
         end,
-    {Headers2, Req2}.
+    Headers3 = hstub_utils:add_or_replace_header(<<"x-forwarded-port">>, integer_to_list(DestPort), Headers2),
+    {Headers3, Req2}.
 
 add_via(Headers, Req) ->
-    hstub_utils:add_or_append_header(<<"via">>, <<"hstub">>, Headers, Req).
+    ViaName = hstub_app:config(instance_name, <<"hstub">>),
+    hstub_utils:add_or_append_header(<<"via">>, ViaName, Headers, Req).
