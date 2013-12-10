@@ -16,4 +16,6 @@ on_request(Req) ->
     {Headers, Req5} = cowboy_req:headers(Req4),
     ?INFO("~s ~s~nUrl: ~s~n~p",
           [Method, Path, URL, Headers]),
-    Req5.
+    %% Add Request ID for tracking
+    RequestId = erlang:md5(term_to_binary({self(), os:timestamp()})),
+    cowboy_req:set_meta(request_id, RequestId, Req5).

@@ -3,16 +3,13 @@
 -export([lookup_domain/1,
          lookup_service/1]).
 
--type domain() :: binary().
 -type redirect_reason() :: herokuapp_redirect.
+-export_type([redirect_reason/0]).
 
--export_type([domain/0,
-              redirect_reason/0
-             ]).
-
--spec lookup_domain(domain()) ->
+-spec lookup_domain(hstub_domains:domain()) ->
                            {error, not_found} |
-                           {redirect, redirect_reason(), hstub_domains:domain_group(), domain()} |
+                           {redirect, redirect_reason(), hstub_domains:domain_group(),
+                            hstub_domains:domain()} |
                            {ok, hstub_domains:domain_group()}.
 lookup_domain(Domain) ->
     case hstub_domains:lookup(Domain) of
