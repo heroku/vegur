@@ -85,7 +85,7 @@ read_response(Client) ->
       Headers :: [{binary(), binary()}]|[],
       Client :: hstub_client:client().
 upgrade(Headers, Req, BackendClient) ->
-    %% fetchl raw sockets and buffers
+    %% fetch raw sockets and buffers
     {Server={TransStub,SockStub}, BufStub, _NewClient} = hstub_client:raw_socket(BackendClient),
     {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_socket(Req),
     %% Send the response to the caller
