@@ -97,6 +97,7 @@ upgrade(Headers, Req, BackendClient) ->
     %% Flush leftover buffer data from the client, if any
     TransStub:send(SockStub, BufCow),
     ok = hstub_bytepipe:become(Client, Server, [{timeout, timer:seconds(55)}]),
+    backend_close(Client),
     {done, Req3}.
 
 -spec relay(Status, Headers, Req, Client) ->
@@ -127,14 +128,14 @@ relay(Status, Headers, Req, Client) ->
 %% There is no body to relay
 relay_no_body(Status, Headers, Req, Client) ->
     Req1 = respond(Status, Headers, <<>>, Req),
-    {ok, Req1, Client}.
+    {ok, Req1, backend_close(Client)}.
 
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Status, Headers, Req, Client) ->
     case hstub_client:response_body(Client) of
         {ok, Body, Client2} ->
             Req1 = respond(Status, Headers, Body, Req),
-            {ok, Req1, Client2};
+            {ok, Req1, backend_close(Client2)};
         {error, Error} ->
             backend_close(Client),
             {error, Error, Req}
@@ -158,8 +159,7 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     end,
     try cowboy_req:reply(Status, Headers, Req2) of
         {ok, Req3} ->
-            Client1 = backend_close(Client),
-            {ok, Req3, Client1}
+            {ok, Req3, backend_close(Client)}
     catch
         {stream_error, Error} ->
             backend_close(Client),
@@ -175,7 +175,7 @@ relay_chunked(Status, Headers, Req, Client) ->
     {RawSocket, Req3} = cowboy_req:raw_socket(Req2, [no_buffer]),
     case stream_chunked(RawSocket, Client) of
         {ok, Client2} ->
-            {ok, Req3, Client2}; % @todo close backend?
+            {ok, Req3, backend_close(Client2)};
         {error, Error} -> % uh-oh, we died during the transfer
             backend_close(Client),
             {error, Error, Req3}
@@ -193,8 +193,9 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
             stream_chunked(Raw, Client2);
         {done, Data, Client2} ->
             Transport:send(Sock, Data),
-            {ok, Client2};
+            {ok, backend_close(Client2)};
         {error, Reason} ->
+            backend:close(Client),
             {error, Reason}
     end.
 
