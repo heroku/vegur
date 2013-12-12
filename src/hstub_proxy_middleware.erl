@@ -48,11 +48,11 @@ send_to_backend({Method, Header, Body, Path, Url}, Req,
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
     case hstub_proxy:read_response(BackendClient) of
         {ok, Code, RespHeaders, BackendClient1} ->
-            case cowboy_req:meta(upgrade_requested, Req, false) of
-                {true, Req1} ->
+            case cowboy_req:meta(request_type, Req, []) of
+                {[upgrade], Req1} ->
                     upgrade_request(Code, RespHeaders, Req1,
                                     State#state{backend_client=BackendClient1});
-                {_, Req1} ->
+                {[], Req1} ->
                     http_request(Code, RespHeaders, Req1,
                                  State#state{backend_client=BackendClient1})
             end;
