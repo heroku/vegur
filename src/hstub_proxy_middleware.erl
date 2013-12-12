@@ -104,8 +104,8 @@ add_proxy_headers(Headers, Req) ->
 
 add_request_id(Headers, Req) ->
     {RequestId, Req1} = cowboy_req:meta(request_id, Req),
-    RequestId1 = [integer_to_list(B, 16) || <<B>> <= RequestId],
-    hstub_utils:add_if_missing_header(<<"request-id">>, RequestId1, Headers, Req1).
+    {hstub_utils:add_or_replace_header(hstub_app:config(request_id_name), RequestId, Headers),
+     Req1}.
 
 add_forwarded(Headers, Req) ->
     Transport = cowboy_req:get(transport, Req),

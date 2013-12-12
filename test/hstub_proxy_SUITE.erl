@@ -66,7 +66,7 @@ request_id(Config) ->
     receive
         {req, Req} ->
             {RequestId, _} = cowboy_req:header(<<"request-id">>, Req),
-            true = RequestId =/= undefined
+            valid = erequest_id:validate(RequestId, hstub_app:config(request_id_max_size))
     after 5000 ->
             throw(timeout)
     end,
@@ -75,6 +75,17 @@ request_id(Config) ->
     receive
         {req, Req1} ->
             {<<"testid">>, _} = cowboy_req:header(<<"request-id">>, Req1)
+    after 5000 ->
+            throw(timeout)
+    end,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"},
+                                                          {"request-id", "testid??"}]}, [], []),
+    receive
+        {req, Req2} ->
+            {RequestId1, _} = cowboy_req:header(<<"request-id">>, Req2),
+            error_logger:info_msg("RequestId ~p", [RequestId1]),
+            true = RequestId1 /= <<"testid??">>,
+            valid = erequest_id:validate(RequestId1, hstub_app:config(request_id_max_size))
     after 5000 ->
             throw(timeout)
     end,
