@@ -20,6 +20,8 @@
     ,{lockstep_fresh, true}
     ,{herokuapp_domain, <<"hstub">>}
     ,{heroku_domain, <<"oldstub">>}
+    ,{request_id_name, <<"request-id">>}
+    ,{request_id_max_size, 200}
     ]}
   ,{start_phases,
     [{listen, []}

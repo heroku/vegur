@@ -16,6 +16,22 @@ on_request(Req) ->
     {Headers, Req5} = cowboy_req:headers(Req4),
     ?INFO("~s ~s~nUrl: ~s~n~p",
           [Method, Path, URL, Headers]),
-    %% Add Request ID for tracking
-    RequestId = erlang:md5(term_to_binary({self(), os:timestamp()})),
-    cowboy_req:set_meta(request_id, RequestId, Req5).
+    %% Get a request ID
+    {RequestId, Req6} = cowboy_req:header(hstub_app:config(request_id_name), Req5),
+    {RequestId1, Req7} = get_or_validate_request_id(RequestId, Req6),
+    cowboy_req:set_meta(request_id, RequestId1, Req7).
+
+get_or_validate_request_id(undefined, Req) ->
+    {get_request_id(), Req};
+get_or_validate_request_id(ReqId, Req) ->
+    case erequest_id:validate(ReqId, hstub_app:config(request_id_max_size)) of
+        valid ->
+            {ReqId, Req};
+        invalid ->
+            {get_request_id(), Req}
+    end.
+    
+
+get_request_id() ->
+    {ok, ReqId} = erequest_id:create(),
+    ReqId.
