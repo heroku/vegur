@@ -53,7 +53,6 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
                                  State#state{backend_client=BackendClient1})
             end;
         {error, _Error} ->
-            %% @todo close backend
             {error, 503, Req}
     end.
 
