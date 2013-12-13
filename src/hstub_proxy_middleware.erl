@@ -72,7 +72,7 @@ http_request(Code, Headers, Req, #state{backend_client=BackendClient, env=Env}) 
     end.
 
 parse_request(Req) ->
-    {Method, Req2} =  cowboy_req:method(Req),
+    {Method, Req2} = cowboy_req:method(Req),
     {Path, Req3} = cowboy_req:path(Req2),
     {Host, Req4} = cowboy_req:host(Req3),
     {Port, Req5} = cowboy_req:port(Req4),

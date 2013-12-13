@@ -1,12 +1,13 @@
 -module(hstub_lookup_service_middleware).
 
 -behaviour(cowboy_middleware).
+-include("hstub_log.hrl").
 -export([execute/2]).
 
 execute(Req, Env) ->
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    Service = hstub_lookup:lookup_service(DomainGroup),
-    handle_service(Service, Req1, Env).
+    {Service, Req2} = ?LOG(service_lookup, hstub_lookup:lookup_service(DomainGroup), Req1),
+    handle_service(Service, Req2, Env).
 
 -spec handle_service(hstub_service:service_lookup_result(), Req, Env) ->
                             {ok, Req, Env} |

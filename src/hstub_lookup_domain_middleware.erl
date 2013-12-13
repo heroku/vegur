@@ -1,13 +1,14 @@
 -module(hstub_lookup_domain_middleware).
 
 -behaviour(cowboy_middleware).
+-include("hstub_log.hrl").
 -export([execute/2]).
 
 execute(Req, Env) ->
     % Check if this is a healthcheck request
     {Host, Req1} = cowboy_req:host(Req),
-    Res = hstub_lookup:lookup_domain(Host),
-    handle_domain_lookup(Res, Req1, Env).
+    {Res, Req2} = ?LOG(domain_lookup, hstub_lookup:lookup_domain(Host), Req1),
+    handle_domain_lookup(Res, Req2, Env).
 
 -spec handle_domain_lookup({error, not_found} |
                            {redirect, Reason, DomainGroup, Domain} |

@@ -15,4 +15,8 @@
         error_logger:error_msg("(~p ~p:~p) " ++ Format ++ "~n",
                                [self(), ?MODULE, ?LINE | Args])).
 
+-define(LOG(Type, Fun, Req), hstub_request_log:log(Type, fun() ->
+                                                                 Fun
+                                                         end, Req)).
+
 -endif. %logging

@@ -40,4 +40,3 @@ handle_upgrade({error, _}, Req, _Env) ->
 handle_upgrade(_, Req, _Env) ->
     % The upgrade header can contain other values, those will result in a client error
     {error, 400, Req}.
-
