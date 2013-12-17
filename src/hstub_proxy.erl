@@ -161,7 +161,7 @@ upgrade(Headers, Req, BackendClient) ->
     %% Flush leftover buffer data from the client, if any
     TransStub:send(SockStub, BufCow),
     ok = hstub_bytepipe:become(Client, Server, [{timeout, timer:seconds(55)}]),
-    backend_close(Client),
+    backend_close(BackendClient),
     {done, Req3}.
 
 -spec relay(Status, Headers, Opts, Req, Client) ->
