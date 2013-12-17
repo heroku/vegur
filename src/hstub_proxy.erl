@@ -4,9 +4,11 @@
 
 -export([backend_connection/1
          ,send_request/7
+         ,send_headers/7
+         ,send_body/7
          ,read_response/1
          ,upgrade/3
-         ,relay/4]).
+         ,relay/5]).
 
 -spec backend_connection(Service) ->
                                 {connected, Client} |
@@ -34,24 +36,42 @@ backend_connection(Service) ->
       Url :: binary(),
       Req :: cowboy_req:req(),
       Client :: hstub_client:client().
-send_request(Method, Headers, {stream, BodyLen}, Path, Url, Req, Client) ->
+send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% Sends a request with a body yet to come through streaming. The BodyLen
     %% value can be either 'chunked' or an actual length.
     %% hstub_client:request_to_iolist will return a partial request with the
     %% correct headers in place, and the body can be sent later with sequential
     %% raw_request calls.
-    Request = hstub_client:request_to_iolist(Method,
-                                             request_headers(Headers),
-                                             {stream,BodyLen},
-                                             'HTTP/1.1',
-                                             Url,
-                                             Path),
-    {Fun, FunState} = case BodyLen of
-        chunked -> {fun decode_chunked/2, {undefined, 0}};
-        _ -> {fun decode_raw/2, {0, BodyLen}}
-    end,
-    {ok, Req2} = cowboy_req:init_stream(Fun, FunState, fun decode_identity/1, Req),
-    stream_request(Request, Req2, Client);
+    IoHeaders = hstub_client:headers_to_iolist(Method,
+                                               request_headers(Headers),
+                                               Body,
+                                               'HTTP/1.1',
+                                               Url,
+                                               Path),
+    {ok, _} = hstub_client:raw_request(IoHeaders, Client),
+    {Type, Req1} = cowboy_req:meta(request_type, Req, []),
+    case lists:member(continue, Type) of
+        false ->
+            {done, Req1, Client};
+        true ->
+            negotiate_continue(Body, Req1, Client)
+    end.
+
+send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
+    case Body of
+        {stream, BodyLen} ->
+            {Fun, FunState} = case BodyLen of
+                chunked -> {fun decode_chunked/2, {undefined, 0}};
+                BodyLen -> {fun decode_raw/2, {0, BodyLen}}
+            end,
+            {ok, Req2} = cowboy_req:init_stream(Fun, FunState, fun decode_identity/1, Req),
+            %% use headers & body to stream correctly
+            stream_request(Req2, BackendClient);
+        Body ->
+            {ok, _} = hstub_client:raw_request(Body, BackendClient),
+            {done, Req, BackendClient}
+    end.
+
 send_request(Method, Headers, Body, Path, Url, Req, Client) ->
     %% We have a static, already known body, and can send it at once.
     Request = hstub_client:request_to_iolist(Method,
@@ -65,6 +85,49 @@ send_request(Method, Headers, Body, Path, Url, Req, Client) ->
         {error, _Err} = Err -> Err
     end.
 
+negotiate_continue(Body, Req, BackendClient) ->
+    %% In here, we must await the 100 continue from the BackendClient
+    %% *OR* wait until cowboy (front-end) starts sending data.
+    %% Because there is a timeout before which a client may send data,
+    %% and that we may have looked for a suitable backend for a considerable
+    %% amount of time, always start by looking over the client connection.
+    %% If the client sends first, we then *may* have to intercept the first
+    %% 100 continue and not pass it on.
+    %% Strip the 'continue' request type from meta!
+    case cowboy_req:buffer_data(0, 0, Req) of
+        {ok, Req1} ->
+            {done, Req1, BackendClient};
+        {error, timeout} ->
+            case hstub_client:buffer_data(0, timer:seconds(1), BackendClient) of
+                {ok, BackendClient1} ->
+                    case read_response(BackendClient1) of
+                        {ok, 100, _RespHeaders, _BackendClient2, _Opts} ->
+                            %% We don't carry the headers on a 100 Continue
+                            HTTPVer = atom_to_binary(hstub_client:version(BackendClient), latin1),
+                            {{Transport,Socket}, _} = cowboy_req:raw_socket(Req, [no_buffer]),
+                            Transport:send(Socket,
+                                           << HTTPVer/binary, " 100 Continue\r\n\r\n" >>),
+                            %% Got it. Now clean up the '100 Continue' state from
+                            %% the request, it's as if it never happened.
+                            {Type, Req1} = cowboy_req:meta(request_type=Req, []),
+                            Req2 = cowboy_req:set_meta(request_type, Type--[continue], Req1),
+                            %% We use the original client so that no state
+                            %% change due to 100 Continue is observable.
+                            {done, Req2, BackendClient};
+                        {ok, Code, RespHeaders, BackendClient2, Opts} ->
+                            {ok, Code, RespHeaders, BackendClient2, [close|Opts]};
+                        {error, Reason} ->
+                            {error, Reason}
+                    end;
+                {error, timeout} ->
+                    negotiate_continue(Body, Req, BackendClient);
+                {error, Error} ->
+                    {error, Error}
+            end;
+        {error, Error} ->
+            {error, Error}
+    end.
+
 -spec read_response(Client) ->
                            {ok, Code, Headers, Client} |
                            {error, Error} when
@@ -76,7 +139,7 @@ read_response(Client) ->
     case hstub_client:response(Client) of
         {error, _} = Err -> Err;
         {ok, Code, RespHeaders, Client2} ->
-            {ok, Code, RespHeaders, Client2}
+            {ok, Code, RespHeaders, Client2, []}
     end.
 
 -spec upgrade(Headers, Req, Client) ->
@@ -89,7 +152,8 @@ upgrade(Headers, Req, BackendClient) ->
     {Server={TransStub,SockStub}, BufStub, _NewClient} = hstub_client:raw_socket(BackendClient),
     {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_socket(Req),
     %% Send the response to the caller
-    Headers1 = hstub_client:headers_to_iolist(request_headers(Headers)),
+    Headers1 = [[Name, <<": ">>, Value, <<"\r\n">>]
+                   || {Name, Value} <- request_headers(Headers)],
     TransCow:send(SockCow,
                   [<<"HTTP/1.1 101 Switching Protocols\r\n">>,
                    Headers1, <<"\r\n">>,
@@ -100,18 +164,22 @@ upgrade(Headers, Req, BackendClient) ->
     backend_close(Client),
     {done, Req3}.
 
--spec relay(Status, Headers, Req, Client) ->
+-spec relay(Status, Headers, Opts, Req, Client) ->
                    {ok, Req, Client} |
                    {error, Error, Req} when
       Status :: pos_integer(),
       Headers :: [{binary(), binary()}]|[],
+      Opts :: [term()],
       Req :: cowboy_req:req(),
       Client :: hstub_client:client(),
       Error :: any().
-relay(Status, Headers, Req, Client) ->
+relay(Status, Headers, Opts, Req, Client) ->
     %% Dispatch data from hstub_client down into the cowboy connection, either
     %% in batch or directly.
-    Headers = response_headers(Headers),
+    Headers = case lists:member(close, Opts) of
+        false -> response_headers(Headers);
+        true  -> add_connection_close_header(response_headers(Headers))
+    end,
     case hstub_client:body_type(Client) of
         {content_size, N} when N =< ?BUFFER_LIMIT ->
             relay_full_body(Status, Headers, Req, Client);
@@ -199,8 +267,15 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
             {error, Reason}
     end.
 
-%% Deal with the transfert of a large or chunked request body by going
-%% from a cowboy stream to a raw hstub_client request.
+%% Deal with the transfer of a large or chunked request body by
+%% going from a cowboy stream to raw htsub_client requests
+stream_request(Req, Client) ->
+    case cowboy_req:stream_body(Req) of
+        {done, Req2} -> {done, Req2, Client};
+        {ok, Data, Req2} -> stream_request(Data, Req2, Client);
+        {error, Err} -> {error, Err}
+    end.
+
 stream_request(Buffer, Req, Client) ->
     {ok, _} = hstub_client:raw_request(Buffer, Client),
     case cowboy_req:stream_body(Req) of
@@ -284,9 +359,9 @@ request_headers(Headers0) ->
                         F(H)
                 end,
                 Headers0,
-                [fun delete_keepalive_header/1
+                [fun delete_connection_keepalive_header/1
                 ,fun delete_host_header/1
-                ,fun add_connection_close/1
+                ,fun add_connection_close_header/1
                 ,fun delete_content_length_header/1
                 ]).
 
@@ -296,10 +371,10 @@ response_headers(Headers) ->
                         F(H)
                 end,
                 Headers,
-                [fun delete_keepalive_header/1
+                [fun delete_connection_keepalive_header/1
                 ]).
 
-delete_keepalive_header(Hdrs) ->
+delete_connection_keepalive_header(Hdrs) ->
     lists:delete({<<"connection">>, <<"keepalive">>}, Hdrs).
 
 delete_host_header(Hdrs) ->
@@ -308,7 +383,7 @@ delete_host_header(Hdrs) ->
 delete_content_length_header(Hdrs) ->
     lists:keydelete(<<"content-length">>, 1, Hdrs).
 
-add_connection_close(Hdrs) ->
+add_connection_close_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
         false -> [{<<"connection">>, <<"close">>} | Hdrs]

@@ -26,18 +26,21 @@ proxy(Req, State) ->
     {BackendReq, Req1} = parse_request(Req),
     send_to_backend(BackendReq, Req1, State).
 
-send_to_backend({Method, Header, {stream, _}=Body, Path, Url}, Req,
+send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
                 #state{backend_client=BackendClient}=State) ->
-    case hstub_proxy:send_request(Method, Header, Body, Path, Url, Req, BackendClient) of
-        {done, Req1, BackendClient1} ->
-            read_backend_response(Req1, State#state{backend_client=BackendClient1});
+    case hstub_proxy:send_headers(Method, Header, Body, Path, Url, Req, BackendClient) of
+        {done, Req1, BackendClient1} -> % headers sent
+            send_body_to_backend(Request, Req1, State#state{backend_client=BackendClient1});
+        {ok, Code, RespHeaders, BackendClient1} -> % request ended without body sent
+            {close, Code, RespHeaders, BackendClient1};
         {error, _Error} ->
             %% @todo handle correctly
             {error, 503, Req}
-    end;
-send_to_backend({Method, Header, Body, Path, Url}, Req, 
-                #state{backend_client=BackendClient}=State) ->
-    case hstub_proxy:send_request(Method, Header, Body, Path, Url, Req, BackendClient) of
+    end.
+
+send_body_to_backend({Method, Header, Body, Path, Url}, Req,
+                     #state{backend_client=BackendClient}=State) ->
+    case hstub_proxy:send_body(Method, Header, Body, Path, Url, Req, BackendClient) of
         {done, Req1, BackendClient1} ->
             read_backend_response(Req1, State#state{backend_client=BackendClient1});
         {error, _Error} ->
@@ -47,28 +50,35 @@ send_to_backend({Method, Header, Body, Path, Url}, Req,
 
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
     case hstub_proxy:read_response(BackendClient) of
-        {ok, Code, RespHeaders, BackendClient1} ->
-            case cowboy_req:meta(request_type, Req, []) of
-                {[upgrade], Req1} ->
-                    upgrade_request(Code, RespHeaders, Req1,
+        {ok, Code, RespHeaders, BackendClient1, ProxyOpts} ->
+            {Type, Req1} = cowboy_req:meta(request_type, Req, []),
+            case lists:sort(Type) of
+                [] ->
+                    http_request(Code, RespHeaders, ProxyOpts, Req1,
+                                 State#state{backend_client=BackendClient1});
+                [upgrade] ->
+                    upgrade_request(Code, RespHeaders, ProxyOpts, Req1,
                                     State#state{backend_client=BackendClient1});
-                {[], Req1} ->
-                    http_request(Code, RespHeaders, Req1,
-                                 State#state{backend_client=BackendClient1})
+                [continue|_] when Code =:= 100 ->
+                    %% Leftover from Continue due to race condition between
+                    %% client and server. Read again, ignoring client changes
+                    Req2 = cowboy_req:set_meta(request_type, Type--[continue], Req1),
+                    read_backend_response(Req2, State)
             end;
         {error, _Error} ->
             {error, 503, Req}
     end.
 
-upgrade_request(101, Headers, Req, #state{backend_client=BackendClient,
-                                          env=Env}) ->
+upgrade_request(101, Headers, _Opts, Req, #state{backend_client=BackendClient,
+                                                 env=Env}) ->
     {done, Req1} = hstub_proxy:upgrade(Headers, Req, BackendClient),
     {ok, Req1, Env};
-upgrade_request(Code, Headers, Req, State) ->
-    http_request(Code, Headers, Req, State).
+upgrade_request(Code, Headers, ProxyOpts, Req, State) ->
+    http_request(Code, Headers, ProxyOpts, Req, State).
 
-http_request(Code, Headers, Req, #state{backend_client=BackendClient, env=Env}) ->
-    case hstub_proxy:relay(Code, Headers, Req, BackendClient) of
+http_request(Code, Headers, ProxyOpts, Req,
+             #state{backend_client=BackendClient, env=Env}) ->
+    case hstub_proxy:relay(Code, Headers, ProxyOpts, Req, BackendClient) of
         {ok, Req1, _Client1} ->
             {ok, Req1, Env};
         {error, _Error, Req1} ->

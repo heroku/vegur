@@ -52,11 +52,13 @@
 -export([stream_body/1]).
 -export([stream_close/1]).
 -export([stream_chunk/1]).
+-export([buffer_data/3]).
 
 -export([body_type/1]).
+-export([version/1]).
 
+-export([headers_to_iolist/6]).
 -export([request_to_iolist/6]).
--export([headers_to_iolist/1]).
 -export([raw_socket/1]).
 -export([auth_header/1]).
 
@@ -145,33 +147,24 @@ request(Method, URL, Headers, Body, Client=#client{
                              Path),
     raw_request(Data, Client2).
 
-request_to_iolist(Method, Headers, {stream, Length}, Version, FullHost, Path) ->
+headers_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     VersionBin = atom_to_binary(Version, latin1),
     %% @todo do keepalive too, allow override...
     Headers2 = [{<<"Host">>, FullHost} | Headers],
-    ContentLength = case Length of
-                        0 -> [];
-                        chunked -> [];
-                        Length -> [{<<"Content-Length">>, integer_to_list(Length)}]
-                    end,
-    HeadersData = headers_to_iolist(Headers2++ContentLength),
+    ContentLength = case Body of
+        {stream, 0} -> [];
+        {stream, chunked} -> [];
+        {stream, Length} -> [{<<"Content-Length">>, integer_to_list(Length)}];
+        Body -> [{<<"Content-Length">>, integer_to_list(iolist_size(Body))}]
+    end,
+    HeadersData = [[Name, <<": ">>, Value, <<"\r\n">>]
+                   || {Name, Value} <- Headers2++ContentLength],
     [Method, <<" ">>, Path, <<" ">>, VersionBin, <<"\r\n">>,
-     HeadersData, <<"\r\n">>];
-request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
-    VersionBin = atom_to_binary(Version, latin1),
-    %% @todo do keepalive too, allow override...
-    Headers2 = [{<<"Host">>, FullHost} | Headers],
-    ContentLength = case iolist_size(Body) of
-                        0 -> [];
-                        Length -> [{<<"Content-Length">>, integer_to_list(Length)}]
-                    end,
-    HeadersData = headers_to_iolist(Headers2++ContentLength),
-    [Method, <<" ">>, Path, <<" ">>, VersionBin, <<"\r\n">>,
-     HeadersData, <<"\r\n">>, Body].
+     HeadersData, <<"\r\n">>].
 
-headers_to_iolist(HeadersData) ->
-    [[Name, <<": ">>, Value, <<"\r\n">>]
-     || {Name, Value} <- HeadersData].
+request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
+    [headers_to_iolist(Method, Headers, Body, Version, FullHost, Path), Body].
+
 
 raw_socket(Client=#client{transport=T, socket=S, buffer=Buf}) ->
     {{T,S}, Buf, Client#client{buffer= <<>>, state=raw}}.
@@ -224,6 +217,8 @@ body_type(#client{state=request, connection=close}) -> stream_close;
 body_type(#client{state=request, response_body=0}) -> no_body;
 body_type(#client{state=response_body, response_body=Length}) ->
     {content_size, Length}.
+
+version(#client{version=Version}) -> Version.
 
 response_body(Client=#client{response_body=chunked}) ->
     response_body_chunk(Client, <<>>);
@@ -444,6 +439,15 @@ stream_body(Client=#client{state=response_body, buffer=Buffer,
 
 recv(#client{socket=Socket, transport=Transport, read_timeout=Timeout}) ->
     Transport:recv(Socket, 0, Timeout).
+
+buffer_data(Length, Timeout, Client=#client{socket=Socket, transport=Transport,
+                                            buffer= <<>>}) ->
+    case Transport:recv(Socket, Length, Timeout) of
+        {ok, Data} -> {ok, Client#client{buffer=Data}};
+        {error, Reason} -> {error, Reason}
+    end;
+buffer_data(_, _, Client) -> % data already buffered
+    {ok, Client}.
 
 header_list_values(Value) ->
     cowboy_http:nonempty_list(Value, fun cowboy_http:token_ci/2).
