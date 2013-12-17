@@ -61,9 +61,9 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
                                     State#state{backend_client=BackendClient1});
                 [continue|_] when Code =:= 100 ->
                     %% Leftover from Continue due to race condition between
-                    %% client and server. Read again, ignoring client changes
+                    %% client and server.
                     Req2 = cowboy_req:set_meta(request_type, Type--[continue], Req1),
-                    read_backend_response(Req2, State)
+                    read_backend_response(Req2, State#state{backend_client=BackendClient1})
             end;
         {error, _Error} ->
             {error, 503, Req}
