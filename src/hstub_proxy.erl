@@ -86,6 +86,11 @@ send_request(Method, Headers, Body, Path, Url, Req, Client) ->
     end.
 
 negotiate_continue(Body, Req, BackendClient) ->
+    negotiate_continue(Body, Req, BackendClient, timer:seconds(55)).
+
+negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
+    {error, Timeout};
+negotiate_continue(Body, Req, BackendClient, Timeout) ->
     %% In here, we must await the 100 continue from the BackendClient
     %% *OR* wait until cowboy (front-end) starts sending data.
     %% Because there is a timeout before which a client may send data,
@@ -94,11 +99,12 @@ negotiate_continue(Body, Req, BackendClient) ->
     %% If the client sends first, we then *may* have to intercept the first
     %% 100 continue and not pass it on.
     %% Strip the 'continue' request type from meta!
+    Wait = timer:seconds(1),
     case cowboy_req:buffer_data(0, 0, Req) of
         {ok, Req1} ->
             {done, Req1, BackendClient};
         {error, timeout} ->
-            case hstub_client:buffer_data(0, timer:seconds(1), BackendClient) of
+            case hstub_client:buffer_data(0, Wait, BackendClient) of
                 {ok, BackendClient1} ->
                     case read_response(BackendClient1) of
                         {ok, 100, _RespHeaders, _BackendClient2} ->
@@ -113,7 +119,7 @@ negotiate_continue(Body, Req, BackendClient) ->
                             {error, Reason}
                     end;
                 {error, timeout} ->
-                    negotiate_continue(Body, Req, BackendClient);
+                    negotiate_continue(Body, Req, BackendClient, Timeout-Wait);
                 {error, Error} ->
                     {error, Error}
             end;
