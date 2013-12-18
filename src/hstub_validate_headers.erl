@@ -8,7 +8,6 @@ execute(Req, Env) ->
 
 -spec validate_host(binary(), Req, Env) ->
                            {error, 400, Req} |
-                           {error, 417, Req} |
                            {ok, Req, Env} when
       Req :: cowboy_req:req(),
       Env :: cowboy_middleware:env().
