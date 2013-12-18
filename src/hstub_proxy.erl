@@ -173,12 +173,12 @@ upgrade(Headers, Req, BackendClient) ->
       Req :: cowboy_req:req(),
       Client :: hstub_client:client(),
       Error :: any().
-relay(Status, Headers, Opts, Req, Client) ->
+relay(Status, HeadersRaw, Opts, Req, Client) ->
     %% Dispatch data from hstub_client down into the cowboy connection, either
     %% in batch or directly.
     Headers = case lists:member(close, Opts) of
-        false -> response_headers(Headers);
-        true  -> add_connection_close_header(response_headers(Headers))
+        false -> response_headers(HeadersRaw);
+        true  -> add_connection_close_header(response_headers(HeadersRaw))
     end,
     case hstub_client:body_type(Client) of
         {content_size, N} when N =< ?BUFFER_LIMIT ->

@@ -59,11 +59,17 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
                 [upgrade] ->
                     upgrade_request(Code, RespHeaders, ProxyOpts, Req1,
                                     State#state{backend_client=BackendClient1});
-                [continue|_] when Code =:= 100 ->
+                [continue|_] ->
                     %% Leftover from Continue due to race condition between
                     %% client and server.
-                    Req2 = cowboy_req:set_meta(request_type, Type--[continue], Req1),
-                    read_backend_response(Req2, State#state{backend_client=BackendClient1})
+                    case Code of
+                       100 ->
+                           Req2 = cowboy_req:set_meta(request_type, Type--[continue], Req1),
+                           read_backend_response(Req2, State#state{backend_client=BackendClient1});
+                       _ ->
+                           http_request(Code, RespHeaders, [close|ProxyOpts], Req1,
+                               State#state{backend_client=BackendClient1})
+                   end
             end;
         {error, _Error} ->
             {error, 503, Req}
