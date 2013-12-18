@@ -13,6 +13,20 @@ Run
 
     $ foreman start web
 
+Logs and statistics being collected
+-----------------------------------
+
+* `domain_lookup`
+ * Time it takes to lookup the domain in the domain service.
+* `service_lookup`
+ * Time it takes to lookup a service to connect to.
+* `connect_time`
+ * Time it takes to connect to the backend server.
+*  `pre_connect`
+ * Timestamp before connecting to the backend server
+* `connection_accepted`
+ * Timestamp when connection is accepted
+
 Try it out
 ----------
 

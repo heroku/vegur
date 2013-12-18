@@ -67,7 +67,6 @@ stamp(EventType, Details, Log) ->
 stamp(EventType, T, Details, Log = #log{events = Q}) ->
     Log#log{events = queue:in({T, EventType, Details}, Q)}.
 
-
 -spec timestamp_diff(event_type(), event_type(), request_log()) -> term().
 timestamp_diff(BeginningEventType, EndingEventType, Log) ->
     timestamp_diff(BeginningEventType, EndingEventType, undefined, Log).

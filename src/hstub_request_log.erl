@@ -5,8 +5,17 @@
 -define(LOGGER, hstub_req_log).
 
 -export([new/1,
-         log/3
+         log/3,
+         get_log_value/2,
+         stamp/2,
+         total_routing_time/1
         ]).
+
+-type event_type() :: pre_connect|connection_accepted.
+-type log_type() :: domain_lookup|service_lookup|connect_time.
+
+-export_type([event_type/0,
+              log_type/0]).
 
 -spec new(Req) -> Req when
       Req :: cowboy_req:req().
@@ -21,12 +30,42 @@ new(Req) ->
     {RequestId, Req6} = cowboy_req:header(hstub_app:config(request_id_name), Req5),
     {RequestId1, Req7} = get_or_validate_request_id(RequestId, Req6),
     Req8 = cowboy_req:set_meta(request_id, RequestId1, Req7),
-    cowboy_req:set_meta(logging, hstub_req_log:new(Now), Req8).
+    Log = ?LOGGER:new(Now),
+    Log1 = ?LOGGER:stamp(connection_accepted, Log),
+    cowboy_req:set_meta(logging, Log1, Req8).
 
+-spec stamp(EventType, Req) -> Req when
+      EventType :: event_type(),
+      Req :: cowboy_req:req().
+stamp(EventType, Req) ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    cowboy_req:set_meta(logging, ?LOGGER:stamp(EventType, Log), Req1).
+
+-spec log(LogType, Fun, Req) -> {any(), Req} when
+      LogType :: log_type(),
+      Fun :: fun(() -> any()),
+      Req :: cowboy_req:req().
 log(EventType, Fun, Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
     {Ret, NewLog} = ?LOGGER:log(EventType, Fun, Log),
-    {Ret, cowboy_req:set_meta(logger, NewLog, Req1)}.
+    {Ret, cowboy_req:set_meta(logging, NewLog, Req1)}.
+
+total_routing_time(Req) ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {?LOGGER:timestamp_diff(pre_connect, connection_accepted, Log),
+     Req1}.
+
+get_log_value(EventType, Req) ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    Rep = ?LOGGER:linear_report(fun(X) ->
+                                        if
+                                            X =:= EventType ->
+                                                true;
+                                            true ->
+                                                false
+                                        end
+                                end, Log),
+    {proplists:get_value("total", Rep), Req1}.
 
 get_or_validate_request_id(undefined, Req) ->
     {get_request_id(), Req};

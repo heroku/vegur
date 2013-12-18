@@ -195,7 +195,7 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
             Transport:send(Sock, Data),
             {ok, backend_close(Client2)};
         {error, Reason} ->
-            backend:close(Client),
+            backend_close(Client),
             {error, Reason}
     end.
 

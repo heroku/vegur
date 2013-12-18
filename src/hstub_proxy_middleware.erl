@@ -1,4 +1,7 @@
 -module(hstub_proxy_middleware).
+
+-behaviour(cowboy_middleware).
+-include("hstub_log.hrl").
 -export([execute/2]).
 
 -record(state, { backend_client :: term()
@@ -10,12 +13,13 @@ execute(Req, Env) ->
     connect(Service, Req1, Env).
 
 connect(Service, Req, Env) ->
-    case hstub_proxy:backend_connection(Service) of
-        {connected, Client} ->
-            proxy(Req, #state{backend_client = Client,
-                              env = Env});
-        {error, _Reason} ->
-            {error, 503, Req}
+    Req1 = hstub_request_log:stamp(pre_connect, Req),
+    case ?LOG(connect_time, hstub_proxy:backend_connection(Service), Req1) of
+        {{connected, Client}, Req2} ->
+            proxy(Req2, #state{backend_client = Client,
+                               env = Env});
+        {{error, _Reason}, Req2} ->
+            {error, 503, Req2}
     end.
 
 proxy(Req, State) ->
@@ -99,7 +103,25 @@ add_proxy_headers(Headers, Req) ->
     {Headers1, Req1} = add_request_id(Headers, Req),
     {Headers2, Req2} = add_forwarded(Headers1, Req1),
     {Headers3, Req3} = add_via(Headers2, Req2),
-    {Headers3, Req3}.
+    {Headers4, Req4} = add_connect_time(Headers3, Req3),
+    add_total_route_time(Headers4, Req4).
+
+add_connect_time(Headers, Req) ->
+    {Time, Req1} = hstub_request_log:get_log_value(connect_time, Req),
+    {hstub_utils:add_or_replace_header(hstub_app:config(connect_time_header),
+                                       integer_to_list(Time), Headers),
+     Req1}.
+
+add_total_route_time(Headers, Req) ->
+    {Time, Req1} =
+        case hstub_request_log:total_routing_time(Req) of
+            {undefined, Req2} ->
+                {"null", Req2};
+            {Time1, Req2} ->
+                {integer_to_list(Time1), Req2}
+        end,
+    {hstub_utils:add_or_replace_header(hstub_app:config(route_time_header),
+                                       Time, Headers), Req1}.
 
 add_request_id(Headers, Req) ->
     {RequestId, Req1} = cowboy_req:meta(request_id, Req),
