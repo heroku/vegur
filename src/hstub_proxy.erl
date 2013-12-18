@@ -6,9 +6,9 @@
          ,send_request/7
          ,send_headers/7
          ,send_body/7
-         ,read_response/1
+         ,read_backend_response/2
          ,upgrade/3
-         ,relay/5]).
+         ,relay/4]).
 
 -spec backend_connection(Service) ->
                                 {connected, Client} |
@@ -49,12 +49,12 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
                                                Url,
                                                Path),
     {ok, _} = hstub_client:raw_request(IoHeaders, Client),
-    {Type, Req1} = cowboy_req:meta(request_type, Req, []),
-    case lists:member(continue, Type) of
-        false ->
-            {done, Req1, Client};
-        true ->
-            negotiate_continue(Body, Req1, Client)
+    {Cont, Req1} = cowboy_req:meta(continue, Req, []),
+    case Cont of
+        continue ->
+            negotiate_continue(Body, Req1, Client);
+        _ ->
+            {done, Req1, Client}
     end.
 
 send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
@@ -101,21 +101,14 @@ negotiate_continue(Body, Req, BackendClient) ->
             case hstub_client:buffer_data(0, timer:seconds(1), BackendClient) of
                 {ok, BackendClient1} ->
                     case read_response(BackendClient1) of
-                        {ok, 100, _RespHeaders, _BackendClient2, _Opts} ->
+                        {ok, 100, _RespHeaders, _BackendClient2} ->
                             %% We don't carry the headers on a 100 Continue
-                            HTTPVer = atom_to_binary(hstub_client:version(BackendClient), latin1),
-                            {{Transport,Socket}, _} = cowboy_req:raw_socket(Req, [no_buffer]),
-                            Transport:send(Socket,
-                                           << HTTPVer/binary, " 100 Continue\r\n\r\n" >>),
-                            %% Got it. Now clean up the '100 Continue' state from
-                            %% the request, it's as if it never happened.
-                            {Type, Req1} = cowboy_req:meta(request_type=Req, []),
-                            Req2 = cowboy_req:set_meta(request_type, Type--[continue], Req1),
+                            Req1 = send_continue(Req, BackendClient),
                             %% We use the original client so that no state
                             %% change due to 100 Continue is observable.
-                            {done, Req2, BackendClient};
-                        {ok, Code, RespHeaders, BackendClient2, Opts} ->
-                            {ok, Code, RespHeaders, BackendClient2, [close|Opts]};
+                            {done, Req1, BackendClient};
+                        {ok, Code, RespHeaders, BackendClient2} ->
+                            {ok, Code, RespHeaders, BackendClient2};
                         {error, Reason} ->
                             {error, Reason}
                     end;
@@ -139,8 +132,47 @@ read_response(Client) ->
     case hstub_client:response(Client) of
         {error, _} = Err -> Err;
         {ok, Code, RespHeaders, Client2} ->
-            {ok, Code, RespHeaders, Client2, []}
+            {ok, Code, RespHeaders, Client2}
     end.
+
+%% This function works like read_response, but actually handles
+%% the 100-Continue business to keep it out of the regular request flow
+%% for the middleware.
+-spec read_backend_response(Req, Client) ->
+                           {ok, Code, Headers, Req, Client} |
+                           {error, Error} when
+      Req :: cowboy_req:req(),
+      Client :: hstub_client:client(),
+      Code :: pos_integer(),
+      Headers :: [{binary(), binary()}]|[],
+      Error :: any().
+read_backend_response(Req, Client) ->
+    case read_response(Client) of
+        {error, _} = Err -> Err;
+        {ok, Code, RespHeaders, Client1} ->
+            {Cont, Req1} = cowboy_req:meta(continue, Req, []),
+            case {Code, Cont} of
+                {100, continue} ->
+                    %% Leftover from Continue due to race condition between
+                    %% client and server. Forward to client, which should
+                    %% deal with it.
+                    Req2 = send_continue(Req1, Client),
+                    read_backend_response(Req2, Client1);
+                {100, continued} ->
+                    {error, non_terminal_status_after_continue};
+                _ ->
+                    {ok, Code, RespHeaders, Req1, Client1}
+            end
+    end.
+
+send_continue(Req, BackendClient) ->
+    HTTPVer = atom_to_binary(hstub_client:version(BackendClient), latin1),
+    {{Transport,Socket}, _} = cowboy_req:raw_socket(Req, [no_buffer]),
+    Transport:send(Socket,
+        << HTTPVer/binary, " 100 Continue\r\n\r\n" >>),
+    %% Got it. Now clean up the '100 Continue' state from
+    %% the request, and mark it as handled
+    cowboy_req:set_meta(continue, continued, Req).
 
 -spec upgrade(Headers, Req, Client) ->
                      {done, Req} when
@@ -164,19 +196,18 @@ upgrade(Headers, Req, BackendClient) ->
     backend_close(BackendClient),
     {done, Req3}.
 
--spec relay(Status, Headers, Opts, Req, Client) ->
+-spec relay(Status, Headers, Req, Client) ->
                    {ok, Req, Client} |
                    {error, Error, Req} when
       Status :: pos_integer(),
       Headers :: [{binary(), binary()}]|[],
-      Opts :: [term()],
       Req :: cowboy_req:req(),
       Client :: hstub_client:client(),
       Error :: any().
-relay(Status, HeadersRaw, Opts, Req, Client) ->
+relay(Status, HeadersRaw, Req, Client) ->
     %% Dispatch data from hstub_client down into the cowboy connection, either
     %% in batch or directly.
-    Headers = case lists:member(close, Opts) of
+    Headers = case should_close(Status, Req, Client) of
         false -> response_headers(HeadersRaw);
         true  -> add_connection_close_header(response_headers(HeadersRaw))
     end,
@@ -347,6 +378,13 @@ stream_close({Transport,Sock}=Raw, Client) ->
             {error, Reason}
     end.
 
+%% We should close the connection whenever we get an Expect: 100-Continue
+%% that got answered with a final status code.
+should_close(Status, Req, _Client) ->
+    {Cont, _} = cowboy_req:meta(continue, Req, []),
+    %% If we haven't received a 100 continue to forward AND this is
+    %% a final status, then we should close the connection
+    Cont =:= continue andalso Status >= 200.
 
 backend_close(undefined) -> undefined;
 backend_close(Client) ->

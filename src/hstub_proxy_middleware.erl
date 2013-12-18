@@ -49,42 +49,31 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
     end.
 
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
-    case hstub_proxy:read_response(BackendClient) of
-        {ok, Code, RespHeaders, BackendClient1, ProxyOpts} ->
-            {Type, Req1} = cowboy_req:meta(request_type, Req, []),
+    case hstub_proxy:read_backend_response(Req, BackendClient) of
+        {ok, Code, RespHeaders, Req1, BackendClient1} ->
+            {Type, Req2} = cowboy_req:meta(request_type, Req1, []),
             case lists:sort(Type) of
                 [] ->
-                    http_request(Code, RespHeaders, ProxyOpts, Req1,
+                    http_request(Code, RespHeaders, Req2,
                                  State#state{backend_client=BackendClient1});
                 [upgrade] ->
-                    upgrade_request(Code, RespHeaders, ProxyOpts, Req1,
-                                    State#state{backend_client=BackendClient1});
-                [continue|_] ->
-                    %% Leftover from Continue due to race condition between
-                    %% client and server.
-                    case Code of
-                       100 ->
-                           Req2 = cowboy_req:set_meta(request_type, Type--[continue], Req1),
-                           read_backend_response(Req2, State#state{backend_client=BackendClient1});
-                       _ ->
-                           http_request(Code, RespHeaders, [close|ProxyOpts], Req1,
-                               State#state{backend_client=BackendClient1})
-                   end
+                    upgrade_request(Code, RespHeaders, Req2,
+                                    State#state{backend_client=BackendClient1})
             end;
         {error, _Error} ->
             {error, 503, Req}
     end.
 
-upgrade_request(101, Headers, _Opts, Req, #state{backend_client=BackendClient,
+upgrade_request(101, Headers, Req, #state{backend_client=BackendClient,
                                                  env=Env}) ->
     {done, Req1} = hstub_proxy:upgrade(Headers, Req, BackendClient),
     {ok, Req1, Env};
-upgrade_request(Code, Headers, ProxyOpts, Req, State) ->
-    http_request(Code, Headers, ProxyOpts, Req, State).
+upgrade_request(Code, Headers, Req, State) ->
+    http_request(Code, Headers, Req, State).
 
-http_request(Code, Headers, ProxyOpts, Req,
+http_request(Code, Headers, Req,
              #state{backend_client=BackendClient, env=Env}) ->
-    case hstub_proxy:relay(Code, Headers, ProxyOpts, Req, BackendClient) of
+    case hstub_proxy:relay(Code, Headers, Req, BackendClient) of
         {ok, Req1, _Client1} ->
             {ok, Req1, Env};
         {error, _Error, Req1} ->
