@@ -66,9 +66,8 @@ init_per_group(hstub_request_mocks, Config) ->
     [{meck_started, MeckStarted} | Config];
 init_per_group(hstub_request_upgrade, Config) ->
     TestDomain = <<"hstubtest.testdomain">>,
-    {ok, OldMiddlewares} = set_middlewares(hstub_http, [hstub_upgrade_middleware]),
-    [{old_middlewares, OldMiddlewares},
-     {test_domain, TestDomain} | Config];
+    ok = mock_middlewares([hstub_upgrade_middleware]),
+    [{test_domain, TestDomain} | Config];
 init_per_group(hstub_request_lookups, Config) ->
     {ok, MeckStarted} = application:ensure_all_started(meck),
     TestDomain = <<"hstubtest.testdomain">>,
@@ -90,10 +89,7 @@ end_per_group(hstub_request_mocks, Config) ->
     [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
     Config;
 end_per_group(hstub_request_upgrade, Config) ->
-    Middlewares = ?config(old_middlewares, Config),
-    {ok, _} = set_middlewares(hstub_http, Middlewares),
-    ok = application:stop(inets),
-    ok = application:start(inets),
+    ok = unmock_middlewares(),
     Config;
 end_per_group(hstub_request_lookups, Config) ->
     [meck:unload(Mod) || Mod <- [hstub_domains, hstub_service]],
@@ -340,6 +336,14 @@ mock_service_reply(Res) ->
                 fun(_) ->
                         Res
                 end).
+
+mock_middlewares(Middlewares) ->
+    meck:new(hstub_app, [no_link, passthrough]),
+    meck:expect(hstub_app, middleware_stack, fun() -> Middlewares end),
+    ok.
+
+unmock_middlewares() ->
+    meck:unload(hstub_app).
 
 set_middlewares(RanchRef, Middlewares) ->
     OldOpts = ranch:get_protocol_options(RanchRef),

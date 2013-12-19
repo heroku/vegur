@@ -20,6 +20,8 @@
 -export([config/0, config/1, config/2,
          start/0]).
 
+-export([middleware_stack/0]).
+
 %%%===================================================================
 %%% Convenience Functions
 %%%===================================================================
@@ -41,6 +43,16 @@ config(Key) ->
 
 config() ->
     application:get_all_env(?APP).
+
+middleware_stack() ->
+    [hstub_healthcheck_middleware
+    ,hstub_validate_headers
+    ,hstub_lookup_domain_middleware
+    ,hstub_maintenance_middleware
+    ,hstub_upgrade_middleware
+    ,hstub_lookup_service_middleware
+    ,hstub_proxy_middleware
+    ].
 
 %% ===================================================================
 %% Application callbacks
@@ -70,21 +82,11 @@ start_phase(listen, _Type, _Args) ->
 
 cowboy_opts() ->
     [{env, cowboy_env()}
-    ,{middlewares, middleware_stack()}
-    ,{onrequest, fun hstub_log_hook:on_request/1}].
+    ,{middlewares, [hstub_midjan_middleware]}
+    ,{onrequest, fun hstub_request_log:new/1}].
 
 cowboy_env() ->
     [].
-
-middleware_stack() ->
-    [hstub_healthcheck_middleware
-    ,hstub_validate_headers
-    ,hstub_lookup_domain_middleware
-    ,hstub_maintenance_middleware
-    ,hstub_upgrade_middleware
-    ,hstub_lookup_service_middleware
-    ,hstub_proxy_middleware
-    ].
 
 env_specs() ->
     [{http_listen_port, "PORT", [{transform, integer}]}

@@ -15,6 +15,8 @@ groups() ->
      {hstub_proxy_headers, [], [request_id
                                 ,forwarded_for
                                 ,via
+                                ,connect_time_header
+                                ,route_time_header
                                ]}
     ].
 
@@ -139,6 +141,32 @@ via(Config) ->
     receive
         {req, Req1} ->
             {<<"happyproxy, hstub">>, _} = cowboy_req:header(<<"via">>, Req1)
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
+connect_time_header(Config) ->
+    Port = ?config(hstub_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req} ->
+            {Res, _} = cowboy_req:header(hstub_app:config(connect_time_header), Req),
+            true = is_integer(list_to_integer(binary_to_list(Res)))
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
+route_time_header(Config) ->
+    Port = ?config(hstub_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req} ->
+            {Res, _} = cowboy_req:header(hstub_app:config(route_time_header), Req),
+            true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)
     end,
