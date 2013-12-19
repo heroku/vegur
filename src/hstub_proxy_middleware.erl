@@ -65,7 +65,7 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
     end.
 
 upgrade_request(101, Headers, Req, #state{backend_client=BackendClient,
-                                                 env=Env}) ->
+                                          env=Env}) ->
     {done, Req1} = hstub_proxy:upgrade(Headers, Req, BackendClient),
     {ok, Req1, Env};
 upgrade_request(Code, Headers, Req, State) ->
