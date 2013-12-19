@@ -1,0 +1,23 @@
+digraph hstub_100_continue {
+        request [shape=Mdiamond];
+        has_continue_meta [shape=diamond];
+        is_downstream_respones_code_100 [shape=diamond];
+        request -> has_continue_meta;
+        has_continue_meta -> continue [label="No"];
+        has_continue_meta -> negotiate_continue [label="Yes"];
+        negotiate_continue -> error [label="Timeout reached"];
+        negotiate_continue -> check_upstream_for_data;
+        check_upstream_for_data -> end [label="Upstream has data"];
+        check_upstream_for_data -> check_downstream_for_data [label="Timeout reading upstream"];
+        check_upstream_for_Data -> error [label="Error reading upstream"];
+        check_downstream_for_data -> negotiate_continue [label="Timeout reading downstream"];
+        check_downstream_for_data -> error [label="Error reading downstream"];
+        check_downstream_for_data -> read_downstream_response;
+        read_downstream_response -> error [label="Error reading downstream response"];
+        read_downstream_response -> is_downstream_respones_code_100;
+        is_downstream_respones_code_100 -> end [label="No"];
+        is_downstream_respones_code_100 -> send_continue_upstream [label="Yes"];
+        send_continue_upstream -> end;
+        error -> end;
+        end [shape=Msquare];
+}
