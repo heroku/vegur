@@ -5,7 +5,8 @@
          route_id/1
         ]).
 
--record(domain_group, {domain :: domain()}).
+-record(domain_group, {domain :: domain(),
+                       maintenance_mode = false :: boolean()}).
 -opaque domain_group() :: #domain_group{}.
 -type domain() :: binary().
 -export_type([domain_group/0
@@ -27,10 +28,10 @@ lookup(Domain) ->
 -spec route_id(domain_group()) ->
                       undefined | binary().
 route_id(#domain_group{}) ->
-    ok.
+    <<"group_id">>.
 
 -spec in_maintenance_mode(domain_group()) ->
-                                  true | false.
-in_maintenance_mode(_DomainGroup) ->
+                                 true | false.
+in_maintenance_mode(#domain_group{maintenance_mode=MaintenanceMode}) ->
     %% Would look into the record and return true or false
-    ok.
+    MaintenanceMode.

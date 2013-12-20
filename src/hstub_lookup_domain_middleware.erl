@@ -18,7 +18,7 @@ execute(Req, Env) ->
                                   {ok, Req, Env} when
       Reason :: hstub_lookup:redirect_reason(),
       DomainGroup :: hstub_domains:domain_group(),
-      Domain :: hstub_lookup:domain(),
+      Domain :: hstub_domains:domain(),
       ErrorCode :: 404.
 handle_domain_lookup({error, not_found}, Req, _Env) ->
     % No app associated with the domain
@@ -35,7 +35,7 @@ handle_domain_lookup({redirect, herokuapp_redirect, _DomainGroup, RedirectTo}, R
     {HeaderValue, Req4} = cowboy_req:header(<<"x-forwarded-proto">>, Req3),
     Proto = get_proto(HeaderValue),
     FullLocation = [Proto, <<"://">>, RedirectTo, Path, Qs2],
-    {ok, Req5} = cowboy_req:reply(301, [{"location", FullLocation}], Req4),
+    {ok, Req5} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req4),
     {halt, Req5};
 handle_domain_lookup({ok, DomainGroup}, Req, Env) ->
     Req1 = cowboy_req:set_meta(domain_group, DomainGroup, Req),

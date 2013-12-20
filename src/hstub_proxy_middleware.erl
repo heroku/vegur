@@ -141,7 +141,7 @@ add_forwarded(Headers, Req) ->
                 {Port, Req4} = cowboy_req:port(Req3),
                 {{PeerIp, Port}, Req4}
         end,
-    {Headers1, Req2} = hstub_utils:add_or_append_header(<<"x-forwarded-for">>, inet_parse:ntoa(PeerAddress),
+    {Headers1, Req2} = hstub_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress),
                                                         Headers, Req1),
     Headers2 =
         case DestPort of
@@ -156,5 +156,8 @@ add_forwarded(Headers, Req) ->
     {Headers3, Req2}.
 
 add_via(Headers, Req) ->
-    ViaName = hstub_app:config(instance_name, <<"hstub">>),
-    hstub_utils:add_or_append_header(<<"via">>, ViaName, Headers, Req).
+    hstub_utils:add_or_append_header(<<"via">>, get_via_value(), Headers, Req).
+
+-spec get_via_value() -> binary().
+get_via_value() ->
+    hstub_app:config(instance_name, <<"hstub">>).

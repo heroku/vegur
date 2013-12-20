@@ -11,14 +11,14 @@ parse_header(Key, Req) ->
     case cowboy_req:parse_header(Key, Req) of
         {ok, L, Req0} when is_list(L) -> {L, Req0};
         {ok, Term, Req0} -> {[Term], Req0};
-        {undefined, undefined, Req0} -> {[], Req0}
+        {undefined, _, Req0} -> {[], Req0}
     end.
 
 -spec add_or_append_header(Key, Value, Headers, Req) ->
                                   {Headers, Req} when
-      Key :: iolist(),
-      Value :: iolist(),
-      Headers :: [{iolist, iolist()}]|[],
+      Key :: iodata(),
+      Value :: iodata(),
+      Headers :: [{iodata(), iodata()}]|[],
       Req :: cowboy_req:req().
 add_or_append_header(Key, Val, Headers, Req) ->
     case cowboy_req:header(Key, Req) of
@@ -31,9 +31,9 @@ add_or_append_header(Key, Val, Headers, Req) ->
 
 -spec add_if_missing_header(Key, Value, Headers, Req) ->
                                    {Headers, Req} when
-      Key :: iolist(),
-      Value :: iolist(),
-      Headers :: [{iolist, iolist()}]|[],
+      Key :: iodata(),
+      Value :: iodata(),
+      Headers :: [{iodata(), iodata()}]|[],
       Req :: cowboy_req:req().
 add_if_missing_header(Key, Val, Headers, Req) ->
     {NewVal, Req2} = 
@@ -47,8 +47,8 @@ add_if_missing_header(Key, Val, Headers, Req) ->
 
 -spec add_or_replace_header(Key, Value, Headers) ->
                                     Headers when
-      Key :: iolist(),
-      Value :: iolist(),
-      Headers :: [{iolist, iolist()}]|[].
+      Key :: iodata(),
+      Value :: iodata(),
+      Headers :: [{iodata(), iodata()}]|[].
 add_or_replace_header(Key, Value, Headers) ->
     lists:keystore(Key, 1, Headers, {Key, Value}).
