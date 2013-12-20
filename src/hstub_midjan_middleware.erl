@@ -9,7 +9,7 @@
                      {error, StatusCode, Req} when
       Req :: cowboy_req:req(),
       Env :: cowboy_middleware:env(),
-      StatusCode :: cowboy:status_code().
+      StatusCode :: cowboy:http_status().
 execute(Req, Env) ->
     case midjan_core:start({Req, Env}, [{ordered, hstub_app:middleware_stack()},
                                         {translator, hstub_midjan_translator}

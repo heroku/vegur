@@ -70,7 +70,7 @@ get_log_value(EventType, Req) ->
 get_or_validate_request_id(undefined, Req) ->
     {get_request_id(), Req};
 get_or_validate_request_id(ReqId, Req) ->
-    case erequest_id:validate(ReqId, hstub_app:config(request_id_max_size)) of
+    case erequest_id:validate(ReqId, request_max_length()) of
         valid ->
             {ReqId, Req};
         invalid ->
@@ -80,3 +80,7 @@ get_or_validate_request_id(ReqId, Req) ->
 get_request_id() ->
     {ok, ReqId} = erequest_id:create(),
     ReqId.
+
+-spec request_max_length() -> pos_integer().
+request_max_length() ->
+    hstub_app:config(request_id_max_size).

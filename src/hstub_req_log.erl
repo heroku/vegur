@@ -167,7 +167,7 @@ flatten_report([{K,V}|Report], Flat) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Private functions %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%
--spec fetch_event_stamps(event_type(), request_log()) -> [event_type()].
+-spec fetch_event_stamps(event_type(), request_log()) -> [erlang:timestamp()].
 fetch_event_stamps(EventType1, #log{events = Q}) ->
     [T || {T, EventType2, _Details} <- queue:to_list(Q), EventType1 =:= EventType2].
 
