@@ -458,7 +458,6 @@ buffer_data(0, _Timeout, Client) -> % data is in the buffer
     {ok, Client};
 buffer_data(Length, Timeout, Client=#client{socket=Socket, transport=Transport,
                                             buffer=Buffer}) ->
-                                        ct:pal("HWAT"),
     case Length - iolist_size(Buffer) of
         N when N > 0 ->
             case Transport:recv(Socket, N, Timeout) of
