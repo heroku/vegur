@@ -440,14 +440,32 @@ stream_body(Client=#client{state=response_body, buffer=Buffer,
 recv(#client{socket=Socket, transport=Transport, read_timeout=Timeout}) ->
     Transport:recv(Socket, 0, Timeout).
 
-buffer_data(Length, Timeout, Client=#client{socket=Socket, transport=Transport,
-                                            buffer= <<>>}) ->
-    case Transport:recv(Socket, Length, Timeout) of
-        {ok, Data} -> {ok, Client#client{buffer=Data}};
-        {error, Reason} -> {error, Reason}
+%% A length of 0 means we want any amount of data buffered, including what
+%% is already there
+buffer_data(0, Timeout, Client=#client{socket=Socket, transport=Transport,
+                                       buffer= <<>>}) ->
+    case Transport:recv(Socket, 0, Timeout) of
+        {ok, Data} ->
+            {ok, Client#client{buffer=Data}};
+        {error, Reason} ->
+            {error, Reason}
     end;
-buffer_data(_, _, Client) -> % data already buffered
-    {ok, Client}.
+buffer_data(0, _Timeout, Client) -> % data is in the buffer
+    {ok, Client};
+buffer_data(Length, Timeout, Client=#client{socket=Socket, transport=Transport,
+                                            buffer=Buffer}) ->
+                                        ct:pal("HWAT"),
+    case Length - iolist_size(Buffer) of
+        N when N > 0 ->
+            case Transport:recv(Socket, N, Timeout) of
+                {ok, Data} ->
+                    {ok, Client#client{buffer= <<Buffer/binary, Data/binary>>}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        _ ->
+            {ok, Client}
+    end.
 
 header_list_values(Value) ->
     cowboy_http:nonempty_list(Value, fun cowboy_http:token_ci/2).
