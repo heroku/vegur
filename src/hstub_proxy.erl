@@ -168,6 +168,16 @@ read_backend_response(Req, Client) ->
                     read_backend_response(Req2, Client1);
                 {100, continued} ->
                     {error, non_terminal_status_after_continue};
+                {100, _} ->
+                    case cowboy_req:version(Req1) of
+                        {'HTTP/1.0', Req2} ->
+                            %% Http1.0 client without expect: 100-continue
+                            %% Strip as per RFC.
+                            read_backend_response(Req2, Client1);
+                        {_, Req2} ->
+                            %% We don't handle this, replicate current behavior
+                            {ok, Code, RespHeaders, Req2, Client1}
+                    end;
                 _ ->
                     {ok, Code, RespHeaders, Req1, Client1}
             end
