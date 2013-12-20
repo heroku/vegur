@@ -109,6 +109,8 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
                     case read_response(BackendClient1) of
                         {ok, 100, _RespHeaders, _BackendClient2} ->
                             %% We don't carry the headers on a 100 Continue
+                            %% for a simpler implementation -- there is no
+                            %% header prescribed for it in the spec anyway.
                             Req1 = send_continue(Req, BackendClient),
                             %% We use the original client so that no state
                             %% change due to 100 Continue is observable.
@@ -175,7 +177,7 @@ send_continue(Req, BackendClient) ->
     HTTPVer = atom_to_binary(hstub_client:version(BackendClient), latin1),
     {{Transport,Socket}, _} = cowboy_req:raw_socket(Req, [no_buffer]),
     Transport:send(Socket,
-        << HTTPVer/binary, " 100 Continue\r\n\r\n" >>),
+        [HTTPVer, <<" 100 Continue\r\n\r\n">>]),
     %% Got it. Now clean up the '100 Continue' state from
     %% the request, and mark it as handled
     cowboy_req:set_meta(continue, continued, Req).
