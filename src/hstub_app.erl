@@ -64,6 +64,8 @@ start(_StartType, _StartArgs) ->
     hstub_sup:start_link().
 
 stop(_State) ->
+    cowboy:stop_listener(?PROXY_REF),
+    cowboy:stop_listener(?HTTP_REF),
     ok.
 
 start_phase(listen, _Type, _Args) ->
