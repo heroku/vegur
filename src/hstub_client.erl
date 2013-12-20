@@ -57,7 +57,8 @@
 -export([body_type/1]).
 -export([version/1]).
 
--export([headers_to_iolist/6]).
+-export([headers_to_iolist/1]).
+-export([request_to_headers_iolist/6]).
 -export([request_to_iolist/6]).
 -export([raw_socket/1]).
 -export([auth_header/1]).
@@ -144,10 +145,10 @@ request(Method, URL, Headers, Body, Client=#client{
         request -> {ok, Client}
     end,
     Data = request_to_iolist(Method, Headers, Body, Version, FullHost,
-                             Path),
+                                     Path),
     raw_request(Data, Client2).
 
-headers_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
+request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     VersionBin = atom_to_binary(Version, latin1),
     %% @todo do keepalive too, allow override...
     Headers2 = [{<<"Host">>, FullHost} | Headers],
@@ -157,13 +158,16 @@ headers_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
         {stream, Length} -> [{<<"Content-Length">>, integer_to_list(Length)}];
         Body -> [{<<"Content-Length">>, integer_to_list(iolist_size(Body))}]
     end,
-    HeadersData = [[Name, <<": ">>, Value, <<"\r\n">>]
-                   || {Name, Value} <- Headers2++ContentLength],
+    HeadersData = headers_to_iolist(Headers2++ContentLength),
     [Method, <<" ">>, Path, <<" ">>, VersionBin, <<"\r\n">>,
      HeadersData, <<"\r\n">>].
 
+headers_to_iolist(Headers) ->
+    [[Name, <<": ">>, Value, <<"\r\n">>] || {Name, Value} <- Headers].
+
 request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
-    [headers_to_iolist(Method, Headers, Body, Version, FullHost, Path), Body].
+    [request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path),
+     Body].
 
 
 raw_socket(Client=#client{transport=T, socket=S, buffer=Buf}) ->

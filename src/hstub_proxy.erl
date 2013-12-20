@@ -42,12 +42,12 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% hstub_client:request_to_iolist will return a partial request with the
     %% correct headers in place, and the body can be sent later with sequential
     %% raw_request calls.
-    IoHeaders = hstub_client:headers_to_iolist(Method,
-                                               request_headers(Headers),
-                                               Body,
-                                               'HTTP/1.1',
-                                               Url,
-                                               Path),
+    IoHeaders = hstub_client:request_to_headers_iolist(Method,
+                                                       request_headers(Headers),
+                                                       Body,
+                                                       'HTTP/1.1',
+                                                       Url,
+                                                       Path),
     {ok, _} = hstub_client:raw_request(IoHeaders, Client),
     {Cont, Req1} = cowboy_req:meta(continue, Req, []),
     case Cont of
@@ -192,8 +192,7 @@ upgrade(Headers, Req, BackendClient) ->
     {Server={TransStub,SockStub}, BufStub, _NewClient} = hstub_client:raw_socket(BackendClient),
     {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_socket(Req),
     %% Send the response to the caller
-    Headers1 = [[Name, <<": ">>, Value, <<"\r\n">>]
-                   || {Name, Value} <- request_headers(Headers)],
+    Headers1 = hstub_client:headers_to_iolist(request_headers(Headers)),
     TransCow:send(SockCow,
                   [<<"HTTP/1.1 101 Switching Protocols\r\n">>,
                    Headers1, <<"\r\n">>,
