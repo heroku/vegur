@@ -5,7 +5,7 @@
 
 all() -> [back_and_forth, body_timeout, non_terminal, continue_upgrade_httpbis,
           upgrade_no_continue, terminal_no_continue_partial,
-          terminal_no_continue_complete, http_1_0_continue].
+          terminal_no_continue_complete, no_expect_continue, http_1_0_continue].
 
 %%%%%%%%%%%%
 %%% Init %%%
@@ -250,6 +250,39 @@ terminal_no_continue_complete(Config) ->
     wait_for_closed(Server, 5000),
     wait_for_closed(Client, 5000).
 
+%% We should forward 100 Continues sent to HTTP 1.1 clients that didn't have
+%% the expect:100-continue header as per the RFC, given that older
+%% HTTP 1.1 specs made it possible and current provisions mention this being
+%% possible behavior to respect.
+no_expect_continue(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ReqHeaders = no_expect_headers(Config),
+    ReqBody = req_body(),
+    Resp100 = resp_100(),
+    Resp = resp(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, ReqHeaders),
+    ok = gen_tcp:send(Client, ReqBody),
+    Server = get_accepted(Ref),
+    {ok, _ReqHeaders} = gen_tcp:recv(Server, 0, 1000),
+    %% receive the body and respond
+    ok = gen_tcp:send(Server, Resp100),
+    ok = gen_tcp:send(Server, Resp),
+    %% Result is a 200, the 100 Continue should also show up. Wait a bit
+    %% for all packets to come in.
+    timer:sleep(100),
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    ct:pal("Response: ~p",[Response]),
+    {match, _} = re:run(Response, "100 Continue"),
+    {match, _} = re:run(Response, "200 OK"),
+    {match, _} = re:run(Response, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
+    wait_for_closed(Server, 5000).
+
 %% We should strip 100 Continues sent to HTTP 1.0 clients that didn't have
 %% the expect:100-continue header as per the RFC
 http_1_0_continue(Config) ->
@@ -273,7 +306,7 @@ http_1_0_continue(Config) ->
     ok = gen_tcp:send(Server, Resp),
     %% Result is a 200, the 100 Continue never showed up
     {ok, Response} = gen_tcp:recv(Client, 0, 1000),
-    ct:pal("Response: ~p",[Response]),
+    ct:pal("Response: ~p",[Response]),
     {match, _} = re:run(Response, "200 OK"),
     {match, _} = re:run(Response, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
     nomatch = re:run(Response, "100 Continue"),
@@ -338,6 +371,15 @@ http_1_0_headers(Config) ->
     LPort = ?config(server_port, Config),
     Domain = <<"127.0.0.1:", (integer_to_binary(LPort))/binary>>,
     "POST /continue-1 HTTP/1.0\r\n"
+    "Host: "++binary_to_list(Domain)++"\r\n"
+    "Content-Length: 10\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n".
+
+no_expect_headers(Config) ->
+    LPort = ?config(server_port, Config),
+    Domain = <<"127.0.0.1:", (integer_to_binary(LPort))/binary>>,
+    "POST /continue-1 HTTP/1.1\r\n"
     "Host: "++binary_to_list(Domain)++"\r\n"
     "Content-Length: 10\r\n"
     "Content-Type: text/plain\r\n"

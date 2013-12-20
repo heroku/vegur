@@ -175,8 +175,11 @@ read_backend_response(Req, Client) ->
                             %% Strip as per RFC.
                             read_backend_response(Req2, Client1);
                         {_, Req2} ->
-                            %% We don't handle this, replicate current behavior
-                            {ok, Code, RespHeaders, Req2, Client1}
+                            %% Forward it. Older HTTP 1.1 servers may send
+                            %% these or no reason, and clients should handle
+                            %% them.
+                            Req3 = send_continue(Req2, Client),
+                            read_backend_response(Req3, Client1)
                     end;
                 _ ->
                     {ok, Code, RespHeaders, Req1, Client1}
