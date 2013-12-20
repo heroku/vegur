@@ -47,6 +47,7 @@ config() ->
 middleware_stack() ->
     [hstub_healthcheck_middleware
     ,hstub_validate_headers
+    ,hstub_continue_middleware
     ,hstub_lookup_domain_middleware
     ,hstub_maintenance_middleware
     ,hstub_upgrade_middleware
