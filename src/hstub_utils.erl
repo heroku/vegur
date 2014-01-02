@@ -6,12 +6,12 @@
          ,add_or_replace_header/3]).
 
 -spec parse_header(binary(), cowboy_req:req()) ->
-                          {[]|[binary()], cowboy_req:req()}.
+                          {[]|[binary()|undefined], cowboy_req:req()}.
 parse_header(Key, Req) ->
     case cowboy_req:parse_header(Key, Req) of
         {ok, L, Req0} when is_list(L) -> {L, Req0};
         {ok, Term, Req0} -> {[Term], Req0};
-        {undefined, Term, Req0} -> {[Term], Req0}
+        {undefined, _, Req0} -> {[], Req0}
     end.
 
 -spec add_or_append_header(Key, Value, Headers, Req) ->
