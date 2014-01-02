@@ -91,7 +91,8 @@ become(Client, Server) ->
     Client :: Transport,
     Server :: Transport,
     Transport :: {module(), any()},
-    Opts :: [{on_close, fun()}].
+    Opts :: [{on_close, fun()}|
+             {timeout, non_neg_integer()}].
 become({TransC, PortC}, {TransS, PortS}, Opts) ->
     State = #state{client_transport=TransC,
                    client_port=PortC,
