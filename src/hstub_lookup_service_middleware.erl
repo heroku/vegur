@@ -5,16 +5,11 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
+    InterfaceModule = proplists:get_value(interface_module, Env),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {Service, Req2} = ?LOG(service_lookup, hstub_lookup:lookup_service(DomainGroup), Req1),
+    {Service, Req2} = ?LOG(service_lookup, InterfaceModule:lookup_service(DomainGroup), Req1),
     handle_service(Service, Req2, Env).
 
--spec handle_service(hstub_service:service_lookup_result(), Req, Env) ->
-                            {ok, Req, Env} |
-                            {error, ErrorCode, Req} when
-      Req :: cowboy_req:req(),
-      Env :: cowboy_middleware:env(),
-      ErrorCode :: 404 | 502 | 503.
 handle_service({route, Service}, Req, Env) ->
     % We have a service to route to, moving on
     Req1 = cowboy_req:set_meta(service, Service, Req),

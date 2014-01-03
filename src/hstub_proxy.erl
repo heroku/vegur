@@ -10,13 +10,12 @@
          ,upgrade/3
          ,relay/4]).
 
--spec backend_connection(Service) ->
+-spec backend_connection(ServiceBackend) ->
                                 {connected, Client} |
                                 {error, any()} when
-      Service :: hstub_service:service(),
+      ServiceBackend :: hstub_interface:service_backend(),
       Client :: hstub_client:client().
-backend_connection(Service) ->
-    {IpAddress, Port} = hstub_service:backend(Service),
+backend_connection({IpAddress, Port}) ->
     {ok, Client} = hstub_client:init([]),
     case hstub_client:connect(ranch_tcp, IpAddress, Port,
                               100, Client) of

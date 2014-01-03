@@ -14,7 +14,9 @@ execute(Req, Env) ->
 
 connect(Service, Req, Env) ->
     Req1 = hstub_request_log:stamp(pre_connect, Req),
-    case ?LOG(connect_time, hstub_proxy:backend_connection(Service), Req1) of
+    InterfaceModule = proplists:get_value(interface_module, Env),
+    ServiceBackend = InterfaceModule:service_backend(Service),
+    case ?LOG(connect_time, hstub_proxy:backend_connection(ServiceBackend), Req1) of
         {{connected, Client}, Req2} ->
             proxy(Req2, #state{backend_client = Client,
                                env = Env});

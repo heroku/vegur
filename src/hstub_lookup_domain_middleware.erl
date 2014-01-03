@@ -6,8 +6,9 @@
 
 execute(Req, Env) ->
     % Check if this is a healthcheck request
+    InterfaceModule = proplists:get_value(interface_module, Env),
     {Host, Req1} = cowboy_req:host(Req),
-    {Res, Req2} = ?LOG(domain_lookup, hstub_lookup:lookup_domain(Host), Req1),
+    {Res, Req2} = ?LOG(domain_lookup, InterfaceModule:lookup_domain_name(Host), Req1),
     handle_domain_lookup(Res, Req2, Env).
 
 -spec handle_domain_lookup({error, not_found} |
@@ -16,9 +17,9 @@ execute(Req, Env) ->
                                   {error, ErrorCode, Req} |
                                   {halt, Req} |
                                   {ok, Req, Env} when
-      Reason :: hstub_lookup:redirect_reason(),
-      DomainGroup :: hstub_domains:domain_group(),
-      Domain :: hstub_domains:domain(),
+      Reason :: atom(),
+      DomainGroup :: hstub_interface:domain_group(),
+      Domain :: hstub_interface:domain(),
       ErrorCode :: 404.
 handle_domain_lookup({error, not_found}, Req, _Env) ->
     % No app associated with the domain

@@ -27,16 +27,15 @@ init_per_suite(Config) ->
     application:load(hstub),
     HstubPort = 9333,
     DynoPort = 9555,
-    Mocked = mock_through(DynoPort),
+    mock_through(DynoPort),
     application:set_env(hstub, http_listen_port, HstubPort),
     {ok, HstubStarted} = application:ensure_all_started(hstub),
     [{started, Cowboy++Inets++HstubStarted++Meck},
-     {mocked, Mocked},
      {hstub_port, HstubPort},
      {dyno_port, DynoPort}| Config].
 
 end_per_suite(Config) ->
-    [meck:unload(M) || M <- ?config(mocked, Config)],
+    meck:unload(),
     Config.
 
 init_per_group(_, Config) ->
@@ -181,20 +180,17 @@ stop_dyno() ->
     hstub_dyno:stop().
 
 mock_through(Port) ->
-    meck:new(hstub_lookup, [no_link, passthrough]),
-    meck:expect(hstub_lookup, lookup_domain,
+    meck:new(hstub_stub, [no_link, passthrough]),
+    meck:expect(hstub_stub, lookup_domain_name,
                 fun(_) ->
                         {ok, test_domain}
                 end),
-    meck:expect(hstub_lookup, lookup_service,
+    meck:expect(hstub_stub, lookup_service,
                 fun(_) ->
                         {route, test_route}
                 end),
-    meck:new(hstub_domains, [no_link, passthrough]),
-    meck:expect(hstub_domains, in_maintenance_mode, fun(_) -> false end),
-    meck:new(hstub_service, [no_link, passthrough]),
-    meck:expect(hstub_service, backend,
+    meck:expect(hstub_stub, in_maintenance_mode, fun(_) -> false end),
+    meck:expect(hstub_stub, service_backend,
                 fun(_) ->
                         {{127,0,0,1}, Port}
-                end),
-    [hstub_lookup, hstub_domains, hstub_service].
+                end).

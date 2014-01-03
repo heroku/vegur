@@ -11,21 +11,24 @@ all() -> [back_and_forth, body_timeout, non_terminal, continue_upgrade_httpbis,
 %%% Init %%%
 %%%%%%%%%%%%
 init_per_suite(Config) ->
-    meck:new(hstub_domains, [passthrough, no_link]),
-    meck:expect(hstub_domains, in_maintenance_mode, fun(_) -> false end),
+    meck:new(hstub_stub, [passthrough, no_link]),
+    meck:expect(hstub_stub, in_maintenance_mode, fun(_) -> false end),
+    meck:expect(hstub_stub, lookup_domain_name, fun(_) -> {ok, test_domain} end),
+    meck:expect(hstub_stub, lookup_service, fun(_) -> {route, test_service} end),
     Env = application:get_all_env(hstub),
     [{hstub_env, Env} | Config].
 
 end_per_suite(Config) ->
     [application:set_env(hstub, K, V) || {K,V} <- ?config(hstub_env, Config)],
-    [hstub_domains] = meck:unload().
+    [hstub_stub] = meck:unload().
 
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
     application:load(hstub),
-    ok = application:set_env(hstub, domain, <<"127.0.0.1">>),
-    ok = application:set_env(hstub, backend, {<<"127.0.0.1">>, LPort}),
+    %ok = application:set_env(hstub, domain, <<"127.0.0.1">>),
+    meck:expect(hstub_stub, service_backend, fun(_) -> {<<"127.0.0.1">>, LPort} end),
+    %ok = application:set_env(hstub, backend, {<<"127.0.0.1">>, LPort}),
     {ok, ProxyPort} = application:get_env(hstub, http_listen_port),
     {ok, Started} = application:ensure_all_started(hstub),
     [{server_port, LPort},
