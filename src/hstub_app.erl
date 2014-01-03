@@ -87,7 +87,8 @@ cowboy_opts() ->
     ,{onrequest, fun hstub_request_log:new/1}].
 
 cowboy_env() ->
-    [{interface_module, hstub_stub}].
+    InterfaceModule = config(interface_module),
+    [{interface_module, InterfaceModule}].
 
 env_specs() ->
     [{http_listen_port, "PORT", [{transform, integer}]}
