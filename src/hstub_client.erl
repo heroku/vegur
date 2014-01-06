@@ -74,7 +74,7 @@
     buffer = <<>> :: binary(),
     connection = keepalive :: keepalive | close,
     version = 'HTTP/1.1' :: cowboy:http_version(),
-    response_body = undefined :: undefined | non_neg_integer()
+    response_body = undefined :: chunked | undefined | non_neg_integer()
 }).
 
 -opaque client() :: #client{}.

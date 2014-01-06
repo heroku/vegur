@@ -14,7 +14,9 @@ execute(Req, Env) ->
 
 connect(Service, Req, Env) ->
     Req1 = hstub_request_log:stamp(pre_connect, Req),
-    case ?LOG(connect_time, hstub_proxy:backend_connection(Service), Req1) of
+    InterfaceModule = hstub_utils:get_interface_module(Env),
+    ServiceBackend = InterfaceModule:service_backend(Service),
+    case ?LOG(connect_time, hstub_proxy:backend_connection(ServiceBackend), Req1) of
         {{connected, Client}, Req2} ->
             proxy(Req2, #state{backend_client = Client,
                                env = Env});
@@ -149,7 +151,7 @@ add_forwarded(Headers, Req) ->
                 {Port, Req4} = cowboy_req:port(Req3),
                 {{PeerIp, Port}, Req4}
         end,
-    {Headers1, Req2} = hstub_utils:add_or_append_header(<<"x-forwarded-for">>, inet_parse:ntoa(PeerAddress),
+    {Headers1, Req2} = hstub_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress),
                                                         Headers, Req1),
     Headers2 =
         case DestPort of
@@ -164,5 +166,8 @@ add_forwarded(Headers, Req) ->
     {Headers3, Req2}.
 
 add_via(Headers, Req) ->
-    ViaName = hstub_app:config(instance_name, <<"hstub">>),
-    hstub_utils:add_or_append_header(<<"via">>, ViaName, Headers, Req).
+    hstub_utils:add_or_append_header(<<"via">>, get_via_value(), Headers, Req).
+
+-spec get_via_value() -> binary().
+get_via_value() ->
+    hstub_app:config(instance_name, <<"hstub">>).

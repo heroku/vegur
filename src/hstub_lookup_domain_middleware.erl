@@ -6,8 +6,9 @@
 
 execute(Req, Env) ->
     % Check if this is a healthcheck request
+    InterfaceModule = hstub_utils:get_interface_module(Env),
     {Host, Req1} = cowboy_req:host(Req),
-    {Res, Req2} = ?LOG(domain_lookup, hstub_lookup:lookup_domain(Host), Req1),
+    {Res, Req2} = ?LOG(domain_lookup, InterfaceModule:lookup_domain_name(Host), Req1),
     handle_domain_lookup(Res, Req2, Env).
 
 -spec handle_domain_lookup({error, not_found} |
@@ -16,9 +17,9 @@ execute(Req, Env) ->
                                   {error, ErrorCode, Req} |
                                   {halt, Req} |
                                   {ok, Req, Env} when
-      Reason :: hstub_lookup:redirect_reason(),
-      DomainGroup :: hstub_domains:domain_group(),
-      Domain :: hstub_lookup:domain(),
+      Reason :: atom(),
+      DomainGroup :: hstub_interface:domain_group(),
+      Domain :: hstub_interface:domain(),
       ErrorCode :: 404.
 handle_domain_lookup({error, not_found}, Req, _Env) ->
     % No app associated with the domain
@@ -35,7 +36,7 @@ handle_domain_lookup({redirect, herokuapp_redirect, _DomainGroup, RedirectTo}, R
     {HeaderValue, Req4} = cowboy_req:header(<<"x-forwarded-proto">>, Req3),
     Proto = get_proto(HeaderValue),
     FullLocation = [Proto, <<"://">>, RedirectTo, Path, Qs2],
-    {ok, Req5} = cowboy_req:reply(301, [{"location", FullLocation}], Req4),
+    {ok, Req5} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req4),
     {halt, Req5};
 handle_domain_lookup({ok, DomainGroup}, Req, Env) ->
     Req1 = cowboy_req:set_meta(domain_group, DomainGroup, Req),

@@ -56,6 +56,7 @@ init_per_suite(Config) ->
      {hstub_port, HstubPort} | Config].
 
 end_per_suite(Config) ->
+    meck:unload(),
     [application:stop(App) || App <- lists:reverse(?config(started, Config))],
     ok.
 
@@ -71,14 +72,10 @@ init_per_group(hstub_request_upgrade, Config) ->
 init_per_group(hstub_request_lookups, Config) ->
     {ok, MeckStarted} = application:ensure_all_started(meck),
     TestDomain = <<"hstubtest.testdomain">>,
-    meck:expect(hstub_domains, lookup,
+    meck:expect(hstub_stub, lookup_domain_name,
                 fun(Domain) ->
                         Domain = TestDomain,
-                        {ok, undefined, mocked_domain_group}
-                end),
-    meck:expect(hstub_domains, in_maintenance_mode,
-                fun(mocked_domain_group) ->
-                        false
+                        {ok, mocked_domain_group}
                 end),
     [{meck_started, MeckStarted},
      {test_domain, TestDomain} | Config];
@@ -92,7 +89,7 @@ end_per_group(hstub_request_upgrade, Config) ->
     ok = unmock_middlewares(),
     Config;
 end_per_group(hstub_request_lookups, Config) ->
-    [meck:unload(Mod) || Mod <- [hstub_domains, hstub_service]],
+    [meck:unload(Mod) || Mod <- [hstub_stub]],
     [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
     Config;
 end_per_group(_GroupName, Config) ->
@@ -107,33 +104,36 @@ init_per_testcase(invalid_expect, Config) ->
 init_per_testcase(elb_healthcheck, Config) ->
     [{elb_endpoint, <<"F3DA8257-B28C-49DF-AACD-8171464E1D1D">>} | Config];
 init_per_testcase(herokuapp_redirect, Config) ->
-    meck:expect(hstub_domains, lookup,
+    meck:expect(hstub_stub, lookup_domain_name,
                 fun(Domain) ->
-                        {error, {herokuapp, [], Domain}}
+                        RootDomainToReplace = hstub_app:config(heroku_domain),
+                        RootDomainToReplaceWith = hstub_app:config(herokuapp_domain),
+                        NewDomain = re:replace(Domain, RootDomainToReplace, RootDomainToReplaceWith),
+                        {redirect, herokuapp_redirect, [], NewDomain}
                 end),
     HerokuDomain = hstub_app:config(heroku_domain),
     TestDomain = <<"hstubtest.", HerokuDomain/binary>>,
     [{test_domain, TestDomain} | Config];
 init_per_testcase(maintainance_mode_on, Config) ->
     TestDomain = <<"hstubtest.testdomain">>,
-    meck:expect(hstub_domains, lookup,
+    meck:expect(hstub_stub, lookup_domain_name,
                 fun(Domain) ->
                         Domain = TestDomain,
-                        {ok, undefined, mocked_domain_group}
+                        {ok, mocked_domain_group}
                 end),
-    meck:expect(hstub_domains, in_maintenance_mode,
+    meck:expect(hstub_stub, app_mode,
                 fun(mocked_domain_group) ->
-                        true
+                        maintenance_mode
                 end),
     [{test_domain, TestDomain} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(herokuapp_redirect, Config) ->
-    meck:unload(hstub_domains),
+    meck:unload(),
     Config;
 end_per_testcase(maintainance_mode_on, Config) ->
-    meck:unload(hstub_domains),
+    meck:unload(),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -332,7 +332,7 @@ service_request(Config) ->
     httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [], []).
 
 mock_service_reply(Res) ->
-    meck:expect(hstub_service, lookup,
+    meck:expect(hstub_stub, lookup_service,
                 fun(_) ->
                         Res
                 end).

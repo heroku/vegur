@@ -60,7 +60,6 @@ middleware_stack() ->
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    stillir:set_config(?APP, env_specs()),
     hstub_sup:start_link().
 
 stop(_State) ->
@@ -89,8 +88,5 @@ cowboy_opts() ->
     ,{onrequest, fun hstub_request_log:new/1}].
 
 cowboy_env() ->
-    [].
-
-env_specs() ->
-    [{http_listen_port, "PORT", [{transform, integer}]}
-    ].
+    InterfaceModule = config(interface_module),
+    [{interface_module, InterfaceModule}].

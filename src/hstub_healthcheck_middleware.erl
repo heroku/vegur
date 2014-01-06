@@ -13,7 +13,7 @@ execute(Req, Env) ->
                                {halt, Req} |
                                {ok, Req, Env} when
       Req :: cowboy_req:req(),
-      Env :: cowboy_cowboy_middleware:env(),
+      Env :: cowboy_middleware:env(),
       ErrorCode :: 500.
 maybe_healthcheck(<<"/F3DA8257-B28C-49DF-AACD-8171464E1D1D">>, Req, _Env) ->
     % This is an upstream proxy healthcheck, check if this node is being drained and reply
