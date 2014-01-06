@@ -37,8 +37,8 @@
     {error, app_not_found} |
     {error, app_lookup_failed}.
 
--callback in_maintenance_mode(domain_group()) ->
-     boolean().
+-callback app_mode(domain_group()) ->
+    normal_mode|maintenance_mode.
 
 -callback service_backend(service()) ->
     service_backend().

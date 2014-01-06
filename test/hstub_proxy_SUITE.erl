@@ -189,7 +189,6 @@ mock_through(Port) ->
                 fun(_) ->
                         {route, test_route}
                 end),
-    meck:expect(hstub_stub, in_maintenance_mode, fun(_) -> false end),
     meck:expect(hstub_stub, service_backend,
                 fun(_) ->
                         {{127,0,0,1}, Port}

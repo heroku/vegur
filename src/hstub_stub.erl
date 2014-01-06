@@ -3,7 +3,7 @@
 -behaviour(hstub_interface).
 
 -export([lookup_domain_name/1,
-         in_maintenance_mode/1,
+         app_mode/1,
          lookup_service/1,
          service_backend/1]).
 
@@ -42,11 +42,11 @@ lookup_domain_name(_Domain) ->
 lookup_service(_DomainGroup) ->
     {route, service}.
 
--spec in_maintenance_mode(DomainGroup) ->
-                                 boolean() when
+-spec app_mode(DomainGroup) ->
+                      normal_mode when
       DomainGroup :: term().
-in_maintenance_mode(_DomainGroup) ->
-    false.
+app_mode(_DomainGroup) ->
+    normal_mode.
 
 -spec service_backend(hstub_interface:service()) ->
                              hstub_interface:service_backend().

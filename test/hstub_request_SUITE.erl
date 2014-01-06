@@ -77,10 +77,6 @@ init_per_group(hstub_request_lookups, Config) ->
                         Domain = TestDomain,
                         {ok, mocked_domain_group}
                 end),
-    meck:expect(hstub_stub, in_maintenance_mode,
-                fun(mocked_domain_group) ->
-                        false
-                end),
     [{meck_started, MeckStarted},
      {test_domain, TestDomain} | Config];
 init_per_group(_, Config) ->
@@ -125,9 +121,9 @@ init_per_testcase(maintainance_mode_on, Config) ->
                         Domain = TestDomain,
                         {ok, mocked_domain_group}
                 end),
-    meck:expect(hstub_stub, in_maintenance_mode,
+    meck:expect(hstub_stub, app_mode,
                 fun(mocked_domain_group) ->
-                        true
+                        maintenance_mode
                 end),
     [{test_domain, TestDomain} | Config];
 init_per_testcase(_TestCase, Config) ->

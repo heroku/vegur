@@ -12,7 +12,6 @@ all() -> [back_and_forth, body_timeout, non_terminal, continue_upgrade_httpbis,
 %%%%%%%%%%%%
 init_per_suite(Config) ->
     meck:new(hstub_stub, [passthrough, no_link]),
-    meck:expect(hstub_stub, in_maintenance_mode, fun(_) -> false end),
     meck:expect(hstub_stub, lookup_domain_name, fun(_) -> {ok, test_domain} end),
     meck:expect(hstub_stub, lookup_service, fun(_) -> {route, test_service} end),
     Env = application:get_all_env(hstub),
