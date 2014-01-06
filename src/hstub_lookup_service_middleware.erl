@@ -5,7 +5,7 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    InterfaceModule = proplists:get_value(interface_module, Env),
+    InterfaceModule = hstub_utils:get_interface_module(Env),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
     {Service, Req2} = ?LOG(service_lookup, InterfaceModule:lookup_service(DomainGroup), Req1),
     handle_service(Service, Req2, Env).

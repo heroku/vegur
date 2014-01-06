@@ -5,7 +5,7 @@
 
 execute(Req, Env) ->
     % Check if the app is in maintenance mode
-    InterfaceModule = proplists:get_value(interface_module, Env),
+    InterfaceModule = hstub_utils:get_interface_module(Env),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
     MaintainanceMode = InterfaceModule:in_maintenance_mode(DomainGroup),
     handle_maintenance_mode(MaintainanceMode, Req1, Env).

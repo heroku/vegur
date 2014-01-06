@@ -1,9 +1,21 @@
 -module(hstub_utils).
 
--export([parse_header/2
+-export([get_interface_module/1
+         ,parse_header/2
          ,add_or_append_header/4
          ,add_if_missing_header/4
          ,add_or_replace_header/3]).
+
+-spec get_interface_module(Config) -> Module | no_return() when
+      Config :: [{atom(), term()}]|[],
+      Module :: module().
+get_interface_module(Config) ->
+    case proplists:get_value(interface_module, Config) of
+        undefined ->
+            error(missing_hstub_interface_module);
+        Module when is_atom(Module) ->
+            Module
+    end.
 
 -spec parse_header(binary(), cowboy_req:req()) ->
                           {[]|[binary()|undefined], cowboy_req:req()}.

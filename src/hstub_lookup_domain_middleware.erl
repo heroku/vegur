@@ -6,7 +6,7 @@
 
 execute(Req, Env) ->
     % Check if this is a healthcheck request
-    InterfaceModule = proplists:get_value(interface_module, Env),
+    InterfaceModule = hstub_utils:get_interface_module(Env),
     {Host, Req1} = cowboy_req:host(Req),
     {Res, Req2} = ?LOG(domain_lookup, InterfaceModule:lookup_domain_name(Host), Req1),
     handle_domain_lookup(Res, Req2, Env).
