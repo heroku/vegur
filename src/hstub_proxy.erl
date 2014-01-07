@@ -187,7 +187,7 @@ read_backend_response(Req, Client) ->
 
 send_continue(Req, BackendClient) ->
     HTTPVer = atom_to_binary(hstub_client:version(BackendClient), latin1),
-    {{Transport,Socket}, _} = cowboy_req:raw_socket(Req, [no_buffer]),
+    {{Transport,Socket}, _} = cowboy_req:raw_socket(Req),
     Transport:send(Socket,
         [HTTPVer, <<" 100 Continue\r\n\r\n">>]),
     %% Got it. Now clean up the '100 Continue' state from
@@ -202,7 +202,7 @@ send_continue(Req, BackendClient) ->
 upgrade(Headers, Req, BackendClient) ->
     %% fetch raw sockets and buffers
     {Server={TransStub,SockStub}, BufStub, _NewClient} = hstub_client:raw_socket(BackendClient),
-    {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_socket(Req),
+    {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_sockbuf(Req),
     %% Send the response to the caller
     Headers1 = hstub_client:headers_to_iolist(request_headers(Headers)),
     TransCow:send(SockCow,
@@ -290,7 +290,7 @@ relay_chunked(Status, Headers, Req, Client) ->
     %% sizes all over after we parsed them first. We save time by just using
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
-    {RawSocket, Req3} = cowboy_req:raw_socket(Req2, [no_buffer]),
+    {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
     case stream_chunked(RawSocket, Client) of
         {ok, Client2} ->
             {ok, Req3, backend_close(Client2)};
