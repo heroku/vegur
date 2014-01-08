@@ -10,7 +10,7 @@ execute(Req, Env) ->
     {Service, Req2} = ?LOG(service_lookup, InterfaceModule:lookup_service(DomainGroup), Req1),
     handle_service(Service, Req2, Env).
 
-handle_service({route, Service}, Req, Env) ->
+handle_service({route, Service, _Stats}, Req, Env) ->
     % We have a service to route to, moving on
     Req1 = cowboy_req:set_meta(service, Service, Req),
     {ok, Req1, Env};

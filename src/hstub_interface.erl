@@ -6,13 +6,15 @@
 -type queue_length() :: non_neg_integer().
 -type wait_time() :: non_neg_integer().
 -type service_backend() :: {inet:ip_address(), inet:port_number()}.
+-type lookup_stats() :: [{atom(), term()}]|[].
 
 -export_type([domain/0,
               domain_group/0,
               service/0,
               queue_length/0,
               wait_time/0,
-              service_backend/0]).
+              service_backend/0,
+              lookup_stats/0]).
 
 -callback lookup_domain_name(Domain) ->
     {error, not_found} |
@@ -22,7 +24,7 @@
       Reason :: atom().
 
 -callback lookup_service(domain_group()) ->
-    {route, service()} |
+    {route, service(), lookup_stats()} |
     {error, no_route_id} |
     {error, {backlog_timeout, queue_length(), wait_time()}} |
     {error, {backlog_too_deep, queue_length(), wait_time()}} |

@@ -18,7 +18,7 @@ lookup_domain_name(_Domain) ->
     {ok, domain_group}.
 
 -spec lookup_service(DomainGroup) ->
-                            {route, Service} |
+                            {route, Service, LookupStats} |
                             {error, no_route_id} |
                             {error, {backlog_timeout, QueueLength,
                                      WaitTime}} |
@@ -38,9 +38,10 @@ lookup_domain_name(_Domain) ->
       DomainGroup :: hstub_interface:domain_group(),
       Service :: hstub_interface:service(),
       QueueLength :: hstub_interface:queue_length(),
-      WaitTime :: hstub_interface:wait_time().
+      WaitTime :: hstub_interface:wait_time(),
+      LookupStats :: hstub_interface:lookup_stats().
 lookup_service(_DomainGroup) ->
-    {route, service}.
+    {route, service, []}.
 
 -spec app_mode(DomainGroup) ->
                       normal_mode when

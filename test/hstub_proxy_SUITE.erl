@@ -187,7 +187,7 @@ mock_through(Port) ->
                 end),
     meck:expect(hstub_stub, lookup_service,
                 fun(_) ->
-                        {route, test_route}
+                        {route, test_route, []}
                 end),
     meck:expect(hstub_stub, service_backend,
                 fun(_) ->
