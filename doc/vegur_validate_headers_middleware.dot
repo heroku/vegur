@@ -1,0 +1,11 @@
+digraph vegur_validate_headers_middleware {
+        request [shape=Mdiamond];
+        execute [label="execute/2"]
+        request -> execute;
+        execute -> validate_host;
+        validate_host -> response_400 [label="Empty host"];
+        validate_host -> continue [label="Has host"];
+        response_400 -> end;
+        continue [shape=cds];
+        end [shape=Msquare];
+}

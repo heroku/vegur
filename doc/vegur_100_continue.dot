@@ -1,0 +1,40 @@
+digraph vegur_100_continue {
+        { rank=same; error; end; }
+        request [shape=Mdiamond];
+        has_continue_meta [shape=diamond];
+        is_downstream_respones_code_100 [shape=diamond];
+        request -> has_continue_meta;
+        has_continue_meta -> upload_body_downstream [label="No"];
+
+        has_continue_meta -> negotiate_continue [label="Yes"];
+        negotiate_continue -> error [label="Timeout reached"];
+        negotiate_continue -> check_upstream_for_data;
+        check_upstream_for_data -> upload_body_downstream [label="Upstream has data"];
+        check_upstream_for_data -> check_downstream_for_data [label="Timeout reading upstream"];
+        check_upstream_for_data -> error [label="Error reading upstream"];
+        check_downstream_for_data -> negotiate_continue [label="Timeout reading downstream"];
+        check_downstream_for_data -> error [label="Error reading downstream"];
+        check_downstream_for_data -> read_downstream_response;
+        read_downstream_response -> error [label="Error reading downstream response"];
+        read_downstream_response -> is_downstream_respones_code_100;
+        is_downstream_respones_code_100 -> end [label="No"];
+        is_downstream_respones_code_100 -> send_continue_upstream [label="Yes"];
+
+        send_continue_upstream -> upload_body_downstream;
+
+        upload_body_downstream -> error [label="Error uploading body"];
+        upload_body_downstream -> read_downstream_response2;
+
+        is_downstream_respones_code_100_2 [shape=diamond]
+        read_downstream_response2 -> is_downstream_respones_code_100_2;
+        is_downstream_respones_code_100_2 -> send_continue_upstream2 [label="Yes"];
+        is_downstream_respones_code_100_2 -> end [label="No"];
+
+        is_downstream_respones_code_100_3 [shape=diamond]
+        send_continue_upstream2 -> is_downstream_respones_code_100_3;
+        is_downstream_respones_code_100_3 -> error_end [label="Yes"];
+        is_downstream_respones_code_100_3 -> end [label="No"];
+
+        error_end [shape=Msquare];
+        end [shape=Msquare];
+}

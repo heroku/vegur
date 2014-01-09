@@ -1,0 +1,13 @@
+digraph vegur_continue_middleware {
+        request [shape=Mdiamond];
+        validate_expect_header [shape=diamond];
+        execute [label="execute/2"]
+        request -> execute;
+        execute -> validate_expect_header;
+        validate_expect_header -> response_417 [label="Expect header invalid"];
+        validate_expect_header -> continue [label="No expect header"];
+        validate_expect_header -> continue [label="Expect header 100-continue"];
+        continue [shape=cds];
+        response_417 -> end;
+        end [shape=Msquare];
+}

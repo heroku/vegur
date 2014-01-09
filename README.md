@@ -1,17 +1,17 @@
-hstub
-=====
+# Vegur
 
-A testing ground for new proxy implementations based on a cowboy frontend.
+Heroku's proxy library based on a Cowboy frontend. This libary handles
+proxying in Heroku's new keep-alive routing stack
 
-Build
------
+![Illfær vegur](http://i.imgur.com/lwRxWDz.jpg)
+
+## Build
 
     $ rebar get-deps compile
 
-Run
----
+## Test
 
-    $ foreman start web
+    $ rebar ct
 
 Logs and statistics being collected
 -----------------------------------
@@ -26,11 +26,6 @@ Logs and statistics being collected
  * Timestamp before connecting to the backend server
 * `connection_accepted`
  * Timestamp when connection is accepted
-
-Try it out
-----------
-
-    $ curl http://localhost:9880
 
 Reference Material
 ------------------
