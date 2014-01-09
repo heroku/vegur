@@ -1,0 +1,12 @@
+digraph vegur_maintenance_middleware {
+        request [shape=Mdiamond];
+        in_maintenance_mode [shape=diamond];
+        execute [label="execute/2"]
+        request -> execute;
+        execute -> in_maintenance_mode;
+        in_maintenance_mode -> response_503 [label="Yes"];
+        in_maintenance_mode -> continue [label="No"];
+        continue [shape=cds];
+        response_503 -> end;
+        end [shape=Msquare];
+}

@@ -1,2 +1,0 @@
-web: erl -pa ebin -env ERL_LIBS deps -s hstub_app -noshell -noinput -boot start_sasl -hstub http_listen_port $PORT
-web_dev: erl -pa ebin -env ERL_LIBS deps -s hstub_app -boot start_sasl -hstub http_listen_port $PORT

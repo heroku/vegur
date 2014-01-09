@@ -1,0 +1,27 @@
+digraph vegur_healthcheck_middleware {
+        request [shape=Mdiamond];
+        execute [label="execute/2"]
+        request -> execute;
+        execute -> maybe_healthcheck;
+        
+        maybe_healthcheck -> accepting_connections [label="/F3DA8257-B28C-49DF-AACD-8171464E1D1D"];
+        accepting_connections [shape=diamond];
+        accepting_connections -> response_200 [label="Accepting"];
+        accepting_connections -> response_500 [label="Not Accepting"];
+
+        maybe_healthcheck -> get_host_lockstep [label="/lockstep"];
+        get_host_lockstep -> lockstep_fresh [label="hermes.localhost"];
+        lockstep_fresh [shape=diamond];
+        lockstep_fresh -> response_200 [label="Lockstep fresh"];
+        lockstep_fresh -> response_500 [label="Lockstep bad"];
+
+        maybe_healthcheck -> get_host_herokuapp [label="/healthcheck"];
+        get_host_herokuapp -> response_200 [label="hermes.herokuapp_domain"];
+        get_host_herokuapp -> continue [label="other host"];
+
+        maybe_healthcheck -> continue [label="Other path"];
+        response_200 -> end;
+        response_500 -> end;
+        continue [shape=cds];
+        end [shape=Msquare];
+}
