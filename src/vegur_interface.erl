@@ -38,12 +38,12 @@
       ServiceState :: service_state().
 
 -callback error_page(ErrorReason, DomainGroup) ->
-    {HttpCode, ErrorBody, ErrorHeaders} when
+    {HttpCode, ErrorHeaders, ErrorBody} when
       ErrorReason :: term(),
       DomainGroup :: domain_group(),
       HttpCode :: pos_integer(),
-      ErrorBody :: binary(),
-      ErrorHeaders :: [{iolist(), iolist()}]|[].
+      ErrorHeaders :: [{iolist(), iolist()}]|[],
+      ErrorBody :: binary().
 
 -callback service_backend(service()) ->
     service_backend().

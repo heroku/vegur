@@ -29,6 +29,6 @@ handle_service({service, Service, LookupStats}, Req, Env) ->
 handle_service({error, Reason, _LookupStats}, Req, Env) ->
     InterfaceModule = vegur_utils:get_interface_module(Env),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {HttpCode, ErrorBody, ErrorHeaders} = InterfaceModule:error_page(Reason, DomainGroup),
+    {HttpCode, ErrorHeaders, ErrorBody} = InterfaceModule:error_page(Reason, DomainGroup),
     {ok, Req2} = cowboy_req:reply(HttpCode, ErrorHeaders, ErrorBody, Req1),
     {halt, Req2}.

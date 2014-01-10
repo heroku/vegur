@@ -165,6 +165,6 @@ get_via_value() ->
 get_error(Req, Error, #state{env=Env}) ->
     InterfaceModule = vegur_utils:get_interface_module(Env),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {HttpCode, ErrorBody, ErrorHeaders} = InterfaceModule:error_page(Error, DomainGroup),
+    {HttpCode, ErrorHeaders, ErrorBody} = InterfaceModule:error_page(Error, DomainGroup),
     {ok, Req1} = cowboy_req:reply(HttpCode, ErrorHeaders, ErrorBody, Req),
     Req1.
