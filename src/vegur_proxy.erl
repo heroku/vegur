@@ -437,8 +437,14 @@ delete_connection_keepalive_header(Hdrs) ->
 delete_host_header(Hdrs) ->
     lists:keydelete(<<"host">>, 1, Hdrs).
 
-delete_content_length_header(Hdrs) ->
-    lists:keydelete(<<"content-length">>, 1, Hdrs).
+%% We need to traverse the entire list because a user could have
+%% injected more than one content-length header.
+delete_content_length_header([]) ->
+    [];
+delete_content_length_header([{<<"content-length">>, _} | Hdrs]) ->
+    delete_content_length_header(Hdrs);
+delete_content_length_header([H | Hdrs]) ->
+    [H | delete_content_length_header(Hdrs)].
 
 add_connection_close_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of

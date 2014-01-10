@@ -1,11 +1,18 @@
--module(vegur_continue_SUITE).
+-module(vegur_roundtrip_SUITE).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -compile(export_all).
 
-all() -> [back_and_forth, body_timeout, non_terminal, continue_upgrade_httpbis,
-          upgrade_no_continue, terminal_no_continue_partial,
-          terminal_no_continue_complete, no_expect_continue, http_1_0_continue].
+all() -> [{group, continue}, {group, headers}].
+
+groups() -> [{continue, [], [
+                back_and_forth, body_timeout, non_terminal,
+                continue_upgrade_httpbis, upgrade_no_continue,
+                terminal_no_continue_partial, terminal_no_continue_complete,
+                no_expect_continue, http_1_0_continue]},
+             {headers, [], [
+                duplicate_different_lengths, duplicate_csv_lengths,
+                duplicate_identical_lengths]}].
 
 %%%%%%%%%%%%
 %%% Init %%%
@@ -42,6 +49,10 @@ end_per_testcase(_, Config) ->
 %%%%%%%%%%%%%%%%%%
 %%% Test Cases %%%
 %%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%
+%%% CONTINUE %%%
+%%%%%%%%%%%%%%%%
 
 %% 100 Continue works as you'd expect it -- send a message with a body,
 %% wait for the server to send 100 Continue, then upload the body,
@@ -313,6 +324,73 @@ http_1_0_continue(Config) ->
     wait_for_closed(Server, 5000).
 
 %%%%%%%%%%%%%%%
+%%% HEADERS %%%
+%%%%%%%%%%%%%%%
+duplicate_different_lengths(Config) ->
+    %% If >=2 content-length values are in the request and that they conflict,
+    %% deny the request with a 400.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req =
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Length: 11\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n"
+    "12345",
+    %% Send data to the proxy right away.
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Without making it to the server, we get a 400 back. for bad request
+    {ok, Resp} = gen_tcp:recv(Client, 0, 1000),
+    {match, _} = re:run(Resp, "400").
+
+duplicate_csv_lengths(Config) ->
+    %% If >=2 content-length values are put together in a single header,
+    %% deny the request with a 400.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req =
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10,10\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n"
+    "0123456789",
+    %% Send data to the proxy right away.
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Without making it to the server, we get a 400 back. for bad request
+    {ok, Resp} = gen_tcp:recv(Client, 0, 1000),
+    {match, _} = re:run(Resp, "400").
+
+duplicate_identical_lengths(Config) ->
+    %% If multiple headers have similar content-length, coerce them into a
+    %% single one.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req =
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "content-length: 10\r\n"
+    "content-length: 10\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n"
+    "0123456789",
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    Server = get_accepted(Ref),
+    %% receive the request, content-length of 10 is there once only.
+    {ok, Proxied} = gen_tcp:recv(Server, 0, 1000),
+    ct:pal("PROXIED: ~p~n",[Proxied]),
+    {match, [[_]]} = re:run(Proxied, "[cC]ontent-[lL]ength: 10", [{capture, all}, global]).
+
+%%%%%%%%%%%%%%%
 %%% Helpers %%%
 %%%%%%%%%%%%%%%
 start_acceptor(Ref, Config) ->
@@ -344,20 +422,16 @@ wait_for_closed(Port, T) ->
 
     %% Request data
 req_headers(Config) ->
-    LPort = ?config(server_port, Config),
-    Domain = <<"127.0.0.1:", (integer_to_binary(LPort))/binary>>,
     "POST /continue-1 HTTP/1.1\r\n"
-    "Host: "++binary_to_list(Domain)++"\r\n"
+    "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
     "Expect: 100-continue\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
 
 upgrade_headers(Config) ->
-    LPort = ?config(server_port, Config),
-    Domain = <<"127.0.0.1:", (integer_to_binary(LPort))/binary>>,
     "GET /continue-1 HTTP/1.1\r\n"
-    "Host: "++binary_to_list(Domain)++"\r\n"
+    "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
     "Expect: 100-continue\r\n"
     "Content-Type: text/plain\r\n"
@@ -368,19 +442,15 @@ upgrade_headers(Config) ->
     "\r\n".
 
 http_1_0_headers(Config) ->
-    LPort = ?config(server_port, Config),
-    Domain = <<"127.0.0.1:", (integer_to_binary(LPort))/binary>>,
     "POST /continue-1 HTTP/1.0\r\n"
-    "Host: "++binary_to_list(Domain)++"\r\n"
+    "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
 
 no_expect_headers(Config) ->
-    LPort = ?config(server_port, Config),
-    Domain = <<"127.0.0.1:", (integer_to_binary(LPort))/binary>>,
     "POST /continue-1 HTTP/1.1\r\n"
-    "Host: "++binary_to_list(Domain)++"\r\n"
+    "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
@@ -401,3 +471,7 @@ resp() ->
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+domain(Config) ->
+    LPort = ?config(server_port, Config),
+    binary_to_list(<<"127.0.0.1:", (integer_to_binary(LPort))/binary>>).
