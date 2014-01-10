@@ -13,7 +13,7 @@ all() -> [back_and_forth, body_timeout, non_terminal, continue_upgrade_httpbis,
 init_per_suite(Config) ->
     meck:new(vegur_stub, [passthrough, no_link]),
     meck:expect(vegur_stub, lookup_domain_name, fun(_) -> {ok, test_domain} end),
-    meck:expect(vegur_stub, lookup_service, fun(_) -> {route, test_service, []} end),
+    meck:expect(vegur_stub, checkout_service, fun(_, _) -> {service, test_service, []} end),
     Env = application:get_all_env(vegur),
     [{vegur_env, Env} | Config].
 

@@ -185,9 +185,9 @@ mock_through(Port) ->
                 fun(_) ->
                         {ok, test_domain}
                 end),
-    meck:expect(vegur_stub, lookup_service,
-                fun(_) ->
-                        {route, test_route, []}
+    meck:expect(vegur_stub, checkout_service,
+                fun(_, _) ->
+                        {service, test_route, []}
                 end),
     meck:expect(vegur_stub, service_backend,
                 fun(_) ->
