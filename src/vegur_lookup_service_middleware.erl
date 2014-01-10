@@ -23,8 +23,9 @@ handle_service({service, Service, LookupStats}, Req, Env) ->
             Req3 = cowboy_req:set_meta(backend_connection, Client, Req2),
             {ok, Req3, Env};
         {{error, Reason}, Req2} ->
-            ok = InterfaceModule:checkin_service(Service, {error, Reason}),
-            lookup_service(Req2, Env, LookupStats)
+            {DomainGroup, Req3} = cowboy_req:meta(domain_group, Req2),
+            ok = InterfaceModule:checkin_service(DomainGroup, Service, Reason),
+            lookup_service(Req3, Env, LookupStats)
     end;
 handle_service({error, Reason, _LookupStats}, Req, Env) ->
     InterfaceModule = vegur_utils:get_interface_module(Env),

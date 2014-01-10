@@ -7,7 +7,7 @@
 -type wait_time() :: non_neg_integer().
 -type service_backend() :: {inet:ip_address(), inet:port_number()}.
 -type lookup_stats() :: [{atom(), term()}]|[].
--type service_state() :: normal|{error, term()}.
+-type service_state() :: normal|term().
 
 -export_type([domain/0,
               domain_group/0,
