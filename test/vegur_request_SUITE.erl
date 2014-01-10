@@ -250,67 +250,67 @@ upgrade_websockets(Config) ->
     Config.
 
 no_route(Config) ->
-    ok = mock_service_reply({error, no_route_id}),
+    ok = mock_service_reply({error, no_route_id, []}),
     {ok, {{_, 502, _}, _, _}} = service_request(Config),
     Config.
 
 backlog_timeout(Config) ->
-    ok = mock_service_reply({error, {backlog_timeout, 100, 100}}),
+    ok = mock_service_reply({error, {backlog_timeout, 100, 100}, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backlog_too_deep(Config) ->
-    ok = mock_service_reply({error, {backlog_too_deep, 100, 100}}),
+    ok = mock_service_reply({error, {backlog_too_deep, 100, 100}, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 conn_limit_reached(Config) ->
-    ok = mock_service_reply({error, {conn_limit_reached, 100, 100}}),
+    ok = mock_service_reply({error, {conn_limit_reached, 100, 100}, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 route_lookup_failed(Config) ->
-    ok = mock_service_reply({error, route_lookup_failed}),
+    ok = mock_service_reply({error, route_lookup_failed, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 no_web_processes(Config) ->
-    ok = mock_service_reply({error, no_web_processes}),
+    ok = mock_service_reply({error, no_web_processes, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 crashed(Config) ->
-    ok = mock_service_reply({error, crashed}),
+    ok = mock_service_reply({error, crashed, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backends_quarantined(Config) ->
-    ok = mock_service_reply({error, backends_quarantined}),
+    ok = mock_service_reply({error, backends_quarantined, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backends_starting(Config) ->
-    ok = mock_service_reply({error, backends_starting}),
+    ok = mock_service_reply({error, backends_starting, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backends_idle(Config) ->
-    ok = mock_service_reply({error, backends_idle}),
+    ok = mock_service_reply({error, backends_idle, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 app_blank(Config) ->
-    ok = mock_service_reply({error, app_blank}),
+    ok = mock_service_reply({error, app_blank, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 app_not_found(Config) ->
-    ok = mock_service_reply({error, app_not_found}),
+    ok = mock_service_reply({error, app_not_found, []}),
     {ok, {{_, 404, _}, _, _}} = service_request(Config),
     Config.
 
 app_lookup_failed(Config) ->
-    ok = mock_service_reply({error, app_lookup_failed}),
+    ok = mock_service_reply({error, app_lookup_failed, []}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
@@ -332,8 +332,8 @@ service_request(Config) ->
     httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [], []).
 
 mock_service_reply(Res) ->
-    meck:expect(vegur_stub, lookup_service,
-                fun(_) ->
+    meck:expect(vegur_stub, checkout_service,
+                fun(_, _) ->
                         Res
                 end).
 
