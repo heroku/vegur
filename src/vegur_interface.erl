@@ -44,8 +44,5 @@
       ErrorBody :: binary(),
       ErrorHeaders :: [{iolist(), iolist()}]|[].
 
--callback app_mode(domain_group()) ->
-    normal_mode|maintenance_mode.
-
 -callback service_backend(service()) ->
     service_backend().

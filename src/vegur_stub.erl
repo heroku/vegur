@@ -3,7 +3,6 @@
 -behaviour(vegur_interface).
 
 -export([lookup_domain_name/1,
-         app_mode/1,
          checkout_service/2,
          checkin_service/2,
          service_backend/1,
@@ -75,14 +74,10 @@ error_page(app_not_found, _DomainGroup) ->
     {404, <<>>, []};
 error_page(app_lookup_failed, _DomainGroup) ->
     {503, <<>>, []};
+error_page(maintainance_mode, _DomainGroup) ->
+    {503, <<>>, []};
 error_page(_, _DomainGroup) ->
     {503, <<>>, []}.
-
--spec app_mode(DomainGroup) ->
-                      normal_mode when
-      DomainGroup :: term().
-app_mode(_DomainGroup) ->
-    normal_mode.
 
 -spec service_backend(vegur_interface:service()) ->
                              vegur_interface:service_backend().
