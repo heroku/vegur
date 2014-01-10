@@ -11,8 +11,11 @@ groups() -> [{continue, [], [
                 terminal_no_continue_partial, terminal_no_continue_complete,
                 no_expect_continue, http_1_0_continue]},
              {headers, [], [
-                duplicate_different_lengths, duplicate_csv_lengths,
-                duplicate_identical_lengths]}].
+                duplicate_different_lengths_req, duplicate_csv_lengths_req,
+                duplicate_identical_lengths_req,
+                duplicate_different_lengths_resp, duplicate_csv_lengths_resp,
+                duplicate_identical_lengths_resp
+            ]}].
 
 %%%%%%%%%%%%
 %%% Init %%%
@@ -326,7 +329,7 @@ http_1_0_continue(Config) ->
 %%%%%%%%%%%%%%%
 %%% HEADERS %%%
 %%%%%%%%%%%%%%%
-duplicate_different_lengths(Config) ->
+duplicate_different_lengths_req(Config) ->
     %% If >=2 content-length values are in the request and that they conflict,
     %% deny the request with a 400.
     IP = ?config(server_ip, Config),
@@ -346,7 +349,7 @@ duplicate_different_lengths(Config) ->
     {ok, Resp} = gen_tcp:recv(Client, 0, 1000),
     {match, _} = re:run(Resp, "400").
 
-duplicate_csv_lengths(Config) ->
+duplicate_csv_lengths_req(Config) ->
     %% If >=2 content-length values are put together in a single header,
     %% deny the request with a 400.
     IP = ?config(server_ip, Config),
@@ -365,7 +368,7 @@ duplicate_csv_lengths(Config) ->
     {ok, Resp} = gen_tcp:recv(Client, 0, 1000),
     {match, _} = re:run(Resp, "400").
 
-duplicate_identical_lengths(Config) ->
+duplicate_identical_lengths_req(Config) ->
     %% If multiple headers have similar content-length, coerce them into a
     %% single one.
     IP = ?config(server_ip, Config),
@@ -389,6 +392,102 @@ duplicate_identical_lengths(Config) ->
     {ok, Proxied} = gen_tcp:recv(Server, 0, 1000),
     ct:pal("PROXIED: ~p~n",[Proxied]),
     {match, [[_]]} = re:run(Proxied, "[cC]ontent-[lL]ength: 10", [{capture, all}, global]).
+
+duplicate_different_lengths_resp(Config) ->
+    %% If >=2 content-length values are in the request and that they conflict,
+    %% deny the request with a 400.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp =
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 43\r\n"
+    "Content-Length: 41\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n",
+    Ref = make_ref(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _Req} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match, _} = re:run(Response, "502"),
+    %% Connection to the server is closed, but not to the client
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
+
+
+duplicate_csv_lengths_resp(Config) ->
+    %% If >=2 content-length values are put together in a single header,
+    %% deny the request with a 400.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp =
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 43,41\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n",
+    Ref = make_ref(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _Req} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match, _} = re:run(Response, "502"),
+    %% Connection to the server is closed, but not to the client
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
+
+
+duplicate_identical_lengths_resp(Config) ->
+    %% If multiple headers have similar content-length, coerce them into a
+    %% single one.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp =
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Length: 43\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 43\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n",
+    Ref = make_ref(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _Req} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    %% Connection to the server is closed, but not to the client
+    ct:pal("PROXIED: ~p~n",[Response]),
+    {match, [[_]]} = re:run(Response, "[cC]ontent-[lL]ength: 43", [{capture, all}, global]).
 
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
@@ -463,6 +562,14 @@ resp_100() ->
 
 resp_101() ->
     "HTTP/1.1 101 Switching Protocols\r\n\r\n".
+
+req(Config) ->
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n"
+    "12345".
 
 resp() ->
     "HTTP/1.1 200 OK\r\n"

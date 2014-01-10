@@ -381,11 +381,24 @@ stream_header(Client=#client{state=State, buffer=Buffer,
             %% @todo Do a better parsing later on.
             [Name, Value] = binary:split(Line, [<<": ">>, <<":">>]),
             Name2 = cowboy_bstr:to_lower(Name),
-            Client2 = case Name2 of
+            MaybeClient = case Name2 of
                 <<"content-length">> ->
-                    Length = list_to_integer(binary_to_list(Value)),
-                    if Length >= 0 -> ok end,
-                    Client#client{response_body=Length};
+                    try
+                        Length = list_to_integer(binary_to_list(Value)),
+                        case RespBody of
+                            Length -> % duplicate, absorb
+                                skip;
+                            chunked -> % chunked has priority
+                                Client;
+                            undefined when Length >= 0 -> % first time seen
+                                Client#client{response_body=Length};
+                            _ -> % length not matching
+                                {error, content_length}
+                        end
+                    catch
+                        error:badarg -> {error, content_length};
+                        error:case_clause -> {error, content_length}
+                    end;
                 <<"transfer-encoding">> ->
                     case lists:member(<<"chunked">>, header_list_values(Value)) of
                         true -> Client#client{response_body=chunked};
@@ -404,7 +417,14 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                 _ ->
                     Client
             end,
-            {ok, Name2, Value, Client2#client{buffer=Rest}};
+            case MaybeClient of
+                skip ->
+                    stream_header(Client#client{buffer=Rest});
+                Client2=#client{} ->
+                    {ok, Name2, Value, Client2#client{buffer=Rest}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         _ ->
             case recv(Client) of
                 {ok, Data} ->

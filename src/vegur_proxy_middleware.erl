@@ -47,6 +47,8 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
         {ok, Code, RespHeaders, Req1, BackendClient1} ->
             handle_backend_response(Code, RespHeaders, Req1,
                                     State#state{backend_client=BackendClient1});
+        {error, content_length} ->
+            {error, 502, Req};
         {error, _Error} ->
             {error, 503, Req}
     end.
