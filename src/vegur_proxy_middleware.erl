@@ -26,8 +26,9 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
             handle_backend_response(Code, RespHeaders, Req,
                                     State#state{backend_client=BackendClient1});
         {error, Error} ->
-            Req1 = get_error(Req, Error, State),
-            {halt, Req1}
+            {Error, Req1} = get_error(Error, Req, State),
+            Req2 = render_error(Error, Req1),
+            {halt, Req2}
     end.
 
 send_body_to_backend({Method, Header, Body, Path, Url}, Req,
@@ -36,8 +37,9 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
         {done, Req1, BackendClient1} ->
             read_backend_response(Req1, State#state{backend_client=BackendClient1});
         {error, Error} ->
-            Req1 = get_error(Req, Error, State),
-            {halt, Req1}
+            {Error, Req1} = get_error(Error, Req, State),
+            Req2 = render_error(Error, Req1),
+            {halt, Req2}
     end.
 
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
@@ -71,8 +73,9 @@ http_request(Code, Headers, Req,
         {ok, Req1, _Client1} ->
             {ok, Req1, Env};
         {error, Error, Req1} ->
-            Req2 = get_error(Req1, Error, State),
-            {halt, Req2}
+            {Error, Req2} = get_error(Error, Req1, State),
+            Req3 = render_error(Error, Req2),
+            {halt, Req3}
     end.
 
 parse_request(Req) ->
@@ -162,9 +165,10 @@ add_via(Headers, Req) ->
 get_via_value() ->
     vegur_app:config(instance_name, <<"vegur">>).
 
-get_error(Req, Error, #state{env=Env}) ->
+get_error(Error, Req, #state{env=Env}) ->
     InterfaceModule = vegur_utils:get_interface_module(Env),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {HttpCode, ErrorHeaders, ErrorBody} = InterfaceModule:error_page(Error, DomainGroup),
-    {ok, Req1} = cowboy_req:reply(HttpCode, ErrorHeaders, ErrorBody, Req),
-    Req1.
+    {InterfaceModule:error_page(Error, DomainGroup), Req1}.
+
+render_error({HttpCode, ErrorHeaders, ErrorBody}, Req) ->
+    vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req).

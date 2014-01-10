@@ -25,7 +25,7 @@ handle_domain_lookup({error, not_found}, Req, Env) ->
     % No app associated with the domain
     InterfaceModule = vegur_utils:get_interface_module(Env),
     {HttpCode, ErrorHeaders, ErrorBody} = InterfaceModule:error_page(not_found, undefined),
-    {ok, Req1} = cowboy_req:reply(HttpCode, ErrorHeaders, ErrorBody, Req),
+    Req1 = vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req),
     {halt, Req1};
 handle_domain_lookup({redirect, _Reason, _DomainGroup, RedirectTo}, Req, _Env) ->
     % This is a old app running on appname.heroku.com,

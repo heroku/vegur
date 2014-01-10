@@ -4,7 +4,8 @@
          ,parse_header/2
          ,add_or_append_header/4
          ,add_if_missing_header/4
-         ,add_or_replace_header/3]).
+         ,add_or_replace_header/3
+         ,render_response/4]).
 
 -spec get_interface_module(Config) -> Module | no_return() when
       Config :: [{atom(), term()}]|[],
@@ -64,3 +65,13 @@ add_if_missing_header(Key, Val, Headers, Req) ->
       Headers :: [{iodata(), iodata()}]|[].
 add_or_replace_header(Key, Value, Headers) ->
     lists:keystore(Key, 1, Headers, {Key, Value}).
+
+-spec render_response(HttpCode, Headers, Body, Req) ->
+                             Req when
+      HttpCode :: cowboy:http_status(),
+      Headers :: [{iodata(), iodata()}]|[],
+      Body :: binary(),
+      Req :: cowboy_req:req().
+render_response(HttpCode, Headers, Body, Req) ->
+    {ok, Req1} = cowboy_req:reply(HttpCode, Headers, Body, Req),
+    Req1.
