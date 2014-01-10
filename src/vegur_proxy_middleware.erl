@@ -45,9 +45,8 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
         {ok, Code, RespHeaders, Req1, BackendClient1} ->
             handle_backend_response(Code, RespHeaders, Req1,
                                     State#state{backend_client=BackendClient1});
-        {error, Error} ->
-            Req1 = get_error(Req, Error, State),
-            {halt, Req1}
+        {error, _Error} ->
+            {error, 503, Req}
     end.
 
 handle_backend_response(Code, RespHeaders, Req, State) ->
@@ -166,6 +165,6 @@ get_via_value() ->
 get_error(Req, Error, #state{env=Env}) ->
     InterfaceModule = vegur_utils:get_interface_module(Env),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {HttpCode, ErrorBody, ErrorHeaders} = InterfaceModule:error_page(Error, DomainGroup),
+    {HttpCode, ErrorHeaders, ErrorBody} = InterfaceModule:error_page(Error, DomainGroup),
     {ok, Req1} = cowboy_req:reply(HttpCode, ErrorHeaders, ErrorBody, Req),
     Req1.

@@ -20,11 +20,11 @@ execute(Req, Env) ->
       Reason :: atom(),
       DomainGroup :: vegur_interface:domain_group(),
       Domain :: vegur_interface:domain(),
-      ErrorCode :: 404.
+      ErrorCode :: cowboy:http_status().
 handle_domain_lookup({error, not_found}, Req, Env) ->
     % No app associated with the domain
     InterfaceModule = vegur_utils:get_interface_module(Env),
-    {HttpCode, ErrorBody, ErrorHeaders} = InterfaceModule:error_page(not_found, undefined),
+    {HttpCode, ErrorHeaders, ErrorBody} = InterfaceModule:error_page(not_found, undefined),
     {ok, Req1} = cowboy_req:reply(HttpCode, ErrorHeaders, ErrorBody, Req),
     {halt, Req1};
 handle_domain_lookup({redirect, herokuapp_redirect, _DomainGroup, RedirectTo}, Req, _Env) ->

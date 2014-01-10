@@ -121,10 +121,7 @@ init_per_testcase(maintainance_mode_on, Config) ->
                         Domain = TestDomain,
                         {ok, mocked_domain_group}
                 end),
-    meck:expect(vegur_stub, app_mode,
-                fun(mocked_domain_group) ->
-                        maintenance_mode
-                end),
+    ok = mock_service_reply({error, maintainance_mode, []}),
     [{test_domain, TestDomain} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.

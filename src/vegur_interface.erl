@@ -7,7 +7,7 @@
 -type wait_time() :: non_neg_integer().
 -type service_backend() :: {inet:ip_address(), inet:port_number()}.
 -type lookup_stats() :: [{atom(), term()}]|[].
--type service_state() :: normal|{error, term()}.
+-type service_state() :: normal|term().
 
 -export_type([domain/0,
               domain_group/0,
@@ -31,21 +31,19 @@
       CheckoutError :: atom(),
       LookupStats :: lookup_stats().
 
--callback checkin_service(Service, ServiceState) ->
+-callback checkin_service(DomainGroup, Service, ServiceState) ->
     ok when
+      DomainGroup :: domain_group(),
       Service :: service(),
       ServiceState :: service_state().
 
 -callback error_page(ErrorReason, DomainGroup) ->
-    {HttpCode, ErrorBody, ErrorHeaders} when
+    {HttpCode, ErrorHeaders, ErrorBody} when
       ErrorReason :: term(),
       DomainGroup :: domain_group(),
       HttpCode :: pos_integer(),
-      ErrorBody :: binary(),
-      ErrorHeaders :: [{iolist(), iolist()}]|[].
-
--callback app_mode(domain_group()) ->
-    normal_mode|maintenance_mode.
+      ErrorHeaders :: [{iolist(), iolist()}]|[],
+      ErrorBody :: binary().
 
 -callback service_backend(service()) ->
     service_backend().
