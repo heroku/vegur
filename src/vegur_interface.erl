@@ -31,8 +31,9 @@
       CheckoutError :: atom(),
       LookupStats :: lookup_stats().
 
--callback checkin_service(Service, ServiceState) ->
+-callback checkin_service(DomainGroup, Service, ServiceState) ->
     ok when
+      DomainGroup :: domain_group(),
       Service :: service(),
       ServiceState :: service_state().
 
