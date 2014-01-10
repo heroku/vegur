@@ -19,18 +19,14 @@ lookup_domain_name(_Domain) ->
     {ok, domain_group}.
 
 -spec checkout_service(DomainGroup, LookupStats) ->
-                              {route, Service, LookupStats} |
-                              {error, CheckoutError, HttpCode, ErrorPage,
-                               ErrorHeaders, LookupStats} when
+                              {service, Service, LookupStats} |
+                              {error, CheckoutError, LookupStats} when
       CheckoutError :: atom(),
-      HttpCode :: pos_integer(),
-      ErrorPage :: iolist()|binary(),
-      ErrorHeaders :: [{iolist(), iolist()}]|[],
       DomainGroup :: vegur_interface:domain_group(),
       Service :: vegur_interface:service(),
       LookupStats :: vegur_interface:lookup_stats().
 checkout_service(_DomainGroup, LookupStats) ->
-    {route, service, LookupStats}.
+    {service, service, LookupStats}.
 
 -spec checkin_service(DomainGroup, Service, ServiceState) ->
                              ok when
