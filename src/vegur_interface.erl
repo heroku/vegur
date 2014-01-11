@@ -31,11 +31,12 @@
       CheckoutError :: atom(),
       LookupStats :: lookup_stats().
 
--callback checkin_service(DomainGroup, Service, ServiceState) ->
-    ok when
+-callback checkin_service(DomainGroup, Service, ServiceState, LookupStats|undefined) ->
+    {ok, LookupStats|undefined} when
       DomainGroup :: domain_group(),
       Service :: service(),
-      ServiceState :: service_state().
+      ServiceState :: service_state(),
+      LookupStats :: lookup_stats().
 
 -callback error_page(ErrorReason, DomainGroup) ->
     {HttpCode, ErrorHeaders, ErrorBody} when

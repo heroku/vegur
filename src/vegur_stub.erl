@@ -4,7 +4,7 @@
 
 -export([lookup_domain_name/1,
          checkout_service/2,
-         checkin_service/3,
+         checkin_service/4,
          service_backend/1,
          error_page/2]).
 
@@ -28,13 +28,14 @@ lookup_domain_name(_Domain) ->
 checkout_service(_DomainGroup, LookupStats) ->
     {service, service, LookupStats}.
 
--spec checkin_service(DomainGroup, Service, ServiceState) ->
-                             ok when
+-spec checkin_service(DomainGroup, Service, ServiceState, LookupStats) ->
+                             {ok, LookupStats} when
       DomainGroup :: vegur_interface:domain_group(),
       Service :: vegur_interface:service(),
-      ServiceState :: vegur_interface:service_state().
-checkin_service(_DomainGroup, _Service, _ServiceState) ->
-    ok.
+      ServiceState :: vegur_interface:service_state(),
+      LookupStats :: vegur_interface:lookup_stats()|undefined.
+checkin_service(_DomainGroup, _Service, _ServiceState, LookupStats) ->
+    {ok, LookupStats}.
 
 -spec error_page(ErrorReason, DomainGroup) ->
                         {HttpCode, ErrorHeaders, ErrorBody} when

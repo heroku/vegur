@@ -26,8 +26,8 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
             handle_backend_response(Code, RespHeaders, Req,
                                     State#state{backend_client=BackendClient1});
         {error, Error} ->
-            {Error, Req1} = get_error(Error, Req, State),
-            Req2 = render_error(Error, Req1),
+            {ErrorMsg, Req1} = get_error(Error, Req, State),
+            Req2 = render_error(ErrorMsg, Req1),
             {halt, Req2}
     end.
 
@@ -37,8 +37,8 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
         {done, Req1, BackendClient1} ->
             read_backend_response(Req1, State#state{backend_client=BackendClient1});
         {error, Error} ->
-            {Error, Req1} = get_error(Error, Req, State),
-            Req2 = render_error(Error, Req1),
+            {ErrorMsg, Req1} = get_error(Error, Req, State),
+            Req2 = render_error(ErrorMsg, Req1),
             {halt, Req2}
     end.
 
@@ -73,8 +73,8 @@ http_request(Code, Headers, Req,
         {ok, Req1, _Client1} ->
             {ok, Req1, Env};
         {error, Error, Req1} ->
-            {Error, Req2} = get_error(Error, Req1, State),
-            Req3 = render_error(Error, Req2),
+            {ErrorMsg, Req2} = get_error(Error, Req1, State),
+            Req3 = render_error(ErrorMsg, Req2),
             {halt, Req3}
     end.
 
