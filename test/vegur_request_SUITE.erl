@@ -73,9 +73,9 @@ init_per_group(vegur_request_lookups, Config) ->
     {ok, MeckStarted} = application:ensure_all_started(meck),
     TestDomain = <<"vegurtest.testdomain">>,
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(Domain) ->
+                fun(Domain, HandlerState) ->
                         Domain = TestDomain,
-                        {ok, mocked_domain_group}
+                        {ok, mocked_domain_group, HandlerState}
                 end),
     [{meck_started, MeckStarted},
      {test_domain, TestDomain} | Config];
@@ -105,11 +105,11 @@ init_per_testcase(elb_healthcheck, Config) ->
     [{elb_endpoint, <<"F3DA8257-B28C-49DF-AACD-8171464E1D1D">>} | Config];
 init_per_testcase(herokuapp_redirect, Config) ->
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(Domain) ->
+                fun(Domain, HandlerState) ->
                         RootDomainToReplace = vegur_app:config(heroku_domain),
                         RootDomainToReplaceWith = vegur_app:config(herokuapp_domain),
                         NewDomain = re:replace(Domain, RootDomainToReplace, RootDomainToReplaceWith),
-                        {redirect, herokuapp_redirect, [], NewDomain}
+                        {redirect, herokuapp_redirect, [], NewDomain, HandlerState}
                 end),
     HerokuDomain = vegur_app:config(heroku_domain),
     TestDomain = <<"vegurtest.", HerokuDomain/binary>>,
@@ -117,9 +117,9 @@ init_per_testcase(herokuapp_redirect, Config) ->
 init_per_testcase(maintainance_mode_on, Config) ->
     TestDomain = <<"vegurtest.testdomain">>,
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(Domain) ->
+                fun(Domain, HandlerState) ->
                         Domain = TestDomain,
-                        {ok, mocked_domain_group}
+                        {ok, mocked_domain_group, HandlerState}
                 end),
     ok = mock_service_reply({error, maintainance_mode, []}),
     [{test_domain, TestDomain} | Config];

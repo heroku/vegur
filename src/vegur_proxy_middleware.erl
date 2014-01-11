@@ -26,7 +26,7 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
             handle_backend_response(Code, RespHeaders, Req,
                                     State#state{backend_client=BackendClient1});
         {error, Error} ->
-            {ErrorMsg, Req1} = get_error(Error, Req, State),
+            {ErrorMsg, Req1} = get_error(Error, Req),
             Req2 = render_error(ErrorMsg, Req1),
             {halt, Req2}
     end.
@@ -37,7 +37,7 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
         {done, Req1, BackendClient1} ->
             read_backend_response(Req1, State#state{backend_client=BackendClient1});
         {error, Error} ->
-            {ErrorMsg, Req1} = get_error(Error, Req, State),
+            {ErrorMsg, Req1} = get_error(Error, Req),
             Req2 = render_error(ErrorMsg, Req1),
             {halt, Req2}
     end.
@@ -68,12 +68,12 @@ upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
 
 http_request(Code, Headers, Req,
-             #state{backend_client=BackendClient, env=Env}=State) ->
+             #state{backend_client=BackendClient, env=Env}) ->
     case vegur_proxy:relay(Code, Headers, Req, BackendClient) of
         {ok, Req1, _Client1} ->
             {ok, Req1, Env};
         {error, Error, Req1} ->
-            {ErrorMsg, Req2} = get_error(Error, Req1, State),
+            {ErrorMsg, Req2} = get_error(Error, Req1),
             Req3 = render_error(ErrorMsg, Req2),
             {halt, Req3}
     end.
@@ -165,10 +165,12 @@ add_via(Headers, Req) ->
 get_via_value() ->
     vegur_app:config(instance_name, <<"vegur">>).
 
-get_error(Error, Req, #state{env=Env}) ->
-    InterfaceModule = vegur_utils:get_interface_module(Env),
+get_error(Error, Req) ->
+    {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {InterfaceModule:error_page(Error, DomainGroup), Req1}.
+    {ErrorPage, HandlerState1} = InterfaceModule:error_page(Error, DomainGroup, HandlerState),
+    Req2 = vegur_utils:set_handler_state(HandlerState1, Req1),
+    {ErrorPage, Req2}.
 
 render_error({HttpCode, ErrorHeaders, ErrorBody}, Req) ->
     vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req).

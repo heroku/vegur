@@ -12,8 +12,8 @@ all() -> [back_and_forth, body_timeout, non_terminal, continue_upgrade_httpbis,
 %%%%%%%%%%%%
 init_per_suite(Config) ->
     meck:new(vegur_stub, [passthrough, no_link]),
-    meck:expect(vegur_stub, lookup_domain_name, fun(_) -> {ok, test_domain} end),
-    meck:expect(vegur_stub, checkout_service, fun(_, _) -> {service, test_service, []} end),
+    meck:expect(vegur_stub, lookup_domain_name, fun(_, HandlerState) -> {ok, test_domain, HandlerState} end),
+    meck:expect(vegur_stub, checkout_service, fun(_, HandlerState) -> {service, test_service, HandlerState} end),
     Env = application:get_all_env(vegur),
     [{vegur_env, Env} | Config].
 
@@ -25,9 +25,7 @@ init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
     application:load(vegur),
-    %ok = application:set_env(vegur, domain, <<"127.0.0.1">>),
-    meck:expect(vegur_stub, service_backend, fun(_) -> {<<"127.0.0.1">>, LPort} end),
-    %ok = application:set_env(vegur, backend, {<<"127.0.0.1">>, LPort}),
+    meck:expect(vegur_stub, service_backend, fun(_, HandlerState) -> {{<<"127.0.0.1">>, LPort}, HandlerState} end),
     {ok, ProxyPort} = application:get_env(vegur, http_listen_port),
     {ok, Started} = application:ensure_all_started(vegur),
     [{server_port, LPort},

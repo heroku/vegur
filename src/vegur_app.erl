@@ -87,5 +87,4 @@ cowboy_opts() ->
     ,{onrequest, fun vegur_request_log:new/1}].
 
 cowboy_env() ->
-    InterfaceModule = config(interface_module),
-    [{interface_module, InterfaceModule}].
+    [].

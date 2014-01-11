@@ -1,22 +1,28 @@
 -module(vegur_utils).
 
 -export([get_interface_module/1
+         ,set_handler_state/2
          ,parse_header/2
          ,add_or_append_header/4
          ,add_if_missing_header/4
          ,add_or_replace_header/3
          ,render_response/4]).
 
--spec get_interface_module(Config) -> Module | no_return() when
-      Config :: [{atom(), term()}]|[],
+-spec get_interface_module(Req) ->
+                                  {Module, HandlerState, Req}
+                                      | no_return() when
+      Req :: cowboy_req:req(),
+      HandlerState :: term(),
       Module :: module().
-get_interface_module(Config) ->
-    case proplists:get_value(interface_module, Config) of
-        undefined ->
-            error(missing_vegur_interface_module);
-        Module when is_atom(Module) ->
-            Module
-    end.
+get_interface_module(Req) ->
+    {HandlerState, Req1} = cowboy_req:meta(handler_state, Req, undefined),
+    {vegur_app:config(interface_module), HandlerState, Req1}.
+
+-spec set_handler_state(HandlerState, Req) -> Req when
+      HandlerState :: term(),
+      Req :: cowboy_req:req().
+set_handler_state(HandlerState, Req) ->
+    cowboy_req:set_meta(handler_state, HandlerState, Req).
 
 -spec parse_header(binary(), cowboy_req:req()) ->
                           {[]|[binary()|undefined], cowboy_req:req()}.

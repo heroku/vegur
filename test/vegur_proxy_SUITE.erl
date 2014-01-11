@@ -182,14 +182,14 @@ stop_dyno() ->
 mock_through(Port) ->
     meck:new(vegur_stub, [no_link, passthrough]),
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(_) ->
-                        {ok, test_domain}
+                fun(_, HandlerState) ->
+                        {ok, test_domain, HandlerState}
                 end),
     meck:expect(vegur_stub, checkout_service,
-                fun(_, _) ->
-                        {service, test_route, []}
+                fun(_, HandlerState) ->
+                        {service, test_route, HandlerState}
                 end),
     meck:expect(vegur_stub, service_backend,
-                fun(_) ->
-                        {{127,0,0,1}, Port}
+                fun(_, HandlerState) ->
+                        {{{127,0,0,1}, Port}, HandlerState}
                 end).
