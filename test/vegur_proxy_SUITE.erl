@@ -25,23 +25,25 @@ init_per_suite(Config) ->
     {ok, Inets} = application:ensure_all_started(inets),
     {ok, Meck} = application:ensure_all_started(meck),
     application:load(vegur),
-    HstubPort = 9333,
-    DynoPort = 9555,
-    mock_through(DynoPort),
-    application:set_env(vegur, http_listen_port, HstubPort),
-    {ok, HstubStarted} = application:ensure_all_started(vegur),
-    [{started, Cowboy++Inets++HstubStarted++Meck},
-     {vegur_port, HstubPort},
-     {dyno_port, DynoPort}| Config].
+    [{started, Cowboy++Inets++Meck}| Config].
 
 end_per_suite(Config) ->
+    [application:stop(App) || App <- ?config(started, Config)],
+    Config.
+
+init_per_group(vegur_proxy_headers, Config) ->
+    VegurPort = 9333,
+    DynoPort = 9555,
+    mock_through(DynoPort),
+    application:set_env(vegur, http_listen_port, VegurPort),
+    {ok, VegurStarted} = application:ensure_all_started(vegur),
+    [{group_started, VegurStarted},
+     {vegur_port, VegurPort},
+     {dyno_port, DynoPort} | Config].
+
+end_per_group(vegur_proxy_headers, Config) ->
     meck:unload(),
-    Config.
-
-init_per_group(_, Config) ->
-    Config.
-
-end_per_group(_GroupName, Config) ->
+    [application:stop(App) || App <- ?config(group_started, Config)],
     Config.
 
 init_per_testcase(_TestCase, Config) ->
