@@ -6,7 +6,6 @@
   ,{applications,
     [kernel
      ,stdlib
-     ,stillir
      ,cowboy
     ]}
   ,{mod, { vegur_app, []} }
