@@ -32,7 +32,10 @@ new(Req) ->
     Req8 = cowboy_req:set_meta(request_id, RequestId1, Req7),
     Log = ?LOGGER:new(Now),
     Log1 = ?LOGGER:stamp(connection_accepted, Log),
-    cowboy_req:set_meta(logging, Log1, Req8).
+    Req9 = cowboy_req:set_meta(logging, Log1, Req8),
+    {InterfaceModule, _, Req10} = vegur_utils:get_interface_module(Req9),
+    {ok, HandlerState} = InterfaceModule:init(Now, RequestId1),
+    vegur_utils:set_handler_state(HandlerState, Req10).
 
 -spec stamp(EventType, Req) -> Req when
       EventType :: event_type(),

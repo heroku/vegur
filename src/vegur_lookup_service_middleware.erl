@@ -5,31 +5,33 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    lookup_service(Req, Env, undefined).
+    lookup_service(Req, Env).
 
-lookup_service(Req, Env, LookupStats) ->
-    InterfaceModule = vegur_utils:get_interface_module(Env),
+lookup_service(Req, Env) ->
+    {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {Service, Req2} = ?LOG(service_lookup, InterfaceModule:checkout_service(DomainGroup, LookupStats),
-                           Req1),
-    handle_service(Service, Req2, Env).
+    Service = InterfaceModule:checkout_service(DomainGroup, HandlerState),
+    handle_service(Service, Req1, Env).
 
-handle_service({service, Service, LookupStats}, Req, Env) ->
-    InterfaceModule = vegur_utils:get_interface_module(Env),
-    ServiceBackend = InterfaceModule:service_backend(Service),
-    Req1 = vegur_request_log:stamp(pre_connect, Req),
-    case ?LOG(connect_time, vegur_proxy:backend_connection(ServiceBackend), Req1) of
-        {{connected, Client}, Req2} ->
-            Req3 = cowboy_req:set_meta(backend_connection, Client, Req2),
-            {ok, Req3, Env};
+handle_service({service, Service, HandlerState}, Req, Env) ->
+    {InterfaceModule, _, Req1} = vegur_utils:get_interface_module(Req),
+    {ServiceBackend, HandlerState1} = InterfaceModule:service_backend(Service, HandlerState),
+    Req2 = vegur_request_log:stamp(pre_connect, Req1),
+    case ?LOG(connect_time, vegur_proxy:backend_connection(ServiceBackend), Req2) of
+        {{connected, Client}, Req3} ->
+            Req4 = cowboy_req:set_meta(backend_connection, Client, Req3),
+            Req5 = vegur_utils:set_handler_state(HandlerState1, Req4),
+            {ok, Req5, Env};
         {{error, Reason}, Req2} ->
             {DomainGroup, Req3} = cowboy_req:meta(domain_group, Req2),
-            {ok, LookupStats1} = InterfaceModule:checkin_service(DomainGroup, Service, Reason, LookupStats),
-            lookup_service(Req3, Env, LookupStats1)
+            {ok, HandlerState2} = InterfaceModule:checkin_service(DomainGroup, Service, Reason, HandlerState1),
+            Req4 = vegur_utils:set_handler_state(HandlerState2, Req3),
+            lookup_service(Req4, Env)
     end;
-handle_service({error, Reason, _LookupStats}, Req, Env) ->
-    InterfaceModule = vegur_utils:get_interface_module(Env),
-    {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {HttpCode, ErrorHeaders, ErrorBody} = InterfaceModule:error_page(Reason, DomainGroup),
-    Req2 = vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req1),
-    {halt, Req2}.
+handle_service({error, Reason, HandlerState}, Req, _Env) ->
+    {InterfaceModule, _, Req1} = vegur_utils:get_interface_module(Req),
+    {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
+    {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(Reason, DomainGroup, HandlerState),
+    Req3 = vegur_utils:set_handler_state(HandlerState1, Req2),
+    Req4 = vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req3),
+    {halt, Req4}.
