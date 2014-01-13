@@ -17,6 +17,9 @@ groups() ->
     [
      {vegur_request_handling, [], [no_host
                                    ,empty_host
+                                   ,url_limits
+                                   ,header_line_limits
+                                   ,header_count_limits
                                    ,invalid_expect
                                    ,elb_healthcheck
                                    ,lockstep_healthcheck
@@ -99,6 +102,21 @@ init_per_testcase(no_host, Config) ->
     Config;
 init_per_testcase(empty_host, Config) ->
     Config;
+init_per_testcase(url_limits, Config) ->
+    meck:new(vegur_stub, [passthrough]),
+    meck:expect(vegur_stub, checkout_service,
+                fun(_DomainGroup, State) -> {error, please_die, State} end),
+    Config;
+init_per_testcase(header_line_limits, Config) ->
+    meck:new(vegur_stub, [passthrough]),
+    meck:expect(vegur_stub, checkout_service,
+                fun(_DomainGroup, State) -> {error, please_die, State} end),
+    Config;
+init_per_testcase(header_count_limits, Config) ->
+    meck:new(vegur_stub, [passthrough]),
+    meck:expect(vegur_stub, checkout_service,
+                fun(_DomainGroup, State) -> {error, please_die, State} end),
+    Config;
 init_per_testcase(invalid_expect, Config) ->
     Config;
 init_per_testcase(elb_healthcheck, Config) ->
@@ -132,6 +150,15 @@ end_per_testcase(herokuapp_redirect, Config) ->
 end_per_testcase(maintainance_mode_on, Config) ->
     meck:unload(),
     Config;
+end_per_testcase(url_limits, Config) ->
+    meck:unload(),
+    Config;
+end_per_testcase(header_line_limits, Config) ->
+    meck:unload(),
+    Config;
+end_per_testcase(header_count_limits, Config) ->
+    meck:unload(),
+    Config;
 end_per_testcase(_, Config) ->
     Config.
 
@@ -159,6 +186,80 @@ empty_host(Config) ->
     Data = get_until_closed(Socket, <<>>),
     M = binary:match(Data, <<"400">>),
     true = is_tuple(M),
+    Config.
+
+url_limits(Config) ->
+    % Expect at least 8192 bytes allowed for URLs in request lines. Anything
+    % over this fails with a 414: Request-URI Too Long
+    Port = ?config(vegur_port, Config),
+    Req1 = "GET /"++lists:duplicate(10000, $a)++" HTTP/1.1\r\nHost:localhost\r\n\r\n",
+    {ok, Socket1} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket1, Req1),
+    Data1 = get_until_closed(Socket1, <<>>),
+    {_, _} = binary:match(Data1, <<"414">>),
+    %% Accepted
+    Req2 = "GET /"++lists:duplicate(8200, $a)++" HTTP/1.1\r\nHost:localhost\r\nConnection:close\r\n\r\n",
+    {ok, Socket2} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket2, Req2),
+    Data2 = get_until_closed(Socket2, <<>>),
+    nomatch = binary:match(Data2, <<"414">>),
+    Config.
+
+header_line_limits(Config) ->
+    % Expect at least 8192 bytes allowed for each header line, and 1000 characters
+    % for header names.
+    %% Long header names
+    Port = ?config(vegur_port, Config),
+    Req1 = "GET / HTTP/1.1\r\nHost:localhost\r\n"
+           ++lists:duplicate(2100, $a)++": ok\r\n\r\n",
+    {ok, Socket1} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket1, Req1),
+    Data1 = get_until_closed(Socket1, <<>>),
+    {_, _} = binary:match(Data1, <<"400">>),
+    %% Works
+    Req2 = "GET / HTTP/1.1\r\nHost:localhost\r\nconnection: close\r\n"
+           ++lists:duplicate(1000, $a)++": ok\r\n\r\n",
+    {ok, Socket2} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket2, Req2),
+    Data2 = get_until_closed(Socket2, <<>>),
+    nomatch = binary:match(Data2, <<"400">>),
+    %% Long headers total values
+    Req3 = "GET / HTTP/1.1\r\nHost:localhost\r\n"
+           "h: "++lists:duplicate(9100, $a)++"\r\n\r\n",
+    {ok, Socket3} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket3, Req3),
+    Data3 = get_until_closed(Socket3, <<>>),
+    {_, _} = binary:match(Data3, <<"400">>),
+    %% Works
+    Req4 = "GET / HTTP/1.1\r\nHost:localhost\r\nconnection:close\r\n"
+           "h: "++lists:duplicate(8192, $a)++"\r\n\r\n",
+    {ok, Socket4} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket4, Req4),
+    Data4 = get_until_closed(Socket4, <<>>),
+    nomatch = binary:match(Data4, <<"400">>),
+    Config.
+
+header_count_limits(Config) ->
+    % Expect at least 1000 headers total, without regards to size
+    % over this fails with a 400
+    Port = ?config(vegur_port, Config),
+    Req1 = ["GET / HTTP/1.1\r\nHost:localhost\r\n",
+            ["header"++integer_to_list(N)++":1\r\n" || N <- lists:seq(1,1100)],
+            "\r\n"],
+    {ok, Socket1} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket1, Req1),
+    Data1 = get_until_closed(Socket1, <<>>),
+    ct:pal("Data1: ~p", [Data1]),
+    {_, _} = binary:match(Data1, <<"400">>),
+    %% Accepted
+    Req2 = ["GET / HTTP/1.1\r\nHost:localhost\r\nconnection:close\r\n",
+            ["header"++integer_to_list(N)++":1\r\n" || N <- lists:seq(1,999)], % 999+host
+            "\r\n"],
+    {ok, Socket2} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket2, Req2),
+    Data2 = get_until_closed(Socket2, <<>>),
+    ct:pal("Data2: ~p", [Data2]),
+    nomatch = binary:match(Data2, <<"400">>),
     Config.
 
 invalid_expect(Config) ->
