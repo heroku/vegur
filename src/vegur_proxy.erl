@@ -226,9 +226,9 @@ upgrade(Headers, Req, BackendClient) ->
 relay(Status, HeadersRaw, Req, Client) ->
     %% Dispatch data from vegur_client down into the cowboy connection, either
     %% in batch or directly.
-    Headers = case should_close(Status, Req, Client) of
-        false -> response_headers(HeadersRaw);
-        true  -> add_connection_close_header(response_headers(HeadersRaw))
+    Headers = case connection_type(Status, Req, Client) of
+        keepalive -> add_connection_keepalive_header(response_headers(HeadersRaw));
+        close  -> add_connection_close_header(response_headers(HeadersRaw))
     end,
     case vegur_client:body_type(Client) of
         {content_size, N} when N =< ?BUFFER_LIMIT ->
@@ -399,11 +399,18 @@ stream_close({Transport,Sock}=Raw, Client) ->
 
 %% We should close the connection whenever we get an Expect: 100-Continue
 %% that got answered with a final status code.
-should_close(Status, Req, _Client) ->
+connection_type(Status, Req, _Client) ->
     {Cont, _} = cowboy_req:meta(continue, Req, []),
-    %% If we haven't received a 100 continue to forward AND this is
-    %% a final status, then we should close the connection
-    Cont =:= continue andalso Status >= 200.
+    %% If we haven't received a 100 continue to forward after having
+    %% received an expect AND this is a final status, then we should
+    %% close the connection.
+    case Cont =:= continue andalso Status >= 200 of
+        true ->
+            close;
+        false ->
+            %% Honor the client's decision
+            cowboy_req:get(connection, Req)
+    end.
 
 backend_close(undefined) -> undefined;
 backend_close(Client) ->
@@ -457,4 +464,10 @@ add_connection_close_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
         false -> [{<<"connection">>, <<"close">>} | Hdrs]
+    end.
+
+add_connection_keepalive_header(Hdrs) ->
+    case lists:keymember(<<"connection">>, 1, Hdrs) of
+        true -> Hdrs;
+        false -> [{<<"connection">>, <<"keep-alive">>} | Hdrs]
     end.

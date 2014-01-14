@@ -3,7 +3,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -compile(export_all).
 
-all() -> [{group, continue}, {group, headers}].
+all() -> [{group, continue}, {group, headers}, {group, http_1_0}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -15,8 +15,12 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_req,
                 duplicate_different_lengths_resp, duplicate_csv_lengths_resp,
                 duplicate_identical_lengths_resp,
-                delete_hop_by_hop, advertise_1_1
-            ]}].
+                delete_hop_by_hop
+             ]},
+             {http_1_0, [], [
+                advertise_1_1, conn_close_default, conn_keepalive_opt
+             ]}
+            ].
 
 %%%%%%%%%%%%
 %%% Init %%%
@@ -506,7 +510,6 @@ delete_hop_by_hop(Config) ->
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
     %% All hop by hop headers but proxy-authentication are gone
-    ct:pal("Serv: ~p~nCli: ~p", [RecvServ,RecvClient]),
     nomatch = re:run(RecvServ, "^te:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^trailer:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^keep-alive:", [global,multiline,caseless]),
@@ -518,6 +521,9 @@ delete_hop_by_hop(Config) ->
     nomatch = re:run(RecvClient, "^proxy-authorization:", [global,multiline,caseless]),
     {match,_} = re:run(RecvClient, "^proxy-authentication:", [global,multiline,caseless]).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% HTTP 1.0 BEHAVIOUR %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%
 advertise_1_1(Config) ->
     %% An HTTP/1.1 server should always avertise itself as such, even when
     %% talking to 1.0.
@@ -542,6 +548,51 @@ advertise_1_1(Config) ->
     {match,_} = re:run(RecvServ, "HTTP/1.1", [global,multiline]),
     nomatch = re:run(RecvClient, "HTTP/1.0", [global,multiline]),
     {match,_} = re:run(RecvClient, "HTTP/1.1", [global,multiline]).
+
+conn_close_default(Config) ->
+    %% By default, all connections are closed after each request
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = [http_1_0_headers(Config), req_body()],
+    Resp = resp(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, _} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
+
+conn_keepalive_opt(Config) ->
+    %% By default, all connections are closed after each request
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = [http_1_0_keepalive_headers(Config), req_body()],
+    Resp = resp(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    {match,_} = re:run(RecvClient, "^connection: ?keep-alive", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
 
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
@@ -599,6 +650,14 @@ http_1_0_headers(Config) ->
     "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
     "Content-Type: text/plain\r\n"
+    "\r\n".
+
+http_1_0_keepalive_headers(Config) ->
+    "POST /continue-1 HTTP/1.0\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10\r\n"
+    "Content-Type: text/plain\r\n"
+    "Connection: keep-alive\r\n"
     "\r\n".
 
 no_expect_headers(Config) ->
