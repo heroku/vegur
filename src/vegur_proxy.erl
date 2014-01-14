@@ -7,7 +7,8 @@
          ,send_body/7
          ,read_backend_response/2
          ,upgrade/3
-         ,relay/4]).
+         ,relay/4
+         ,byte_counts/1]).
 
 -type error_blame() :: upstream|downstream.
 
@@ -233,6 +234,12 @@ relay(Status, HeadersRaw, Req, Client) ->
         no_body ->
             relay_no_body(Status, Headers, Req, Client)
     end.
+
+-spec byte_counts(Client) -> [{bytes_sent|bytes_recv, BytesCount}] when
+      BytesCount :: non_neg_integer()|undefined,
+      Client :: vegur_client:client().
+byte_counts(Client) ->
+    vegur_client:byte_counts(Client).
 
 %% There is no body to relay
 relay_no_body(Status, Headers, Req, Client) ->

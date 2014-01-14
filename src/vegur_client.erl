@@ -64,6 +64,8 @@
 -export([raw_socket/1]).
 -export([auth_header/1]).
 
+-export([byte_counts/1]).
+
 
 -record(client, {
           state = wait :: wait | request | response | response_body | raw,
@@ -520,6 +522,9 @@ auth_header(AuthInfo) when is_list(AuthInfo) ->
           [User] ->
               encode_auth_header(User)
       end}].
+
+byte_counts(#client{bytes_sent=BytesSent, bytes_recv=BytesRecv}) ->
+    [{bytes_sent, BytesSent}, {bytes_recv, BytesRecv}].
 
 %% @private
 encode_auth_header(User) ->

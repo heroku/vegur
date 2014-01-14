@@ -10,14 +10,18 @@
 
 execute(Req, Env) ->
     {Client, Req1} = cowboy_req:meta(backend_connection, Req),
-    case proxy(Req1, #state{backend_client = Client,
-                            env = Env}) of
-        {ok, Req2, State} ->
-            {ok, Req2, State};
+    case proxy(Req1, #state{backend_client = Client, env = Env}) of
+        {ok, Req2, #state{backend_client=Client1, env=Env1}} ->
+            BytesCounts = vegur_client:byte_counts(Client1),
+            Req3 = cowboy_req:set_meta(bytes_sent, proplists:get_value(bytes_sent, BytesCounts), Req2),
+            Req4 = cowboy_req:set_meta(bytes_recv, proplists:get_value(bytes_recv, BytesCounts), Req3),
+            Req5 = cowboy_req:set_meta(request_status, successful, Req4),
+            {ok, Req5, Env1};
         {error, _Blame, Reason, Req2} ->
             {ErrorMsg, Req3} = get_error(Reason, Req2),
             Req4 = render_error(ErrorMsg, Req3),
-            {halt, Req4}
+            Req5 = cowboy_req:set_meta(request_status, error, Req4),
+            {halt, Req5}
     end.
 
 proxy(Req, State) ->
@@ -71,10 +75,10 @@ upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
 
 http_request(Code, Headers, Req,
-             #state{backend_client=BackendClient, env=Env}) ->
+             #state{backend_client=BackendClient}=State) ->
     case vegur_proxy:relay(Code, Headers, Req, BackendClient) of
-        {ok, Req1, _Client1} ->
-            {ok, Req1, Env};
+        {ok, Req1, BackendClient1} ->
+            {ok, Req1, State#state{backend_client=BackendClient1}};
         {error, Blame, Error, Req1} ->
             {error, Blame, Error, Req1}
     end.
