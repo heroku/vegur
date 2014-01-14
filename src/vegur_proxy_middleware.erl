@@ -10,8 +10,15 @@
 
 execute(Req, Env) ->
     {Client, Req1} = cowboy_req:meta(backend_connection, Req),
-    proxy(Req1, #state{backend_client = Client,
-                       env = Env}).
+    case proxy(Req1, #state{backend_client = Client,
+                            env = Env}) of
+        {ok, Req2, State} ->
+            {ok, Req2, State};
+        {error, _Blame, Reason, Req2} ->
+            {ErrorMsg, Req3} = get_error(Reason, Req2),
+            Req4 = render_error(ErrorMsg, Req3),
+            {halt, Req4}
+    end.
 
 proxy(Req, State) ->
     {BackendReq, Req1} = parse_request(Req),
@@ -25,10 +32,8 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
         {ok, Code, RespHeaders, BackendClient1} -> % request ended without body sent
             handle_backend_response(Code, RespHeaders, Req,
                                     State#state{backend_client=BackendClient1});
-        {error, Error} ->
-            {ErrorMsg, Req1} = get_error(Error, Req),
-            Req2 = render_error(ErrorMsg, Req1),
-            {halt, Req2}
+        {error, Blame, Error} ->
+            {error, Blame, Error, Req}
     end.
 
 send_body_to_backend({Method, Header, Body, Path, Url}, Req,
@@ -36,10 +41,8 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
     case vegur_proxy:send_body(Method, Header, Body, Path, Url, Req, BackendClient) of
         {done, Req1, BackendClient1} ->
             read_backend_response(Req1, State#state{backend_client=BackendClient1});
-        {error, Error} ->
-            {ErrorMsg, Req1} = get_error(Error, Req),
-            Req2 = render_error(ErrorMsg, Req1),
-            {halt, Req2}
+        {error, Blame, Error} ->
+            {error, Blame, Error, Req}
     end.
 
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
@@ -47,10 +50,8 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
         {ok, Code, RespHeaders, Req1, BackendClient1} ->
             handle_backend_response(Code, RespHeaders, Req1,
                                     State#state{backend_client=BackendClient1});
-        {error, content_length} ->
-            {error, 502, Req};
-        {error, _Error} ->
-            {error, 503, Req}
+        {error, Blame, Error} ->
+            {error, Blame, Error, Req}
     end.
 
 handle_backend_response(Code, RespHeaders, Req, State) ->
@@ -74,10 +75,8 @@ http_request(Code, Headers, Req,
     case vegur_proxy:relay(Code, Headers, Req, BackendClient) of
         {ok, Req1, _Client1} ->
             {ok, Req1, Env};
-        {error, Error, Req1} ->
-            {ErrorMsg, Req2} = get_error(Error, Req1),
-            Req3 = render_error(ErrorMsg, Req2),
-            {halt, Req3}
+        {error, Blame, Error, Req1} ->
+            {error, Blame, Error, Req1}
     end.
 
 parse_request(Req) ->

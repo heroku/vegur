@@ -26,7 +26,7 @@ backend_connection({IpAddress, Port}) ->
             {error, Reason}
     end.
 
--spec send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
+-spec send_request(Method, Headers, Body, Path, Url, Req, Client) ->
                             {done, Req, Client} |
                             {error, any()} when
       Body :: {stream, chunked|non_neg_integer()}|binary(),
@@ -71,6 +71,19 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
         Body ->
             {ok, _} = vegur_client:raw_request(Body, BackendClient),
             {done, Req, BackendClient}
+    end.
+
+send_request(Method, Headers, Body, Path, Url, Req, Client) ->
+    %% We have a static, already known body, and can send it at once.
+    Request = vegur_client:request_to_iolist(Method,
+                                             request_headers(Headers),
+                                             Body,
+                                             'HTTP/1.1',
+                                             Url,
+                                             Path),
+    case vegur_client:raw_request(Request, Client) of
+        {ok, Client2} -> {done, Req, Client2};
+        {error, _Err} = Err -> Err
     end.
 
 negotiate_continue(Body, Req, BackendClient) ->
@@ -241,6 +254,7 @@ relay_no_body(Status, Headers, Req, Client) ->
 
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Status, Headers, Req, Client) ->
+<<<<<<< HEAD
     case wait_for_body(Status, Req) of
         false ->
             {content_size, N} = vegur_client:body_type(Client),
@@ -252,8 +266,17 @@ relay_full_body(Status, Headers, Req, Client) ->
                     {ok, Req1, backend_close(Client2)};
                 {error, Error} ->
                     backend_close(Client),
-                    {error, downstream, Error, Req}
+                    {error, Error, Req}
             end
+=======
+    case vegur_client:response_body(Client) of
+        {ok, Body, Client2} ->
+            Req1 = respond(Status, Headers, Body, Req),
+            {ok, Req1, backend_close(Client2)};
+        {error, Error} ->
+            backend_close(Client),
+            {error, downstream, Error, Req}
+>>>>>>> Identify if an error originates from upstream or
     end.
 
 %% The body is large and may need to be broken in multiple parts. Send them as
@@ -296,6 +319,7 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
     {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
+<<<<<<< HEAD
     case wait_for_body(Status, Req) of
         false ->
             {ok, Req3, backend_close(Client)};
@@ -303,9 +327,9 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
                     {ok, Req3, backend_close(Client2)};
-                {error, Blame, Error} -> % uh-oh, we died during the transfer
+                {error, Error} -> % uh-oh, we died during the transfer
                     backend_close(Client),
-                    {error, Blame, Error, Req3}
+                    {error, Error, Req3}
             end
     end;
 relay_chunked('HTTP/1.0', Status, Headers, Req, Client) ->
@@ -316,6 +340,15 @@ relay_chunked('HTTP/1.0', Status, Headers, Req, Client) ->
     %% as streaming unknown-size HTTP.
     relay_stream_body(Status, delete_transfer_encoding_header(Headers),
                       undefined, fun stream_unchunked/2, Req, Client).
+=======
+    case stream_chunked(RawSocket, Client) of
+        {ok, Client2} ->
+            {ok, Req3, backend_close(Client2)};
+        {error, Blame, Error} -> % uh-oh, we died during the transfer
+            backend_close(Client),
+            {error, Blame, Error, Req3}
+    end.
+>>>>>>> Identify if an error originates from upstream or
 
 stream_chunked({Transport,Sock}=Raw, Client) ->
     %% Fetch chunks one by one (including length and line-delimitation)
