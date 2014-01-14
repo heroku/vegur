@@ -46,13 +46,14 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
                                                        'HTTP/1.1',
                                                        Url,
                                                        Path),
-    {ok, _} = vegur_client:raw_request(IoHeaders, Client),
+    {ok,  _} = vegur_client:raw_request(IoHeaders, Client),
+    State1 = bytes_sent_downstream(iolist_size(IoHeaders), State),
     {Cont, Req1} = cowboy_req:meta(continue, Req, []),
     case Cont of
         continue ->
-            negotiate_continue(Body, Req1, Client);
+            negotiate_continue(Body, Req1, State1);
         _ ->
-            {done, Req1, Client}
+            {done, Req1, State1}
     end.
 
 send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
@@ -469,10 +470,8 @@ wait_for_body(_, Req) ->
 
 
 
-backend_close(undefined) -> undefined;
 backend_close(Client) ->
-    vegur_client:close(Client),
-    undefined.
+    vegur_client:close(Client).
 
 %% Strip Connection header on request.
 request_headers(Headers0) ->
