@@ -8,6 +8,7 @@
 
 all() ->
     [{group, vegur_proxy_headers}
+     ,{group, vegur_proxy_connect}
     ].
 
 groups() ->
@@ -18,32 +19,38 @@ groups() ->
                                 ,connect_time_header
                                 ,route_time_header
                                ]}
+     ,{vegur_proxy_connect, [], [service_try_again
+                                ]}
     ].
 
 init_per_suite(Config) ->
+    meck:new(vegur_stub, [no_link, passthrough]),
     {ok, Cowboy} = application:ensure_all_started(cowboy),
     {ok, Inets} = application:ensure_all_started(inets),
     {ok, Meck} = application:ensure_all_started(meck),
     application:load(vegur),
-    [{started, Cowboy++Inets++Meck}| Config].
+    VegurPort = 9333,
+    application:set_env(vegur, http_listen_port, VegurPort),
+    {ok, VegurStarted} = application:ensure_all_started(vegur),
+    mock_through(),
+    [{started, Cowboy++Inets++Meck++VegurStarted},
+     {vegur_port, VegurPort} | Config].
 
 end_per_suite(Config) ->
     [application:stop(App) || App <- ?config(started, Config)],
     Config.
 
 init_per_group(vegur_proxy_headers, Config) ->
-    VegurPort = 9333,
     DynoPort = 9555,
-    mock_through(DynoPort),
-    application:set_env(vegur, http_listen_port, VegurPort),
-    {ok, VegurStarted} = application:ensure_all_started(vegur),
-    [{group_started, VegurStarted},
-     {vegur_port, VegurPort},
-     {dyno_port, DynoPort} | Config].
+    mock_backend(9555),
+    [{dyno_port, DynoPort} | Config];
+init_per_group(vegur_proxy_connect, Config) ->
+    DynoPort = 9555,
+    mock_backend(9555),
+    [{dyno_port, DynoPort} | Config].
 
-end_per_group(vegur_proxy_headers, Config) ->
+end_per_group(_, Config) ->
     meck:unload(),
-    [application:stop(App) || App <- ?config(group_started, Config)],
     Config.
 
 init_per_testcase(_TestCase, Config) ->
@@ -173,6 +180,24 @@ route_time_header(Config) ->
     end,
     Config.
 
+service_try_again(Config) ->
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    meck:expect(vegur_stub, service_backend,
+                fun(_, HandlerState) ->
+                        mock_backend(?config(dyno_port, Config)),
+                        {{{127,0,0,1}, ?config(dyno_port, Config)+1}, HandlerState}
+                end),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req} ->
+            {Res, _} = cowboy_req:header(vegur_app:config(connect_time_header), Req),
+            true = is_integer(list_to_integer(binary_to_list(Res)))
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
 %% Helpers
 start_dyno(Port, Opts) ->
     {ok, Pid} = vegur_dyno:start(Port, Opts),
@@ -181,8 +206,7 @@ start_dyno(Port, Opts) ->
 stop_dyno() ->
     vegur_dyno:stop().
 
-mock_through(Port) ->
-    meck:new(vegur_stub, [no_link, passthrough]),
+mock_through() ->
     meck:expect(vegur_stub, lookup_domain_name,
                 fun(_, HandlerState) ->
                         {ok, test_domain, HandlerState}
@@ -190,7 +214,9 @@ mock_through(Port) ->
     meck:expect(vegur_stub, checkout_service,
                 fun(_, HandlerState) ->
                         {service, test_route, HandlerState}
-                end),
+                end).
+
+mock_backend(Port) ->
     meck:expect(vegur_stub, service_backend,
                 fun(_, HandlerState) ->
                         {{{127,0,0,1}, Port}, HandlerState}
