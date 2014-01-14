@@ -22,11 +22,11 @@ handle_service({service, Service, HandlerState}, Req, Env) ->
             Req4 = cowboy_req:set_meta(backend_connection, Client, Req3),
             Req5 = vegur_utils:set_handler_state(HandlerState1, Req4),
             {ok, Req5, Env};
-        {{error, Reason}, Req2} ->
-            {DomainGroup, Req3} = cowboy_req:meta(domain_group, Req2),
+        {{error, Reason}, Req3} ->
+            {DomainGroup, Req4} = cowboy_req:meta(domain_group, Req3),
             {ok, HandlerState2} = InterfaceModule:checkin_service(DomainGroup, Service, Reason, HandlerState1),
-            Req4 = vegur_utils:set_handler_state(HandlerState2, Req3),
-            lookup_service(Req4, Env)
+            Req5 = vegur_utils:set_handler_state(HandlerState2, Req4),
+            lookup_service(Req5, Env)
     end;
 handle_service({error, Reason, HandlerState}, Req, _Env) ->
     {InterfaceModule, _, Req1} = vegur_utils:get_interface_module(Req),
