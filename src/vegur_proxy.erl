@@ -416,8 +416,8 @@ request_headers(Headers0) ->
                         F(H)
                 end,
                 Headers0,
-                [fun delete_connection_keepalive_header/1
-                ,fun delete_host_header/1
+                [fun delete_host_header/1
+                ,fun delete_hop_by_hop/1
                 ,fun add_connection_close_header/1
                 ,fun delete_content_length_header/1
                 ]).
@@ -428,23 +428,30 @@ response_headers(Headers) ->
                         F(H)
                 end,
                 Headers,
-                [fun delete_connection_keepalive_header/1
+                [fun delete_hop_by_hop/1
                 ]).
 
-delete_connection_keepalive_header(Hdrs) ->
-    lists:delete({<<"connection">>, <<"keepalive">>}, Hdrs).
+delete_host_header(Hdrs) -> delete_all(<<"host">>, Hdrs).
 
-delete_host_header(Hdrs) ->
-    lists:keydelete(<<"host">>, 1, Hdrs).
+delete_content_length_header(Hdrs) -> delete_all(<<"content-length">>, Hdrs).
+
+%% Hop by Hop Headers we care about removing. We remove most of them but
+%% "Proxy-Authentication" for historical reasons, "Upgrade" because we pass
+%% it through, "Transfer-Encoding" because we restrict to 'chunked' and pass
+%% it through.
+delete_hop_by_hop([]) -> [];
+delete_hop_by_hop([{<<"connection">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"te">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"keep-alive">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"proxy-authorization">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"trailer">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([Hdr|Hdrs]) -> [Hdr | delete_hop_by_hop(Hdrs)].
 
 %% We need to traverse the entire list because a user could have
-%% injected more than one content-length header.
-delete_content_length_header([]) ->
-    [];
-delete_content_length_header([{<<"content-length">>, _} | Hdrs]) ->
-    delete_content_length_header(Hdrs);
-delete_content_length_header([H | Hdrs]) ->
-    [H | delete_content_length_header(Hdrs)].
+%% injected more than one instance of the same header
+delete_all(_, []) -> [];
+delete_all(Key, [{Key,_} | Hdrs]) -> delete_all(Key, Hdrs);
+delete_all(Key, [H|Hdrs]) -> [H | delete_all(Key, Hdrs)].
 
 add_connection_close_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of

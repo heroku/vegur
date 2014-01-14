@@ -14,7 +14,8 @@ groups() -> [{continue, [], [
                 duplicate_different_lengths_req, duplicate_csv_lengths_req,
                 duplicate_identical_lengths_req,
                 duplicate_different_lengths_resp, duplicate_csv_lengths_resp,
-                duplicate_identical_lengths_resp
+                duplicate_identical_lengths_resp,
+                delete_hop_by_hop
             ]}].
 
 %%%%%%%%%%%%
@@ -291,7 +292,6 @@ no_expect_continue(Config) ->
     %% for all packets to come in.
     timer:sleep(100),
     {ok, Response} = gen_tcp:recv(Client, 0, 1000),
-    ct:pal("Response: ~p",[Response]),
     {match, _} = re:run(Response, "100 Continue"),
     {match, _} = re:run(Response, "200 OK"),
     {match, _} = re:run(Response, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
@@ -320,7 +320,6 @@ http_1_0_continue(Config) ->
     ok = gen_tcp:send(Server, Resp),
     %% Result is a 200, the 100 Continue never showed up
     {ok, Response} = gen_tcp:recv(Client, 0, 1000),
-    ct:pal("Response: ~p",[Response]),
     {match, _} = re:run(Response, "200 OK"),
     {match, _} = re:run(Response, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
     nomatch = re:run(Response, "100 Continue"),
@@ -390,7 +389,6 @@ duplicate_identical_lengths_req(Config) ->
     Server = get_accepted(Ref),
     %% receive the request, content-length of 10 is there once only.
     {ok, Proxied} = gen_tcp:recv(Server, 0, 1000),
-    ct:pal("PROXIED: ~p~n",[Proxied]),
     {match, [[_]]} = re:run(Proxied, "[cC]ontent-[lL]ength: 10", [{capture, all}, global]).
 
 duplicate_different_lengths_resp(Config) ->
@@ -472,9 +470,9 @@ duplicate_identical_lengths_resp(Config) ->
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n",
-    Ref = make_ref(),
     %% Open the server to listening. We then need to send data for the
     %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
     start_acceptor(Ref, Config),
     {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
     ok = gen_tcp:send(Client, Req),
@@ -486,8 +484,38 @@ duplicate_identical_lengths_resp(Config) ->
     {ok, Response} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
     %% Connection to the server is closed, but not to the client
-    ct:pal("PROXIED: ~p~n",[Response]),
     {match, [[_]]} = re:run(Response, "[cC]ontent-[lL]ength: 43", [{capture, all}, global]).
+
+delete_hop_by_hop(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_hops(Config),
+    Resp = resp_hops(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    %% All hop by hop headers but proxy-authentication are gone
+    ct:pal("Serv: ~p~nCli: ~p", [RecvServ,RecvClient]),
+    nomatch = re:run(RecvServ, "^te:", [global,multiline,caseless]),
+    nomatch = re:run(RecvServ, "^trailer:", [global,multiline,caseless]),
+    nomatch = re:run(RecvServ, "^keep-alive:", [global,multiline,caseless]),
+    nomatch = re:run(RecvServ, "^proxy-authorization:", [global,multiline,caseless]),
+    {match,_} = re:run(RecvServ, "^proxy-authentication:", [global,multiline,caseless]),
+    nomatch = re:run(RecvClient, "^te:", [global,multiline,caseless]),
+    nomatch = re:run(RecvClient, "^trailer:", [global,multiline,caseless]),
+    nomatch = re:run(RecvClient, "^keep-alive:", [global,multiline,caseless]),
+    nomatch = re:run(RecvClient, "^proxy-authorization:", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^proxy-authentication:", [global,multiline,caseless]).
 
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
@@ -571,11 +599,43 @@ req(Config) ->
     "\r\n"
     "12345".
 
+req_hops(Config) ->
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Type: text/plain\r\n"
+    %% some hop by hop headers
+    "Connection: keep-alive\r\n"
+    "TE: deflate\r\n"
+    "TE: trailers\r\n"
+    "Trailer: some-header\r\n"
+    "keep-alive: timeout=213\r\n"
+    "prOxy-Authorization: whatever\r\n"
+    "proxy-AuthentiCation: 0\r\n"
+    "\r\n"
+    "12345".
+
 resp() ->
     "HTTP/1.1 200 OK\r\n"
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
     "Content-Length: 43\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+resp_hops() ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 43\r\n"
+    %% some hop by hop headers
+    "Connection: keep-alive\r\n"
+    "TE: deflate\r\n"
+    "TE: trailers\r\n"
+    "Trailer: some-header\r\n"
+    "keep-alive: timeout=213\r\n"
+    "prOxy-Authorization: whatever\r\n"
+    "proxy-AuthentiCation: 0\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
 
