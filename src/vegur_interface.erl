@@ -55,7 +55,7 @@
       HandlerState :: handler_state().
 
 -callback service_backend(Service, HandlerState) ->
-    ServiceBackend when
+    {ServiceBackend, HandlerState} when
       Service :: service(),
       HandlerState :: handler_state(),
       ServiceBackend :: service_backend().

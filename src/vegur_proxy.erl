@@ -3,7 +3,6 @@
 -define(BUFFER_LIMIT, 1024). % in bytes
 
 -export([backend_connection/1
-         ,send_request/7
          ,send_headers/7
          ,send_body/7
          ,read_backend_response/2
@@ -25,10 +24,10 @@ backend_connection({IpAddress, Port}) ->
             {error, Reason}
     end.
 
--spec send_request(Method, Headers, Body, Path, Url, Req, Client) ->
-                            {done, Req, Client} |
-                            {error, any()} when
-      Body ::{stream, chunked|non_neg_integer()}|binary(),
+-spec send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
+                          {done, Req, Client} |
+                          {error, any()} when
+      Body :: {stream, chunked|non_neg_integer()}|binary(),
       Method :: binary(),
       Headers :: [{binary(), binary()}]|[],
       Path :: binary(),
@@ -71,21 +70,8 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
             {done, Req, BackendClient}
     end.
 
-send_request(Method, Headers, Body, Path, Url, Req, Client) ->
-    %% We have a static, already known body, and can send it at once.
-    Request = vegur_client:request_to_iolist(Method,
-                                             request_headers(Headers),
-                                             Body,
-                                             'HTTP/1.1',
-                                             Url,
-                                             Path),
-    case vegur_client:raw_request(Request, Client) of
-        {ok, Client2} -> {done, Req, Client2};
-        {error, _Err} = Err -> Err
-    end.
-
-negotiate_continue(Body, Req, BackendClient) ->
-    negotiate_continue(Body, Req, BackendClient, timer:seconds(55)).
+negotiate_continue(Body, Req, State) ->
+    negotiate_continue(Body, Req, State, timer:seconds(55)).
 
 negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
     {error, Timeout};
