@@ -3,7 +3,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -compile(export_all).
 
-all() -> [{group, continue}, {group, headers}, {group, http_1_0}].
+all() -> [{group, continue}, {group, headers}, {group, http_1_0},
+          {group, head}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -19,6 +20,11 @@ groups() -> [{continue, [], [
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt
+             ]},
+             {head, [], [
+                head_small_body_expect, head_large_body_expect,
+                head_no_body_expect, head_chunked_expect,
+                head_close_expect
              ]}
             ].
 
@@ -594,6 +600,120 @@ conn_keepalive_opt(Config) ->
     wait_for_closed(Server, 500),
     ?assertError(not_closed, wait_for_closed(Client, 500)).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% HEAD REQUEST BEHAVIOUR %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+head_small_body_expect(Config) ->
+    %% A HEAD request should have the proxy be able to proceed without
+    %% waiting for a body even with headers indicating one otherwise.
+    %% To test it, we're gonna see if the entire stack blocks waiting
+    %% for a body by doing a request<-->response. If one of
+    %% them gets blocked, the proxy is stuck waiting on a body for a
+    %% HEAD request's response, and the connection to the server
+    %% won't close.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_head(Config),
+    Resp = resp_headers(43),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^content-length: 43", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+head_large_body_expect(Config) ->
+    %% Same as above, but for larger bodies getting streamed
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_head(Config),
+    Resp = resp_headers(430000),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^content-length: 430000", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+head_no_body_expect(Config) ->
+    %% Same as above, but for larger bodies getting streamed
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_head(Config),
+    Resp = resp_headers(0),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^content-length: 0", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+head_chunked_expect(Config) ->
+    %% Same as above, but for larger bodies getting streamed
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_head(Config),
+    Resp = resp_headers(chunked),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^transfer-encoding: chunked", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+head_close_expect(Config) ->
+    %% Same as above, but for larger bodies getting streamed
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_head(Config),
+    Resp = resp_headers(close),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^connection: close", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
 %%%%%%%%%%%%%%%
@@ -624,7 +744,7 @@ wait_for_closed(Port, T) ->
             wait_for_closed(Port, T-100)
     end.
 
-    %% Request data
+%% Request data
 req_headers(Config) ->
     "POST /continue-1 HTTP/1.1\r\n"
     "Host: "++domain(Config)++"\r\n"
@@ -684,6 +804,14 @@ req(Config) ->
     "\r\n"
     "12345".
 
+req_head(Config) ->
+    "HEAD / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n"
+    "12345".
+
 req_hops(Config) ->
     "POST / HTTP/1.1\r\n"
     "Host: "++domain(Config)++"\r\n"
@@ -707,6 +835,27 @@ resp() ->
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+resp_headers(chunked) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Transfer-Encoding: chunked\r\n"
+    "\r\n";
+resp_headers(close) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "connection: close\r\n"
+    "\r\n";
+resp_headers(Size) when is_integer(Size) ->
+    resp_headers(integer_to_list(Size));
+resp_headers(Size) when is_list(Size) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: "++Size++"\r\n"
+    "\r\n".
 
 resp_hops() ->
     "HTTP/1.1 200 OK\r\n"

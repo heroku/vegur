@@ -250,13 +250,20 @@ relay_no_body(Status, Headers, Req, Client) ->
 
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Status, Headers, Req, Client) ->
-    case vegur_client:response_body(Client) of
-        {ok, Body, Client2} ->
-            Req1 = respond(Status, Headers, Body, Req),
-            {ok, Req1, backend_close(Client2)};
-        {error, Error} ->
-            backend_close(Client),
-            {error, Error, Req}
+    case cowboy_req:method(Req) of
+        {<<"HEAD">>, _} ->
+            %% Let cowboy handle it -- it knows how to properly deal with HEADs
+            {content_size, N} = vegur_client:body_type(Client),
+            relay_stream_body(Status, Headers, N, fun stream_body/2, Req, Client);
+        _ ->
+            case vegur_client:response_body(Client) of
+                {ok, Body, Client2} ->
+                    Req1 = respond(Status, Headers, Body, Req),
+                    {ok, Req1, backend_close(Client2)};
+                {error, Error} ->
+                    backend_close(Client),
+                    {error, Error, Req}
+            end
     end.
 
 %% The body is large and may need to be broken in multiple parts. Send them as
@@ -291,12 +298,17 @@ relay_chunked(Status, Headers, Req, Client) ->
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
     {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
-    case stream_chunked(RawSocket, Client) of
-        {ok, Client2} ->
-            {ok, Req3, backend_close(Client2)};
-        {error, Error} -> % uh-oh, we died during the transfer
-            backend_close(Client),
-            {error, Error, Req3}
+    case cowboy_req:method(Req) of
+        {<<"HEAD">>, _} ->
+            {ok, Req3, backend_close(Client)};
+        _ ->
+            case stream_chunked(RawSocket, Client) of
+                {ok, Client2} ->
+                    {ok, Req3, backend_close(Client2)};
+                {error, Error} -> % uh-oh, we died during the transfer
+                    backend_close(Client),
+                    {error, Error, Req3}
+            end
     end.
 
 stream_chunked({Transport,Sock}=Raw, Client) ->
@@ -399,7 +411,7 @@ stream_close({Transport,Sock}=Raw, Client) ->
 
 %% We should close the connection whenever we get an Expect: 100-Continue
 %% that got answered with a final status code.
-connection_type(Status, Req, _Client) ->
+connection_type(Status, Req, Client) ->
     {Cont, _} = cowboy_req:meta(continue, Req, []),
     %% If we haven't received a 100 continue to forward after having
     %% received an expect AND this is a final status, then we should
@@ -408,8 +420,14 @@ connection_type(Status, Req, _Client) ->
         true ->
             close;
         false ->
-            %% Honor the client's decision
-            cowboy_req:get(connection, Req)
+            %% Honor the client's decision, except if the response has no
+            %% content-length, in which case closing is mandatory
+            case vegur_client:body_type(Client) of
+                stream_close ->
+                    close;
+                _ ->
+                    cowboy_req:get(connection, Req)
+            end
     end.
 
 backend_close(undefined) -> undefined;
