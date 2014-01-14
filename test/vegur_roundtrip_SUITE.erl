@@ -15,7 +15,7 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_req,
                 duplicate_different_lengths_resp, duplicate_csv_lengths_resp,
                 duplicate_identical_lengths_resp,
-                delete_hop_by_hop
+                delete_hop_by_hop, advertise_1_1
             ]}].
 
 %%%%%%%%%%%%
@@ -487,6 +487,7 @@ duplicate_identical_lengths_resp(Config) ->
     {match, [[_]]} = re:run(Response, "[cC]ontent-[lL]ength: 43", [{capture, all}, global]).
 
 delete_hop_by_hop(Config) ->
+    %% Hop by Hop headers should be (where not passed-on on purpose) deleted
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
     Req = req_hops(Config),
@@ -516,6 +517,31 @@ delete_hop_by_hop(Config) ->
     nomatch = re:run(RecvClient, "^keep-alive:", [global,multiline,caseless]),
     nomatch = re:run(RecvClient, "^proxy-authorization:", [global,multiline,caseless]),
     {match,_} = re:run(RecvClient, "^proxy-authentication:", [global,multiline,caseless]).
+
+advertise_1_1(Config) ->
+    %% An HTTP/1.1 server should always avertise itself as such, even when
+    %% talking to 1.0.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = [http_1_0_headers(Config), req_body()],
+    Resp = resp_1_0(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    nomatch = re:run(RecvServ, "HTTP/1.0", [global,multiline]),
+    {match,_} = re:run(RecvServ, "HTTP/1.1", [global,multiline]),
+    nomatch = re:run(RecvClient, "HTTP/1.0", [global,multiline]),
+    {match,_} = re:run(RecvClient, "HTTP/1.1", [global,multiline]).
 
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
@@ -636,6 +662,14 @@ resp_hops() ->
     "keep-alive: timeout=213\r\n"
     "prOxy-Authorization: whatever\r\n"
     "proxy-AuthentiCation: 0\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+resp_1_0() ->
+    "HTTP/1.0 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
 
