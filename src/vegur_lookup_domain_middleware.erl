@@ -30,8 +30,6 @@ handle_domain_lookup({error, not_found, HandlerState}, Req, _Env) ->
     Req3 = vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req2),
     {halt, Req3};
 handle_domain_lookup({redirect, _Reason, _DomainGroup, RedirectTo, HandlerState}, Req, _Env) ->
-    % This is a old app running on appname.heroku.com,
-    % it should be redirected to appname.herokuapp.com.
     {Path, Req2} = cowboy_req:path(Req),
     {Qs, Req3} = cowboy_req:qs(Req2),
     Qs2 = case Qs of
