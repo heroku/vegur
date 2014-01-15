@@ -4,7 +4,7 @@
 -compile(export_all).
 
 all() -> [{group, continue}, {group, headers}, {group, http_1_0},
-          {group, head}].
+          {group, body_less}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -21,10 +21,12 @@ groups() -> [{continue, [], [
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt
              ]},
-             {head, [], [
+             {body_less, [], [
                 head_small_body_expect, head_large_body_expect,
                 head_no_body_expect, head_chunked_expect,
-                head_close_expect
+                head_close_expect,
+                status_204, status_304, status_chunked_204,
+                status_close_304
              ]}
             ].
 
@@ -600,9 +602,9 @@ conn_keepalive_opt(Config) ->
     wait_for_closed(Server, 500),
     ?assertError(not_closed, wait_for_closed(Client, 500)).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% HEAD REQUEST BEHAVIOUR %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% BODY LESS REQUEST BEHAVIOUR %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 head_small_body_expect(Config) ->
     %% A HEAD request should have the proxy be able to proceed without
     %% waiting for a body even with headers indicating one otherwise.
@@ -712,6 +714,97 @@ head_close_expect(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
     {match,_} = re:run(Recv, "^connection: close", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+status_204(Config) ->
+    %% For a 204 response, we should not wait for a request body. We will not,
+    %% however, strip any headers that are not hop by hop.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_204(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^content-length:", [global,multiline,caseless]),
+    nomatch = re:run(Recv, "body", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+status_304(Config) ->
+    %% For a 304 response, we should not wait for a request body. We will not,
+    %% however, strip any headers that are not hop by hop.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_304(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^content-length:", [global,multiline,caseless]),
+    nomatch = re:run(Recv, "body", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+status_chunked_204(Config) ->
+    %% For a 204 response, we should not wait for a request body. We will not,
+    %% however, strip any headers that are not hop by hop.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_204(chunked),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "chunked", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+status_close_304(Config) ->
+    %% For a 304 response, we should not wait for a request body. We will not,
+    %% however, strip any headers that are not hop by hop.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_304(close),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^connection: close", [global,multiline,caseless]),
+    nomatch = re:run(Recv, "body", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
 %%%%%%%%%%%%%%%
@@ -872,6 +965,37 @@ resp_hops() ->
     "proxy-AuthentiCation: 0\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+resp_204(chunked) ->
+    "HTTP/1.1 204 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "transfer-encoding: chuNked\r\n"
+    "\r\n".
+
+resp_204() ->
+    "HTTP/1.1 204 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 14\r\n"
+    "\r\n"
+    "misplaced body".
+
+resp_304(close) ->
+    "HTTP/1.1 304 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "connection:close\r\n"
+    "\r\n"
+    "misplaced body with a bigger but wrong size".
+
+resp_304() ->
+    "HTTP/1.1 304 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 1421093\r\n"
+    "\r\n"
+    "misplaced body with a bigger but wrong size".
 
 resp_1_0() ->
     "HTTP/1.0 200 OK\r\n"

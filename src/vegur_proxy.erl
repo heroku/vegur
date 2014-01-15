@@ -250,12 +250,11 @@ relay_no_body(Status, Headers, Req, Client) ->
 
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Status, Headers, Req, Client) ->
-    case cowboy_req:method(Req) of
-        {<<"HEAD">>, _} ->
-            %% Let cowboy handle it -- it knows how to properly deal with HEADs
+    case wait_for_body(Status, Req) of
+        false ->
             {content_size, N} = vegur_client:body_type(Client),
-            relay_stream_body(Status, Headers, N, fun stream_body/2, Req, Client);
-        _ ->
+            relay_stream_body(Status, Headers, N, fun stream_nothing/2, Req, Client);
+        true ->
             case vegur_client:response_body(Client) of
                 {ok, Body, Client2} ->
                     Req1 = respond(Status, Headers, Body, Req),
@@ -272,8 +271,12 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     %% Use cowboy's partial response delivery to stream contents.
     %% We use exceptions (throws) to detect bad transfers and close
     %% both connections when this happens.
+    FinalFun = case wait_for_body(Status, Req) of
+        true -> StreamFun;
+        false -> fun stream_nothing/2
+    end,
     Fun = fun(Socket, Transport) ->
-        case StreamFun({Transport,Socket}, Client) of
+        case FinalFun({Transport,Socket}, Client) of
             {ok, _Client2} -> ok;
             {error, Reason} -> throw({stream_error, Reason})
         end
@@ -298,10 +301,10 @@ relay_chunked(Status, Headers, Req, Client) ->
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
     {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
-    case cowboy_req:method(Req) of
-        {<<"HEAD">>, _} ->
+    case wait_for_body(Status, Req) of
+        false ->
             {ok, Req3, backend_close(Client)};
-        _ ->
+        true ->
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
                     {ok, Req3, backend_close(Client2)};
@@ -409,6 +412,9 @@ stream_close({Transport,Sock}=Raw, Client) ->
             {error, Reason}
     end.
 
+stream_nothing(_Raw, Client) ->
+    {ok, Client}.
+
 %% We should close the connection whenever we get an Expect: 100-Continue
 %% that got answered with a final status code.
 connection_type(Status, Req, Client) ->
@@ -429,6 +435,16 @@ connection_type(Status, Req, Client) ->
                     cowboy_req:get(connection, Req)
             end
     end.
+
+wait_for_body(204, _Req) -> false;
+wait_for_body(304, _Req) -> false;
+wait_for_body(_, Req) ->
+    case cowboy_req:method(Req) of
+        {<<"HEAD">>, _} -> false;
+        _ -> true
+    end.
+
+
 
 backend_close(undefined) -> undefined;
 backend_close(Client) ->
