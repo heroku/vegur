@@ -1,4 +1,4 @@
-%%% Chunked encoding delimitation according to
+%%% Chunked decoding according to
 %%% http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1
 %%       Chunked-Body   = *chunk
 %%                        last-chunk
@@ -26,11 +26,7 @@
 %% All HTTP/1.1 applications MUST be able to receive and decode the "chunked"
 %% transfer-coding, and MUST ignore chunk-extension extensions they do not
 %% understand.
-%%
-%%% Note that this module only returns the byte sequences for chunks, and does
-%%% not return decoded chunks for final consumption, but only chunk sequences
-%%% useful for proxying and delimiting requests.
--module(vegur_chunked).
+-module(vegur_unchunked).
 -export([next_chunk/1, next_chunk/2,
          stream_chunk/1, stream_chunk/2,
          all_chunks/1]).
@@ -93,22 +89,22 @@ chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
         0 ->
             case Rest of
                 <<"\r\n", Remainder/binary>> -> % body-ending CLRF
-                    {done, [Buf, <<"\r\n\r\n">>], Remainder};
+                    {done, Buf, Remainder};
                 _ -> % we tolerate that
-                    {done, [Buf, <<"\r\n">>], Rest}
+                    {done, Buf, Rest}
             end;
         undefined ->
             {error, no_length};
         Len ->
-            data(Rest, S#state{buffer = [Buf, <<"\r\n">>]})
+            data(Rest, S)
     end;
-chunk_size(<<N, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when N >= $0, N =< $9 ->
+chunk_size(<<N, Rest/binary>>, S=#state{length=Len}) when N >= $0, N =< $9 ->
     NewLen = case Len of
         undefined -> N-$0;
         Len -> Len*16 + N-$0
     end,
-    chunk_size(Rest, S#state{length=NewLen, buffer = [Buf, N]});
-chunk_size(<<H, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when H >= $A, H =< $F;
+    chunk_size(Rest, S#state{length=NewLen});
+chunk_size(<<H, Rest/binary>>, S=#state{length=Len}) when H >= $A, H =< $F;
                                                                       H >= $a, H =< $f ->
     N = if H >= $a, H =< $f -> H - $a + 10;
            true -> H - $A + 10
@@ -117,7 +113,7 @@ chunk_size(<<H, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when H >= $A, H
         undefined -> N;
         Len -> Len*16 + N
     end,
-    chunk_size(Rest, S#state{length=NewLen, buffer = [Buf, H]});
+    chunk_size(Rest, S#state{length=NewLen});
 chunk_size(<<";", Rest/binary>>, S=#state{length=Len}) ->
     case Len of
         undefined -> {error, no_length};
@@ -130,8 +126,8 @@ chunk_size(<<BadChar, _/binary>>, _State) ->
 
 extension(Bin, State) -> ext_name(Bin, State).
 
-ext_name(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
-    data(Rest, S#state{buffer=[Buf, <<"\r\n">>]});
+ext_name(<<"\r\n", Rest/binary>>, S=#state{}) ->
+    data(Rest, S);
 ext_name(<<>>, State) ->
     {more, {fun ext_name/2, State}};
 ext_name(<<"=", Rest/binary>>, State) ->
@@ -139,8 +135,8 @@ ext_name(<<"=", Rest/binary>>, State) ->
 ext_name(<<_, Rest/binary>>, State) ->
     ext_name(Rest, State).
 
-ext_val(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
-    data(Rest, S#state{buffer=[Buf, <<"\r\n">>]});
+ext_val(<<"\r\n", Rest/binary>>, S=#state{}) ->
+    data(Rest, S);
 ext_val(<<";", Rest/binary>>, State) ->
     extension(Rest, State);
 ext_val(<<>>, State) ->
@@ -163,15 +159,15 @@ data(<<"\r\n\r\n", Rest/binary>>, #state{length=0, buffer=Buf}) ->
     %% We had a last chunk (0-sized) but with a chunk-extension, and are RFC-
     %% specific for the last line of the chunked-body to contain an additional
     %% CRLF
-    {done, [Buf, <<"\r\n\r\n">>], Rest};
+    {done, Buf, Rest};
 data(<<"\r\n", Rest/binary>>, #state{length=0, buffer=Buf}) ->
     %% We had a last chunk (0-sized) but with a chunk-extension, but allow
     %% some fudging where the last CRLF of the body isn't there.
-    {done, [Buf, <<"\r\n">>], Rest};
+    {done, Buf, Rest};
 data(Bin, S=#state{length=Len, buffer=Buf}) when Len > 0 ->
     case Bin of
         <<Chunk:Len/binary, "\r\n", Rest/binary>> ->
-            {chunk, [Buf, Chunk, <<"\r\n">>], Rest};
+            {chunk, [Buf, Chunk], Rest};
         <<>> ->
             {more, {fun data/2, S}};
         Bin when byte_size(Bin) > Len -> % we should fit here but we don't.
@@ -180,4 +176,5 @@ data(Bin, S=#state{length=Len, buffer=Buf}) when Len > 0 ->
             {more, {fun data/2, S#state{length = Len-byte_size(Bin),
                                         buffer=[Buf,Bin]}}}
     end.
+
 

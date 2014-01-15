@@ -295,6 +295,10 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     end.
 
 relay_chunked(Status, Headers, Req, Client) ->
+    {Version, Req2} = cowboy_req:version(Req),
+    relay_chunked(Version, Status, Headers, Req2, Client).
+
+relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
     %% This is a special case. We stream pre-delimited chunks raw instead
     %% of using cowboy, which would have to recalculate and re-delimitate
     %% sizes all over after we parsed them first. We save time by just using
@@ -312,7 +316,15 @@ relay_chunked(Status, Headers, Req, Client) ->
                     backend_close(Client),
                     {error, Error, Req3}
             end
-    end.
+    end;
+relay_chunked('HTTP/1.0', Status, Headers, Req, Client) ->
+    %% This case means that we're forwarding chunked encoding to an
+    %% older client that doesn't support it. The way around this is to
+    %% stream the data as-is, but use no `content-length' header *AND* a
+    %% `connection: close' header to implicitly delimit the request
+    %% as streaming unknown-size HTTP.
+    relay_stream_body(Status, delete_transfer_encoding_header(Headers),
+                      undefined, fun stream_unchunked/2, Req, Client).
 
 stream_chunked({Transport,Sock}=Raw, Client) ->
     %% Fetch chunks one by one (including length and line-delimitation)
@@ -324,6 +336,24 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
         {more, _Len, Data, Client2} ->
             Transport:send(Sock, Data),
             stream_chunked(Raw, Client2);
+        {done, Data, Client2} ->
+            Transport:send(Sock, Data),
+            {ok, backend_close(Client2)};
+        {error, Reason} ->
+            backend_close(Client),
+            {error, Reason}
+    end.
+
+stream_unchunked({Transport,Sock}=Raw, Client) ->
+    %% Fetch chunks one by one (excluding length and line-delimitation)
+    %% and forward them over the raw socket.
+    case vegur_client:stream_unchunk(Client) of
+        {ok, Data, Client2} ->
+            Transport:send(Sock, Data),
+            stream_unchunked(Raw, Client2);
+        {more, _Len, Data, Client2} ->
+            Transport:send(Sock, Data),
+            stream_unchunked(Raw, Client2);
         {done, Data, Client2} ->
             Transport:send(Sock, Data),
             {ok, backend_close(Client2)};
@@ -431,6 +461,13 @@ connection_type(Status, Req, Client) ->
             case vegur_client:body_type(Client) of
                 stream_close ->
                     close;
+                chunked ->
+                    %% Chunked with an HTTP/1.0 client gets turned to a close
+                    %% to allow proper data streaming.
+                    case cowboy_req:version(Req) of
+                        {'HTTP/1.0', _} -> close;
+                        {'HTTP/1.1', _} -> cowboy_req:get(connection, Req)
+                    end;
                 _ ->
                     cowboy_req:get(connection, Req)
             end
@@ -475,6 +512,8 @@ response_headers(Headers) ->
 delete_host_header(Hdrs) -> delete_all(<<"host">>, Hdrs).
 
 delete_content_length_header(Hdrs) -> delete_all(<<"content-length">>, Hdrs).
+
+delete_transfer_encoding_header(Hdrs) -> delete_all(<<"transfer-encoding">>, Hdrs).
 
 %% Hop by Hop Headers we care about removing. We remove most of them but
 %% "Proxy-Authentication" for historical reasons, "Upgrade" because we pass

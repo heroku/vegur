@@ -19,7 +19,8 @@ groups() -> [{continue, [], [
                 delete_hop_by_hop
              ]},
              {http_1_0, [], [
-                advertise_1_1, conn_close_default, conn_keepalive_opt
+                advertise_1_1, conn_close_default, conn_keepalive_opt,
+                chunked_to_1_0
              ]},
              {body_less, [], [
                 head_small_body_expect, head_large_body_expect,
@@ -602,6 +603,32 @@ conn_keepalive_opt(Config) ->
     wait_for_closed(Server, 500),
     ?assertError(not_closed, wait_for_closed(Client, 500)).
 
+chunked_to_1_0(Config) ->
+    %% Chunked content from a 1.1 server to a 1.0 client unchunks the content
+    %% and streams it as a request delimited by the end of the connection.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = [http_1_0_headers(Config), req_body()],
+    Resp = [resp_headers(chunked), "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n"
+                                   "0\r\n\r\n"],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    Response = recv_until_close(Client),
+    nomatch = re:run(Response, "chunked", [global,multiline,caseless]),
+    {match,_} = re:run(Response, "connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(Response, "abcdefghijklmnopqrstu", [global,multiline,caseless]),
+    %% Check final connection status
+    wait_for_closed(Server, 500).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% BODY LESS REQUEST BEHAVIOUR %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -825,6 +852,12 @@ get_accepted(Ref) ->
         {Ref, Accepted} -> Accepted
     after 5000 ->
         error(too_long)
+    end.
+
+recv_until_close(Port) ->
+    case gen_tcp:recv(Port, 0, 100) of
+        {error, closed} -> [];
+        {ok, Data} -> [Data | recv_until_close(Port)]
     end.
 
 wait_for_closed(_Port, T) when T =< 0 -> error(not_closed);
