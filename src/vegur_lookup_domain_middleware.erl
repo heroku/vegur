@@ -28,7 +28,8 @@ handle_domain_lookup({error, not_found, HandlerState}, Req, _Env) ->
     {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(not_found, undefined, HandlerState),
     Req2 = vegur_utils:set_handler_state(HandlerState1, Req1),
     Req3 = vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req2),
-    {halt, Req3};
+    Req4 = vegur_utils:set_request_status(error, Req3),
+    {halt, Req4};
 handle_domain_lookup({redirect, _Reason, _DomainGroup, RedirectTo, HandlerState}, Req, _Env) ->
     {Path, Req2} = cowboy_req:path(Req),
     {Qs, Req3} = cowboy_req:qs(Req2),

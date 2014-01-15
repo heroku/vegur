@@ -21,7 +21,8 @@ execute(Req, Env) ->
             {ErrorMsg, Req3} = get_error(Reason, Req2),
             Req4 = render_error(ErrorMsg, Req3),
             Req5 = cowboy_req:set_meta(request_status, error, Req4),
-            {halt, Req5}
+            Req6 = vegur_utils:set_request_status(error, Req5),
+            {halt, Req6}
     end.
 
 proxy(Req, State) ->

@@ -6,7 +6,9 @@
          ,add_or_append_header/4
          ,add_if_missing_header/4
          ,add_or_replace_header/3
-         ,render_response/4]).
+         ,render_response/4
+         ,set_request_status/2
+        ]).
 
 -spec get_interface_module(Req) ->
                                   {Module, HandlerState, Req}
@@ -81,3 +83,9 @@ add_or_replace_header(Key, Value, Headers) ->
 render_response(HttpCode, Headers, Body, Req) ->
     {ok, Req1} = cowboy_req:reply(HttpCode, Headers, Body, Req),
     Req1.
+
+-spec set_request_status(Status, Req) -> Req when
+      Status :: vegur_interface:terminate_status(),
+      Req :: cowboy_req:req().
+set_request_status(Status, Req) ->
+    cowboy_req:set_meta(status, Status, Req).
