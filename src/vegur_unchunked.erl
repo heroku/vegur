@@ -84,6 +84,11 @@ all_chunks(Bin, Acc) ->
 %%                        | |
 %%                    quoted string
 %%
+
+%% For chunk sizes, we parse and accumulate the value in hex characters one
+%% by one -- the lenght of the field isn't valid until we hit a CRLF or an
+%% extension (;) -- without a need to do a lookahead or keep state in the
+%% event someone sends hilariously long lengths across packet boundaries.
 chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
     case Len of
         0 ->
@@ -105,7 +110,7 @@ chunk_size(<<N, Rest/binary>>, S=#state{length=Len}) when N >= $0, N =< $9 ->
     end,
     chunk_size(Rest, S#state{length=NewLen});
 chunk_size(<<H, Rest/binary>>, S=#state{length=Len}) when H >= $A, H =< $F;
-                                                                      H >= $a, H =< $f ->
+                                                          H >= $a, H =< $f ->
     N = if H >= $a, H =< $f -> H - $a + 10;
            true -> H - $A + 10
         end,

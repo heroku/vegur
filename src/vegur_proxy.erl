@@ -251,10 +251,10 @@ relay_no_body(Status, Headers, Req, Client) ->
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Status, Headers, Req, Client) ->
     case wait_for_body(Status, Req) of
-        false ->
+        dont_wait ->
             {content_size, N} = vegur_client:body_type(Client),
             relay_stream_body(Status, Headers, N, fun stream_nothing/2, Req, Client);
-        true ->
+        wait ->
             case vegur_client:response_body(Client) of
                 {ok, Body, Client2} ->
                     Req1 = respond(Status, Headers, Body, Req),
@@ -272,8 +272,8 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     %% We use exceptions (throws) to detect bad transfers and close
     %% both connections when this happens.
     FinalFun = case wait_for_body(Status, Req) of
-        true -> StreamFun;
-        false -> fun stream_nothing/2
+        wait -> StreamFun;
+        dont_wait -> fun stream_nothing/2
     end,
     Fun = fun(Socket, Transport) ->
         case FinalFun({Transport,Socket}, Client) of
@@ -306,9 +306,9 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
     {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
     case wait_for_body(Status, Req) of
-        false ->
+        dont_wait ->
             {ok, Req3, backend_close(Client)};
-        true ->
+        wait ->
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
                     {ok, Req3, backend_close(Client2)};
@@ -473,12 +473,12 @@ connection_type(Status, Req, Client) ->
             end
     end.
 
-wait_for_body(204, _Req) -> false;
-wait_for_body(304, _Req) -> false;
+wait_for_body(204, _Req) -> dont_wait;
+wait_for_body(304, _Req) -> dont_wait;
 wait_for_body(_, Req) ->
     case cowboy_req:method(Req) of
-        {<<"HEAD">>, _} -> false;
-        _ -> true
+        {<<"HEAD">>, _} -> dont_wait;
+        _ -> wait
     end.
 
 
@@ -528,7 +528,8 @@ delete_hop_by_hop([{<<"trailer">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([Hdr|Hdrs]) -> [Hdr | delete_hop_by_hop(Hdrs)].
 
 %% We need to traverse the entire list because a user could have
-%% injected more than one instance of the same header
+%% injected more than one instance of the same header, and cowboy
+%% doesn't coalesce headers for us.
 delete_all(_, []) -> [];
 delete_all(Key, [{Key,_} | Hdrs]) -> delete_all(Key, Hdrs);
 delete_all(Key, [H|Hdrs]) -> [H | delete_all(Key, Hdrs)].
