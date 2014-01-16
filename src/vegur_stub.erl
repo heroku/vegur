@@ -3,12 +3,12 @@
 -behaviour(vegur_interface).
 
 -export([init/2,
+         terminate/3,
          lookup_domain_name/2,
          checkout_service/2,
          checkin_service/4,
          service_backend/2,
-         error_page/3,
-         terminate/4]).
+         error_page/3]).
 
 -spec init(RequestAccepted, RequestId) ->
                   {ok, HandlerState} when
@@ -99,10 +99,9 @@ error_page(_, _DomainGroup, HandlerState) ->
 service_backend(_Service, HandlerState) ->
     {{{127,0,0,1}, 80}, HandlerState}.
 
--spec terminate(Code, Status, Stats, HandlerState) -> ok when
-      Code :: cowboy:http_status(),
+-spec terminate(Status, Stats, HandlerState) -> ok when
       Status :: vegur_interface:terminate_reason(),
       Stats :: vegur_interface:stats(),
       HandlerState :: vegur_interface:handler_state().
-terminate(_, _, _, _) ->
+terminate(_, _, _) ->
     ok.

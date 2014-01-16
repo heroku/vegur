@@ -12,7 +12,8 @@
       StatusCode :: cowboy:http_status().
 execute(Req, Env) ->
     case midjan_core:start({Req, Env}, [{ordered, vegur_app:middleware_stack()},
-                                        {translator, vegur_midjan_translator}
+                                        {translator, vegur_midjan_translator},
+                                        {finally, fun vegur_request_log:done/1}
                                        ]) of
         {done, {halt, _Req} = Ret} ->
             Ret;

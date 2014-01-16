@@ -69,9 +69,8 @@
       HandlerState :: handler_state(),
       ServiceBackend :: service_backend().
 
--callback terminate(Code, Reason, Stats, HandlerState) ->
+-callback terminate(Reason, Stats, HandlerState) ->
     any() when
-      Code :: cowboy:http_status(),
       Reason :: terminate_reason(),
       Stats :: stats(),
       HandlerState :: handler_state().
