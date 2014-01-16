@@ -28,8 +28,8 @@ backend_connection({IpAddress, Port}) ->
     end.
 
 -spec send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
-                            {done, Req, Client} |
-                            {error, any()} when
+                          {done, Blame, Req, Client} |
+                          {error, any()} when
       Body :: {stream, chunked|non_neg_integer()}|binary(),
       Method :: binary(),
       Headers :: [{binary(), binary()}]|[],
