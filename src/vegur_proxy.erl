@@ -3,12 +3,14 @@
 -define(BUFFER_LIMIT, 1024). % in bytes
 
 -export([backend_connection/1
-         ,send_request/7
          ,send_headers/7
          ,send_body/7
          ,read_backend_response/2
          ,upgrade/3
-         ,relay/4]).
+         ,relay/4
+         ,byte_counts/1]).
+
+-type error_blame() :: upstream|downstream.
 
 -spec backend_connection(ServiceBackend) ->
                                 {connected, Client} |
@@ -25,16 +27,17 @@ backend_connection({IpAddress, Port}) ->
             {error, Reason}
     end.
 
--spec send_request(Method, Headers, Body, Path, Url, Req, Client) ->
-                            {done, Req, Client} |
-                            {error, any()} when
-      Body ::{stream, chunked|non_neg_integer()}|binary(),
+-spec send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
+                          {done, Blame, Req, Client} |
+                          {error, any()} when
+      Body :: {stream, chunked|non_neg_integer()}|binary(),
       Method :: binary(),
       Headers :: [{binary(), binary()}]|[],
       Path :: binary(),
       Url :: binary(),
       Req :: cowboy_req:req(),
-      Client :: vegur_client:client().
+      Client :: vegur_client:client(),
+      Blame :: error_blame().
 send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% Sends a request with a body yet to come through streaming. The BodyLen
     %% value can be either 'chunked' or an actual length.
@@ -71,24 +74,11 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
             {done, Req, BackendClient}
     end.
 
-send_request(Method, Headers, Body, Path, Url, Req, Client) ->
-    %% We have a static, already known body, and can send it at once.
-    Request = vegur_client:request_to_iolist(Method,
-                                             request_headers(Headers),
-                                             Body,
-                                             'HTTP/1.1',
-                                             Url,
-                                             Path),
-    case vegur_client:raw_request(Request, Client) of
-        {ok, Client2} -> {done, Req, Client2};
-        {error, _Err} = Err -> Err
-    end.
-
 negotiate_continue(Body, Req, BackendClient) ->
     negotiate_continue(Body, Req, BackendClient, timer:seconds(55)).
 
 negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
-    {error, Timeout};
+    {error, upstream, Timeout};
 negotiate_continue(Body, Req, BackendClient, Timeout) ->
     %% In here, we must await the 100 continue from the BackendClient
     %% *OR* wait until cowboy (front-end) starts sending data.
@@ -116,8 +106,8 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
                             {done, Req1, BackendClient};
                         {ok, Code, RespHeaders, BackendClient2} ->
                             {ok, Code, RespHeaders, BackendClient2};
-                        {error, Reason} ->
-                            {error, Reason}
+                        {error, Blame, Reason} ->
+                            {error, Blame, Reason}
                     end;
                 {error, timeout} ->
                     negotiate_continue(Body, Req, BackendClient, Timeout-Wait);
@@ -125,19 +115,20 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
                     {error, Error}
             end;
         {error, Error} ->
-            {error, Error}
+            {error, upstream, Error}
     end.
 
 -spec read_response(Client) ->
                            {ok, Code, Headers, Client} |
-                           {error, Error} when
+                           {error, Blame, Error} when
       Client :: vegur_client:client(),
       Code :: pos_integer(),
       Headers :: [{binary(), binary()}]|[],
+      Blame :: error_blame(),
       Error :: any().
 read_response(Client) ->
     case vegur_client:response(Client) of
-        {error, _} = Err -> Err;
+        {error, Error} -> {error, downstream, Error};
         {ok, Code, RespHeaders, Client2} ->
             {ok, Code, RespHeaders, Client2}
     end.
@@ -147,15 +138,16 @@ read_response(Client) ->
 %% for the middleware.
 -spec read_backend_response(Req, Client) ->
                            {ok, Code, Headers, Req, Client} |
-                           {error, Error} when
+                           {error, Blame, Error} when
       Req :: cowboy_req:req(),
       Client :: vegur_client:client(),
       Code :: pos_integer(),
       Headers :: [{binary(), binary()}]|[],
+      Blame :: error_blame(),
       Error :: any().
 read_backend_response(Req, Client) ->
     case read_response(Client) of
-        {error, _} = Err -> Err;
+        {error, Blame, Error} -> {error, Blame, Error};
         {ok, Code, RespHeaders, Client1} ->
             {Cont, Req1} = cowboy_req:meta(continue, Req, []),
             case {Code, Cont} of
@@ -166,7 +158,7 @@ read_backend_response(Req, Client) ->
                     Req2 = send_continue(Req1, Client),
                     read_backend_response(Req2, Client1);
                 {100, continued} ->
-                    {error, non_terminal_status_after_continue};
+                    {error, downstream, non_terminal_status_after_continue};
                 {100, _} ->
                     case cowboy_req:version(Req1) of
                         {'HTTP/1.0', Req2} ->
@@ -195,7 +187,7 @@ send_continue(Req, BackendClient) ->
     cowboy_req:set_meta(continue, continued, Req).
 
 -spec upgrade(Headers, Req, Client) ->
-                     {done, Req} when
+                     {done, Req, Client} when
       Req :: cowboy_req:req(),
       Headers :: [{binary(), binary()}]|[],
       Client :: vegur_client:client().
@@ -212,17 +204,17 @@ upgrade(Headers, Req, BackendClient) ->
     %% Flush leftover buffer data from the client, if any
     TransStub:send(SockStub, BufCow),
     ok = vegur_bytepipe:become(Client, Server, [{timeout, timer:seconds(55)}]),
-    backend_close(BackendClient),
-    {done, Req3}.
+    {done, Req3, backend_close(BackendClient)}.
 
 -spec relay(Status, Headers, Req, Client) ->
                    {ok, Req, Client} |
-                   {error, Error, Req} when
+                   {error, Blame, Error, Req} when
       Status :: pos_integer(),
       Headers :: [{binary(), binary()}]|[],
       Req :: cowboy_req:req(),
       Client :: vegur_client:client(),
-      Error :: any().
+      Error :: any(),
+      Blame :: error_blame().
 relay(Status, HeadersRaw, Req, Client) ->
     %% Dispatch data from vegur_client down into the cowboy connection, either
     %% in batch or directly.
@@ -243,6 +235,12 @@ relay(Status, HeadersRaw, Req, Client) ->
             relay_no_body(Status, Headers, Req, Client)
     end.
 
+-spec byte_counts(Client) -> [{bytes_sent|bytes_recv, BytesCount}] when
+      BytesCount :: non_neg_integer()|undefined,
+      Client :: vegur_client:client().
+byte_counts(Client) ->
+    vegur_client:byte_counts(Client).
+
 %% There is no body to relay
 relay_no_body(Status, Headers, Req, Client) ->
     Req1 = respond(Status, Headers, <<>>, Req),
@@ -261,7 +259,7 @@ relay_full_body(Status, Headers, Req, Client) ->
                     {ok, Req1, backend_close(Client2)};
                 {error, Error} ->
                     backend_close(Client),
-                    {error, Error, Req}
+                    {error, downstream, Error, Req}
             end
     end.
 
@@ -291,7 +289,7 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     catch
         {stream_error, Error} ->
             backend_close(Client),
-            {error, Error, Req2}
+            {error, downstream, Error, Req2}
     end.
 
 relay_chunked(Status, Headers, Req, Client) ->
@@ -312,9 +310,9 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
                     {ok, Req3, backend_close(Client2)};
-                {error, Error} -> % uh-oh, we died during the transfer
+                {error, Blame, Error} -> % uh-oh, we died during the transfer
                     backend_close(Client),
-                    {error, Error, Req3}
+                    {error, Blame, Error, Req3}
             end
     end;
 relay_chunked('HTTP/1.0', Status, Headers, Req, Client) ->
@@ -341,7 +339,7 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
             {ok, backend_close(Client2)};
         {error, Reason} ->
             backend_close(Client),
-            {error, Reason}
+            {error, downstream, Reason}
     end.
 
 stream_unchunked({Transport,Sock}=Raw, Client) ->
@@ -368,7 +366,7 @@ stream_request(Req, Client) ->
     case cowboy_req:stream_body(Req) of
         {done, Req2} -> {done, Req2, Client};
         {ok, Data, Req2} -> stream_request(Data, Req2, Client);
-        {error, Err} -> {error, Err}
+        {error, Err} -> {error, upstream, Err}
     end.
 
 stream_request(Buffer, Req, Client) ->
@@ -376,7 +374,7 @@ stream_request(Buffer, Req, Client) ->
     case cowboy_req:stream_body(Req) of
         {done, Req2} -> {done, Req2, Client};
         {ok, Data, Req2} -> stream_request(Data, Req2, Client);
-        {error, Err} -> {error, Err}
+        {error, Err} -> {error, upstream, Err}
     end.
 
 %% Cowboy also allows to decode data further after one pass, say if it
@@ -439,7 +437,7 @@ stream_close({Transport,Sock}=Raw, Client) ->
         {done, Client2} ->
             {ok, Client2};
         {error, Reason} ->
-            {error, Reason}
+            {error, downstream, Reason}
     end.
 
 stream_nothing(_Raw, Client) ->
@@ -483,10 +481,8 @@ wait_for_body(_, Req) ->
 
 
 
-backend_close(undefined) -> undefined;
 backend_close(Client) ->
-    vegur_client:close(Client),
-    undefined.
+    vegur_client:close(Client).
 
 %% Strip Connection header on request.
 request_headers(Headers0) ->

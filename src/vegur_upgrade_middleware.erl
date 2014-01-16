@@ -12,13 +12,16 @@ execute(Req, Env) ->
             %% The connection should be upgraded
             case cowboy_req:parse_header(<<"upgrade">>, Req1) of
                 {ok, undefined, Req2} ->
-                    {error, 400, Req2};
+                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request, Req2),
+                    {error, HttpCode, Req3};
                 {ok, Upgrade, Req2} ->
                     handle_upgrade(Upgrade, Req2, Env);
                 {undefined, _, Req2} ->
-                    {error, 400, Req2}; % 426?
+                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request, Req2),
+                    {error, HttpCode, Req3}; % 426?
                 _ ->
-                    {error, 400, Req1}
+                    {HttpCode, Req2} = vegur_utils:handle_error(bad_request, Req1),
+                    {error, HttpCode, Req2}
             end
     end.
 
@@ -37,7 +40,9 @@ handle_upgrade(UpgradeTokens, Req, Env) when is_list(UpgradeTokens) ->
     Req2 = cowboy_req:set_meta(request_type, [upgrade|Type], Req1),
     {ok, Req2, Env};
 handle_upgrade({error, _}, Req, _Env) ->
-    {error, 400, Req};
+    Req1 = vegur_utils:set_request_status(error, Req),
+    {error, 400, Req1};
 handle_upgrade(_, Req, _Env) ->
     % The upgrade header can contain other values, those will result in a client error
-    {error, 400, Req}.
+    Req1 = vegur_utils:set_request_status(error, Req),
+    {error, 400, Req1}.

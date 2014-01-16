@@ -8,6 +8,11 @@
 -type service_backend() :: {inet:ip_address(), inet:port_number()}.
 -type service_state() :: normal|term().
 -type handler_state() :: term().
+-type terminate_reason() :: healthcheck|healthcheck_error|normal|error.
+-type ms() :: non_neg_integer().
+-type stat() :: {bytes_recv|bytes_sent, non_neg_integer()}|
+                {route_time|connect_time|total_time, ms()}.
+-type stats() :: [stat()]|[].
 
 -export_type([domain/0,
               domain_group/0,
@@ -16,7 +21,11 @@
               wait_time/0,
               service_backend/0,
               handler_state/0,
-              service_state/0]).
+              service_state/0,
+              terminate_reason/0,
+              stat/0,
+              stats/0,
+              ms/0]).
 
 -callback init(RequestAccepted, RequestId) ->
     {ok, HandlerState} when
@@ -55,7 +64,13 @@
       HandlerState :: handler_state().
 
 -callback service_backend(Service, HandlerState) ->
-    ServiceBackend when
+    {ServiceBackend, HandlerState} when
       Service :: service(),
       HandlerState :: handler_state(),
       ServiceBackend :: service_backend().
+
+-callback terminate(Reason, Stats, HandlerState) ->
+    any() when
+      Reason :: terminate_reason(),
+      Stats :: stats(),
+      HandlerState :: handler_state().

@@ -6,7 +6,9 @@
          ,add_or_append_header/4
          ,add_if_missing_header/4
          ,add_or_replace_header/3
-         ,render_response/4]).
+         ,set_request_status/2
+         ,handle_error/2
+        ]).
 
 -spec get_interface_module(Req) ->
                                   {Module, HandlerState, Req}
@@ -72,12 +74,32 @@ add_if_missing_header(Key, Val, Headers, Req) ->
 add_or_replace_header(Key, Value, Headers) ->
     lists:keystore(Key, 1, Headers, {Key, Value}).
 
--spec render_response(HttpCode, Headers, Body, Req) ->
+-spec set_response(Headers, Body, Req) ->
                              Req when
-      HttpCode :: cowboy:http_status(),
       Headers :: [{iodata(), iodata()}]|[],
       Body :: binary(),
       Req :: cowboy_req:req().
-render_response(HttpCode, Headers, Body, Req) ->
-    {ok, Req1} = cowboy_req:reply(HttpCode, Headers, Body, Req),
-    Req1.
+set_response(Headers, Body, Req) ->
+    Req1 = cowboy_req:set_resp_body(Body, Req),
+    lists:foldl(fun({Name, Value}, R) ->
+                        cowboy_req:set_resp_header(Name, Value, R)
+                end, Req1, Headers).
+
+-spec set_request_status(Status, Req) -> Req when
+      Status :: vegur_interface:terminate_reason(),
+      Req :: cowboy_req:req().
+set_request_status(Status, Req) ->
+    cowboy_req:set_meta(status, Status, Req).
+
+-spec handle_error(Reason, Req) -> {HttpCode, Req} when
+      Reason :: atom(),
+      HttpCode :: cowboy:http_status(),
+      Req :: cowboy_req:req().
+handle_error(Reason, Req) ->
+    {InterfaceModule, HandlerState, Req1} = get_interface_module(Req),
+    {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1, undefined),
+    {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(Reason, DomainGroup, HandlerState),
+    Req3 = set_handler_state(HandlerState1, Req2),
+    Req4 = set_response(ErrorHeaders, ErrorBody, Req3),
+    Req5 = set_request_status(error, Req4),
+    {HttpCode, Req5}.

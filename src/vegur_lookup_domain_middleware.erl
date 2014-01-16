@@ -24,14 +24,10 @@ execute(Req, Env) ->
       ErrorCode :: cowboy:http_status().
 handle_domain_lookup({error, not_found, HandlerState}, Req, _Env) ->
     % No app associated with the domain
-    {InterfaceModule, _HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-    {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(not_found, undefined, HandlerState),
-    Req2 = vegur_utils:set_handler_state(HandlerState1, Req1),
-    Req3 = vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req2),
-    {halt, Req3};
+    Req1 = vegur_utils:set_handler_state(HandlerState, Req),
+    {HttpCode, Req2} = vegur_utils:handle_error(not_found, Req1),
+    {error, HttpCode, Req2};
 handle_domain_lookup({redirect, _Reason, _DomainGroup, RedirectTo, HandlerState}, Req, _Env) ->
-    % This is a old app running on appname.heroku.com,
-    % it should be redirected to appname.herokuapp.com.
     {Path, Req2} = cowboy_req:path(Req),
     {Qs, Req3} = cowboy_req:qs(Req2),
     Qs2 = case Qs of

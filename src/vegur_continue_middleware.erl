@@ -14,5 +14,6 @@ execute(Req, Env) ->
             {ok, Req1, Env};
         _ ->
             %% Any other value for expect headers
-            {error, 417, Req}
+            {HttpCode, Req1} = vegur_utils:handle_error(expectation_failed, Req),
+            {error, HttpCode, Req1}
     end.

@@ -20,6 +20,7 @@ groups() ->
                                 ,route_time_header
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
+                                 ,request_statistics
                                 ]}
     ].
 
@@ -198,6 +199,28 @@ service_try_again(Config) ->
     end,
     Config.
 
+request_statistics(Config) ->
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    mock_terminate(self()),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, _Req} ->
+            receive
+                {stats, {successful, Stats, undefined}} ->
+                    118 = proplists:get_value(bytes_recv, Stats),
+                    253 = proplists:get_value(bytes_sent, Stats),
+                    true = is_integer(proplists:get_value(route_time, Stats)),
+                    true = is_integer(proplists:get_value(connect_time, Stats)),
+                    true = is_integer(proplists:get_value(total_time, Stats))
+            after 5000 ->
+                    throw(timeout)
+            end
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
 %% Helpers
 start_dyno(Port, Opts) ->
     {ok, Pid} = vegur_dyno:start(Port, Opts),
@@ -220,4 +243,10 @@ mock_backend(Port) ->
     meck:expect(vegur_stub, service_backend,
                 fun(_, HandlerState) ->
                         {{{127,0,0,1}, Port}, HandlerState}
+                end).
+
+mock_terminate(Test) ->
+    meck:expect(vegur_stub, terminate,
+                fun(Status, Stats, HandlerState) ->
+                        Test ! {stats, {Status, Stats, HandlerState}}
                 end).

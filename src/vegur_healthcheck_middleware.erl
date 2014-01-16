@@ -20,9 +20,11 @@ maybe_healthcheck(<<"/F3DA8257-B28C-49DF-AACD-8171464E1D1D">>, Req, _Env) ->
     case vegur_healthchecks:accepting_connections() of
         true ->
             Req1 = set_response_code(200, Req),
-            {halt, Req1};
+            Req2 = vegur_utils:set_request_status(healthcheck, Req1),
+            {halt, Req2};
         _ ->
-            {error, 500, Req}
+            Req1 = vegur_utils:set_request_status(healthcheck_error, Req),
+            {error, 500, Req1}
     end;
 maybe_healthcheck(<<"/lockstep">>, Req, Env) ->
     case cowboy_req:host(Req) of
@@ -30,9 +32,11 @@ maybe_healthcheck(<<"/lockstep">>, Req, Env) ->
             case vegur_healthchecks:lockstep_fresh() of
                 true ->
                     Req2 = set_response_code(200, Req1),
-                    {halt, Req2};
+                    Req3 = vegur_utils:set_request_status(healthcheck, Req2),
+                    {halt, Req3};
                 _ ->
-                    {error, 500, Req1}
+                    Req2 = vegur_utils:set_request_status(healthcheck_error, Req1),
+                    {error, 500, Req2}
             end;
         {_, Req1} ->
             {ok, Req1, Env}
@@ -42,9 +46,11 @@ maybe_healthcheck(<<"/healthcheck">>, Req, Env) ->
     case cowboy_req:host(Req) of
         {<<"hermes.", HerokuappDomain/binary>>, Req1} ->
             Req2 = set_response_code(200, Req1),
-            {halt, Req2};
+            Req3 = vegur_utils:set_request_status(healthcheck, Req2),
+            {halt, Req3};
         {_, Req1} ->
-            {ok, Req1, Env}
+            Req2 = vegur_utils:set_request_status(healthcheck, Req1),
+            {ok, Req2, Env}
     end;
 maybe_healthcheck(_, Req, Env) ->
     {ok, Req, Env}.

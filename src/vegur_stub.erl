@@ -3,6 +3,7 @@
 -behaviour(vegur_interface).
 
 -export([init/2,
+         terminate/3,
          lookup_domain_name/2,
          checkout_service/2,
          checkin_service/4,
@@ -85,6 +86,14 @@ error_page(app_lookup_failed, _DomainGroup, HandlerState) ->
     {{503, [], <<>>}, HandlerState};
 error_page(maintainance_mode, _DomainGroup, HandlerState) ->
     {{503, [], <<>>}, HandlerState};
+error_page(content_length, _DomainGroup, HandlerState) ->
+    {{502, [], <<>>}, HandlerState};
+error_page(empty_host, _DomainGroup, HandlerState) ->
+    {{400, [], <<>>}, HandlerState};
+error_page(expectation_failed, _DomainGroup, HandlerState) ->
+    {{417, [], <<>>}, HandlerState};
+error_page(bad_request, _DomainGroup, HandlerState) ->
+    {{400, [], <<>>}, HandlerState};
 error_page(_, _DomainGroup, HandlerState) ->
     {{503, [], <<>>}, HandlerState}.
 
@@ -96,7 +105,9 @@ error_page(_, _DomainGroup, HandlerState) ->
 service_backend(_Service, HandlerState) ->
     {{{127,0,0,1}, 80}, HandlerState}.
 
-%% create_redirect(Domain) ->
-%%     RootDomainToReplace = vegur_app:config(heroku_domain),
-%%     RootDomainToReplaceWith = vegur_app:config(herokuapp_domain),
-%%     re:replace(Domain, RootDomainToReplace, RootDomainToReplaceWith).
+-spec terminate(Status, Stats, HandlerState) -> ok when
+      Status :: vegur_interface:terminate_reason(),
+      Stats :: vegur_interface:stats(),
+      HandlerState :: vegur_interface:handler_state().
+terminate(_, _, _) ->
+    ok.

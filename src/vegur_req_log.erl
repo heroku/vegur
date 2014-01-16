@@ -20,6 +20,7 @@
         ,linear_report/2
         ,linear_summary/1
         ,flatten_report/1
+        ,event_duration/2
         ]).
 
 
@@ -163,6 +164,24 @@ flatten_report([], Flat) ->
 flatten_report([{K,V}|Report], Flat) ->
     flatten_report(Report, add({K,V}, Flat)).
 
+-spec event_duration(Name, Log) ->
+                            ms()|undefined when
+      Name :: event_type(),
+      Log :: request_log().
+event_duration(Name, #log{events=Events}) ->
+    case event_find(Name, queue:to_list(Events), []) of
+        [{Stamp1,_,pre},{Stamp2,_,post}] -> timer:now_diff(Stamp2,Stamp1) div 1000;
+        [{Stamp1,_,post},{Stamp2,_,pre}] -> timer:now_diff(Stamp1,Stamp2) div 1000;
+        _ -> undefined
+    end.
+
+event_find(_Name, [], Acc) -> Acc;
+event_find(Name, [Tag={_,Name,_}|Rest], Acc) ->
+    case Acc of
+        [] -> event_find(Name, Rest, [Tag]);
+        [_] -> [Tag | Acc]
+    end;
+event_find(Name, [_|Rest], Acc) -> event_find(Name, Rest, Acc).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Private functions %%%

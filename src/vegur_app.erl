@@ -88,7 +88,8 @@ cowboy_opts() ->
     ,{max_header_name_length, 1000}
     ,{max_header_value_length, 8192}
     ,{max_headers, 1000}
-    ,{onrequest, fun vegur_request_log:new/1}].
+    ,{onrequest, fun vegur_request_log:new/1}
+    ,{onresponse, fun vegur_request_log:done/4}].
 
 cowboy_env() ->
     [].

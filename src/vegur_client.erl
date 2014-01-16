@@ -64,18 +64,22 @@
 -export([raw_socket/1]).
 -export([auth_header/1]).
 
+-export([byte_counts/1]).
+
 
 -record(client, {
-    state = wait :: wait | request | response | response_body | raw,
-    opts = [] :: [any()],
-    socket = undefined :: undefined | inet:socket(),
-    transport = undefined :: module(),
-    connect_timeout = 3100 :: timeout(), %% @todo Configurable.
-    read_timeout = 5000 :: timeout(), %% @todo Configurable.
-    buffer = <<>> :: binary(),
-    connection = keepalive :: keepalive | close,
-    version = 'HTTP/1.1' :: cowboy:http_version(),
-    response_body = undefined :: chunked | undefined | non_neg_integer()
+          state = wait :: wait | request | response | response_body | raw,
+          opts = [] :: [any()],
+          socket = undefined :: undefined | inet:socket(),
+          transport = undefined :: module(),
+          connect_timeout = 3100 :: timeout(), %% @todo Configurable.
+          read_timeout = 5000 :: timeout(), %% @todo Configurable.
+          buffer = <<>> :: binary(),
+          connection = keepalive :: keepalive | close,
+          version = 'HTTP/1.1' :: cowboy:http_version(),
+          response_body = undefined :: chunked | undefined | non_neg_integer(),
+          bytes_sent :: non_neg_integer() | undefined, %% Bytes sent downstream
+          bytes_recv :: non_neg_integer() | undefined %% Bytes recv from downstream
 }).
 
 -opaque client() :: #client{}.
@@ -92,10 +96,14 @@ transport(#client{socket=undefined}) ->
 transport(#client{transport=Transport, socket=Socket}) ->
     {ok, Transport, Socket}.
 
-close(#client{socket=undefined}) ->
-    {error, notconnected};
-close(#client{transport=Transport, socket=Socket}) ->
-    Transport:close(Socket).
+close(#client{socket=undefined}=Client) ->
+    Client;
+close(#client{transport=Transport, socket=Socket}=Client) ->
+    {SendTotal, RecvTotal} = get_stats(Socket),
+    Transport:close(Socket),
+    Client#client{bytes_sent=SendTotal,
+                  bytes_recv=RecvTotal,
+                  socket=undefined}.
 
 connect(Transport, Host, Port, Timeout, Client) ->
     connect(Transport, Host, Port, Client#client{connect_timeout=Timeout}).
@@ -310,12 +318,19 @@ response_body_close(Client, Acc) ->
             {error, Reason}
     end.
 
-stream_close(Client=#client{buffer=Buffer, response_body=undefined}) ->
+stream_close(Client=#client{bytes_sent=undefined, bytes_recv=undefined,
+                            socket=Socket}) ->
+    % Since this stream will end on a socket close, I need to dump the
+    % statistics currently associated with the socket before streaming and
+    % keeping the books manually
+    {SendTotal, RecvTotal} = get_stats(Socket),
+    stream_close(Client#client{bytes_sent=SendTotal, bytes_recv=RecvTotal});
+stream_close(Client=#client{buffer=Buffer, response_body=undefined, bytes_recv=BytesRecv}) ->
     case byte_size(Buffer) of
         0 ->
             case recv(Client) of
                 {ok, Body} ->
-                    {ok, Body, Client};
+                    {ok, Body, Client#client{bytes_recv=BytesRecv+iolist_size(Body)}};
                 {error, closed} ->
                     {done, Client};
                 {error, Reason} ->
@@ -508,6 +523,9 @@ auth_header(AuthInfo) when is_list(AuthInfo) ->
               encode_auth_header(User)
       end}].
 
+byte_counts(#client{bytes_sent=BytesSent, bytes_recv=BytesRecv}) ->
+    [{bytes_sent, BytesSent}, {bytes_recv, BytesRecv}].
+
 %% @private
 encode_auth_header(User) ->
     encode_auth_header(User, "").
@@ -516,3 +534,12 @@ encode_auth_header(User) ->
 encode_auth_header(User, Pass)
   when is_list(User), is_list(Pass) ->
     ["Basic ", base64:encode(User ++ ":" ++ Pass)].
+
+get_stats(Socket) ->
+    case inet:getstat(Socket, [recv_oct, send_oct]) of
+        {error, _} ->
+            {undefined, undefined};
+        {ok, [{recv_oct, RecvTotal},
+              {send_oct, SentTotal}]} ->
+            {SentTotal, RecvTotal}
+    end.

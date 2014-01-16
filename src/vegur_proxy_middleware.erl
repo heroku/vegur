@@ -10,8 +10,17 @@
 
 execute(Req, Env) ->
     {Client, Req1} = cowboy_req:meta(backend_connection, Req),
-    proxy(Req1, #state{backend_client = Client,
-                       env = Env}).
+    case proxy(Req1, #state{backend_client = Client, env = Env}) of
+        {ok, Req2, #state{backend_client=Client1}} ->
+            BytesCounts = vegur_client:byte_counts(Client1),
+            Req3 = cowboy_req:set_meta(bytes_sent, proplists:get_value(bytes_sent, BytesCounts), Req2),
+            Req4 = cowboy_req:set_meta(bytes_recv, proplists:get_value(bytes_recv, BytesCounts), Req3),
+            Req5 = cowboy_req:set_meta(status, successful, Req4),
+            {halt, Req5};
+        {error, _Blame, Reason, Req2} ->
+            {HttpCode, Req3} = vegur_utils:handle_error(Reason, Req2),
+            {error, HttpCode, Req3}
+    end.
 
 proxy(Req, State) ->
     {BackendReq, Req1} = parse_request(Req),
@@ -25,10 +34,8 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
         {ok, Code, RespHeaders, BackendClient1} -> % request ended without body sent
             handle_backend_response(Code, RespHeaders, Req,
                                     State#state{backend_client=BackendClient1});
-        {error, Error} ->
-            {ErrorMsg, Req1} = get_error(Error, Req),
-            Req2 = render_error(ErrorMsg, Req1),
-            {halt, Req2}
+        {error, Blame, Error} ->
+            {error, Blame, Error, Req}
     end.
 
 send_body_to_backend({Method, Header, Body, Path, Url}, Req,
@@ -36,10 +43,8 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
     case vegur_proxy:send_body(Method, Header, Body, Path, Url, Req, BackendClient) of
         {done, Req1, BackendClient1} ->
             read_backend_response(Req1, State#state{backend_client=BackendClient1});
-        {error, Error} ->
-            {ErrorMsg, Req1} = get_error(Error, Req),
-            Req2 = render_error(ErrorMsg, Req1),
-            {halt, Req2}
+        {error, Blame, Error} ->
+            {error, Blame, Error, Req}
     end.
 
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
@@ -47,10 +52,8 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
         {ok, Code, RespHeaders, Req1, BackendClient1} ->
             handle_backend_response(Code, RespHeaders, Req1,
                                     State#state{backend_client=BackendClient1});
-        {error, content_length} ->
-            {error, 502, Req};
-        {error, _Error} ->
-            {error, 503, Req}
+        {error, Blame, Error} ->
+            {error, Blame, Error, Req}
     end.
 
 handle_backend_response(Code, RespHeaders, Req, State) ->
@@ -62,22 +65,19 @@ handle_backend_response(Code, RespHeaders, Req, State) ->
             upgrade_request(Code, RespHeaders, Req2, State)
     end.
 
-upgrade_request(101, Headers, Req, #state{backend_client=BackendClient,
-                                          env=Env}) ->
-    {done, Req1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
-    {ok, Req1, Env};
+upgrade_request(101, Headers, Req, #state{backend_client=BackendClient}=State) ->
+    {done, Req1, BackendClient1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
+    {ok, Req1, State#state{backend_client=BackendClient1}};
 upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
 
 http_request(Code, Headers, Req,
-             #state{backend_client=BackendClient, env=Env}) ->
+             #state{backend_client=BackendClient}=State) ->
     case vegur_proxy:relay(Code, Headers, Req, BackendClient) of
-        {ok, Req1, _Client1} ->
-            {ok, Req1, Env};
-        {error, Error, Req1} ->
-            {ErrorMsg, Req2} = get_error(Error, Req1),
-            Req3 = render_error(ErrorMsg, Req2),
-            {halt, Req3}
+        {ok, Req1, BackendClient1} ->
+            {ok, Req1, State#state{backend_client=BackendClient1}};
+        {error, Blame, Error, Req1} ->
+            {error, Blame, Error, Req1}
     end.
 
 parse_request(Req) ->
@@ -166,13 +166,3 @@ add_via(Headers, Req) ->
 -spec get_via_value() -> binary().
 get_via_value() ->
     vegur_app:config(instance_name, <<"vegur">>).
-
-get_error(Error, Req) ->
-    {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-    {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {ErrorPage, HandlerState1} = InterfaceModule:error_page(Error, DomainGroup, HandlerState),
-    Req2 = vegur_utils:set_handler_state(HandlerState1, Req1),
-    {ErrorPage, Req2}.
-
-render_error({HttpCode, ErrorHeaders, ErrorBody}, Req) ->
-    vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req).
