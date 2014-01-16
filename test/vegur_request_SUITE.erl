@@ -70,7 +70,7 @@ init_per_group(vegur_request_mocks, Config) ->
     [{meck_started, MeckStarted} | Config];
 init_per_group(vegur_request_upgrade, Config) ->
     TestDomain = <<"vegurtest.testdomain">>,
-    ok = mock_middlewares([vegur_upgrade_middleware]),
+    ok = mock_middlewares([vegur_upgrade_middleware, vegur_test_middleware]),
     [{test_domain, TestDomain} | Config];
 init_per_group(vegur_request_lookups, Config) ->
     {ok, MeckStarted} = application:ensure_all_started(meck),
