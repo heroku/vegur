@@ -18,11 +18,8 @@ execute(Req, Env) ->
             Req5 = cowboy_req:set_meta(status, successful, Req4),
             {halt, Req5};
         {error, _Blame, Reason, Req2} ->
-            {HttpCode, ErrorHeaders, ErrorBody, Req3} = get_error(Reason, Req2),
-            Req4 = vegur_utils:render_response(ErrorHeaders, ErrorBody, Req3),
-            Req5 = cowboy_req:set_meta(request_status, error, Req4),
-            Req6 = vegur_utils:set_request_status(error, Req5),
-            {error, HttpCode, Req6}
+            {HttpCode, Req3} = vegur_utils:handle_error(Reason, Req2),
+            {error, HttpCode, Req3}
     end.
 
 proxy(Req, State) ->
@@ -169,10 +166,3 @@ add_via(Headers, Req) ->
 -spec get_via_value() -> binary().
 get_via_value() ->
     vegur_app:config(instance_name, <<"vegur">>).
-
-get_error(Error, Req) ->
-    {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-    {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(Error, DomainGroup, HandlerState),
-    Req2 = vegur_utils:set_handler_state(HandlerState1, Req1),
-    {HttpCode, ErrorHeaders, ErrorBody, Req2}.

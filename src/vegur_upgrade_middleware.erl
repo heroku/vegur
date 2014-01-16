@@ -12,16 +12,16 @@ execute(Req, Env) ->
             %% The connection should be upgraded
             case cowboy_req:parse_header(<<"upgrade">>, Req1) of
                 {ok, undefined, Req2} ->
-                    Req3 = vegur_utils:set_request_status(error, Req2),
-                    {error, 400, Req3};
+                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request, Req2),
+                    {error, HttpCode, Req3};
                 {ok, Upgrade, Req2} ->
                     handle_upgrade(Upgrade, Req2, Env);
                 {undefined, _, Req2} ->
-                    Req3 = vegur_utils:set_request_status(error, Req2),
-                    {error, 400, Req3}; % 426?
+                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request, Req2),
+                    {error, HttpCode, Req3}; % 426?
                 _ ->
-                    Req2 = vegur_utils:set_request_status(error, Req1),
-                    {error, 400, Req2}
+                    {HttpCode, Req2} = vegur_utils:handle_error(bad_request, Req1),
+                    {error, HttpCode, Req2}
             end
     end.
 

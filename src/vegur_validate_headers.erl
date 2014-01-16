@@ -18,8 +18,8 @@ execute(Req, Env) ->
       Env :: cowboy_middleware:env().
 validate_host(<<>>, Req, _Env) ->
     % The Host header is empty, return 400
-    Req1 = vegur_utils:set_request_status(error, Req),
-    {error, 400, Req1};
+    {HttpCode, Req1} = vegur_utils:handle_error(empty_host, Req),
+    {error, HttpCode, Req1};
 validate_host(_Host, Req, Env) ->
     {ok, Req, Env}.
 

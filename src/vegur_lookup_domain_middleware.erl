@@ -24,12 +24,9 @@ execute(Req, Env) ->
       ErrorCode :: cowboy:http_status().
 handle_domain_lookup({error, not_found, HandlerState}, Req, _Env) ->
     % No app associated with the domain
-    {InterfaceModule, _HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-    {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(not_found, undefined, HandlerState),
-    Req2 = vegur_utils:set_handler_state(HandlerState1, Req1),
-    Req3 = vegur_utils:render_response(ErrorHeaders, ErrorBody, Req2),
-    Req4 = vegur_utils:set_request_status(error, Req3),
-    {error, HttpCode, Req4};
+    Req1 = vegur_utils:set_handler_state(HandlerState, Req),
+    {HttpCode, Req2} = vegur_utils:handle_error(not_found, Req1),
+    {error, HttpCode, Req2};
 handle_domain_lookup({redirect, _Reason, _DomainGroup, RedirectTo, HandlerState}, Req, _Env) ->
     {Path, Req2} = cowboy_req:path(Req),
     {Qs, Req3} = cowboy_req:qs(Req2),

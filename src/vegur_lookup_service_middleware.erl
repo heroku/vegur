@@ -29,10 +29,6 @@ handle_service({service, Service, HandlerState}, Req, Env) ->
             lookup_service(Req5, Env)
     end;
 handle_service({error, Reason, HandlerState}, Req, _Env) ->
-    {InterfaceModule, _, Req1} = vegur_utils:get_interface_module(Req),
-    {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
-    {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(Reason, DomainGroup, HandlerState),
-    Req3 = vegur_utils:set_handler_state(HandlerState1, Req2),
-    Req4 = vegur_utils:render_response(ErrorHeaders, ErrorBody, Req3),
-    Req5 = vegur_utils:set_request_status(error, Req4),
-    {error, HttpCode, Req5}.
+    Req1 = vegur_utils:set_handler_state(HandlerState, Req),
+    {HttpCode, Req2} = vegur_utils:handle_error(Reason, Req1),
+    {error, HttpCode, Req2}.

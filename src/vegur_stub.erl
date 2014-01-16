@@ -88,6 +88,12 @@ error_page(maintainance_mode, _DomainGroup, HandlerState) ->
     {{503, [], <<>>}, HandlerState};
 error_page(content_length, _DomainGroup, HandlerState) ->
     {{502, [], <<>>}, HandlerState};
+error_page(empty_host, _DomainGroup, HandlerState) ->
+    {{400, [], <<>>}, HandlerState};
+error_page(expectation_failed, _DomainGroup, HandlerState) ->
+    {{417, [], <<>>}, HandlerState};
+error_page(bad_request, _DomainGroup, HandlerState) ->
+    {{400, [], <<>>}, HandlerState};
 error_page(_, _DomainGroup, HandlerState) ->
     {{503, [], <<>>}, HandlerState}.
 
