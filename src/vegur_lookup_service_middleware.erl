@@ -33,6 +33,6 @@ handle_service({error, Reason, HandlerState}, Req, _Env) ->
     {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
     {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(Reason, DomainGroup, HandlerState),
     Req3 = vegur_utils:set_handler_state(HandlerState1, Req2),
-    Req4 = vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req3),
+    Req4 = vegur_utils:render_response(ErrorHeaders, ErrorBody, Req3),
     Req5 = vegur_utils:set_request_status(error, Req4),
-    {halt, Req5}.
+    {error, HttpCode, Req5}.

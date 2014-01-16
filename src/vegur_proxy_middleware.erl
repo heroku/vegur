@@ -11,18 +11,18 @@
 execute(Req, Env) ->
     {Client, Req1} = cowboy_req:meta(backend_connection, Req),
     case proxy(Req1, #state{backend_client = Client, env = Env}) of
-        {ok, Req2, #state{backend_client=Client1, env=Env1}} ->
+        {ok, Req2, #state{backend_client=Client1}} ->
             BytesCounts = vegur_client:byte_counts(Client1),
             Req3 = cowboy_req:set_meta(bytes_sent, proplists:get_value(bytes_sent, BytesCounts), Req2),
             Req4 = cowboy_req:set_meta(bytes_recv, proplists:get_value(bytes_recv, BytesCounts), Req3),
-            Req5 = cowboy_req:set_meta(request_status, successful, Req4),
-            {ok, Req5, Env1};
+            Req5 = cowboy_req:set_meta(status, successful, Req4),
+            {halt, Req5};
         {error, _Blame, Reason, Req2} ->
-            {ErrorMsg, Req3} = get_error(Reason, Req2),
-            Req4 = render_error(ErrorMsg, Req3),
+            {HttpCode, ErrorHeaders, ErrorBody, Req3} = get_error(Reason, Req2),
+            Req4 = vegur_utils:render_response(ErrorHeaders, ErrorBody, Req3),
             Req5 = cowboy_req:set_meta(request_status, error, Req4),
             Req6 = vegur_utils:set_request_status(error, Req5),
-            {halt, Req6}
+            {error, HttpCode, Req6}
     end.
 
 proxy(Req, State) ->
@@ -174,9 +174,6 @@ get_via_value() ->
 get_error(Error, Req) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
-    {ErrorPage, HandlerState1} = InterfaceModule:error_page(Error, DomainGroup, HandlerState),
+    {{HttpCode, ErrorHeaders, ErrorBody}, HandlerState1} = InterfaceModule:error_page(Error, DomainGroup, HandlerState),
     Req2 = vegur_utils:set_handler_state(HandlerState1, Req1),
-    {ErrorPage, Req2}.
-
-render_error({HttpCode, ErrorHeaders, ErrorBody}, Req) ->
-    vegur_utils:render_response(HttpCode, ErrorHeaders, ErrorBody, Req).
+    {HttpCode, ErrorHeaders, ErrorBody, Req2}.
