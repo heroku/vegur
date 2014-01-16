@@ -86,7 +86,7 @@ render_response(Headers, Body, Req) ->
                 end, Req1, Headers).
 
 -spec set_request_status(Status, Req) -> Req when
-      Status :: vegur_interface:terminate_status(),
+      Status :: vegur_interface:terminate_reason(),
       Req :: cowboy_req:req().
 set_request_status(Status, Req) ->
     cowboy_req:set_meta(status, Status, Req).

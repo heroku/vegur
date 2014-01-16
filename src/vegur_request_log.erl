@@ -56,8 +56,10 @@ done(_, _, _, Req) ->
             Req1
     end.
 
--spec done(Something) -> Something when
-      Something :: any().
+-spec done({error, Code, Req}|{halt, Req}) -> {error, Code, Req}|
+                                              {halt, Req} when
+      Code :: cowboy:http_status(),
+      Req :: cowboy_req:req().
 done({error, Code, Req}) ->
     Req1 = handle_terminate(Req),
     {error, Code, Req1};

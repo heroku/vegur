@@ -68,10 +68,9 @@ handle_backend_response(Code, RespHeaders, Req, State) ->
             upgrade_request(Code, RespHeaders, Req2, State)
     end.
 
-upgrade_request(101, Headers, Req, #state{backend_client=BackendClient,
-                                          env=Env}) ->
-    {done, Req1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
-    {ok, Req1, Env};
+upgrade_request(101, Headers, Req, #state{backend_client=BackendClient}=State) ->
+    {done, Req1, BackendClient1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
+    {ok, Req1, State#state{backend_client=BackendClient1}};
 upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
 
