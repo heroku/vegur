@@ -56,13 +56,16 @@ done(Code, _Headers, _Body, Req) ->
             RouteTime = ?LOGGER:timestamp_diff(accepted, pre_connect, Log1),
             ConnectTime = ?LOGGER:event_duration(connect_time, Log1),
             {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
-            {InterfaceModule, HandlerState, Req3} = vegur_utils:get_interface_module(Req2),
+            {BytesSent, Req3} = cowboy_req:meta(bytes_sent, Req2),
+            {BytesRecv, Req4} = cowboy_req:meta(bytes_recv, Req3),
+            {InterfaceModule, HandlerState, Req5} = vegur_utils:get_interface_module(Req4),
             InterfaceModule:terminate(Code, RequestStatus, [{total_time, TotalTime},
                                                             {route_time, RouteTime},
-                                                            {connect_time, ConnectTime}], HandlerState),
-            Req3
+                                                            {connect_time, ConnectTime},
+                                                            {bytes_sent, BytesSent},
+                                                            {bytes_recv, BytesRecv}], HandlerState),
+            Req5
     end.
-                                              
 
 -spec stamp(EventType, Req) -> Req when
       EventType :: event_type(),

@@ -11,9 +11,7 @@
 -type terminate_reason() :: healthcheck|healthcheck_error|normal|error.
 -type ms() :: non_neg_integer().
 -type stat() :: {bytes_recv|bytes_sent, non_neg_integer()}|
-                {route_time, ms()}|
-                {connect_time, ms()}|
-                {total_time, ms()}.
+                {route_time|connect_time|total_time, ms()}.
 -type stats() :: [stat()]|[].
 
 -export_type([domain/0,
