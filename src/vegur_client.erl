@@ -52,6 +52,7 @@
 -export([stream_body/1]).
 -export([stream_close/1]).
 -export([stream_chunk/1]).
+-export([stream_unchunk/1]).
 -export([buffer_data/3]).
 
 -export([body_type/1]).
@@ -271,18 +272,21 @@ next_chunk(Client=#client{buffer=Buffer}, Cont) ->
             {error, Reason}
     end.
 
-stream_chunk({Client, Cont}) -> stream_chunk(Client, Cont);
-stream_chunk(Client) -> stream_chunk(Client, undefined).
+stream_chunk({Client, Cont}) -> stream_chunk(Client, vegur_chunked, Cont);
+stream_chunk(Client) -> stream_chunk(Client, vegur_chunked, undefined).
 
-stream_chunk(Client=#client{buffer=Buffer}, Cont) ->
+stream_unchunk({Client, Cont}) -> stream_chunk(Client, vegur_unchunked, Cont);
+stream_unchunk(Client) -> stream_chunk(Client, vegur_unchunked, undefined).
+
+stream_chunk(Client=#client{buffer=Buffer}, ChunkMod, Cont) ->
     case iolist_size(Buffer) of
         0 ->
             case recv(Client) of
-                {ok, Data} -> stream_chunk(Client#client{buffer=Data}, Cont);
+                {ok, Data} -> stream_chunk(Client#client{buffer=Data}, ChunkMod, Cont);
                 {error, Reason} -> {error, Reason}
             end;
         _ ->
-            case vegur_chunked:stream_chunk(Buffer, Cont) of
+            case ChunkMod:stream_chunk(Buffer, Cont) of
                 {done, Buf, Rest} ->
                     {done, Buf, Client#client{buffer=Rest,
                                               response_body=undefined}};
@@ -381,11 +385,24 @@ stream_header(Client=#client{state=State, buffer=Buffer,
             %% @todo Do a better parsing later on.
             [Name, Value] = binary:split(Line, [<<": ">>, <<":">>]),
             Name2 = cowboy_bstr:to_lower(Name),
-            Client2 = case Name2 of
+            MaybeClient = case Name2 of
                 <<"content-length">> ->
-                    Length = list_to_integer(binary_to_list(Value)),
-                    if Length >= 0 -> ok end,
-                    Client#client{response_body=Length};
+                    try
+                        Length = list_to_integer(binary_to_list(Value)),
+                        case RespBody of
+                            Length -> % duplicate, absorb
+                                skip;
+                            chunked -> % chunked has priority
+                                Client;
+                            undefined when Length >= 0 -> % first time seen
+                                Client#client{response_body=Length};
+                            _ -> % length not matching
+                                {error, content_length}
+                        end
+                    catch
+                        error:badarg -> {error, content_length};
+                        error:case_clause -> {error, content_length}
+                    end;
                 <<"transfer-encoding">> ->
                     case lists:member(<<"chunked">>, header_list_values(Value)) of
                         true -> Client#client{response_body=chunked};
@@ -404,7 +421,14 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                 _ ->
                     Client
             end,
-            {ok, Name2, Value, Client2#client{buffer=Rest}};
+            case MaybeClient of
+                skip ->
+                    stream_header(Client#client{buffer=Rest});
+                Client2=#client{} ->
+                    {ok, Name2, Value, Client2#client{buffer=Rest}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         _ ->
             case recv(Client) of
                 {ok, Data} ->

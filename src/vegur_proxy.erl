@@ -226,9 +226,9 @@ upgrade(Headers, Req, BackendClient) ->
 relay(Status, HeadersRaw, Req, Client) ->
     %% Dispatch data from vegur_client down into the cowboy connection, either
     %% in batch or directly.
-    Headers = case should_close(Status, Req, Client) of
-        false -> response_headers(HeadersRaw);
-        true  -> add_connection_close_header(response_headers(HeadersRaw))
+    Headers = case connection_type(Status, Req, Client) of
+        keepalive -> add_connection_keepalive_header(response_headers(HeadersRaw));
+        close  -> add_connection_close_header(response_headers(HeadersRaw))
     end,
     case vegur_client:body_type(Client) of
         {content_size, N} when N =< ?BUFFER_LIMIT ->
@@ -250,13 +250,19 @@ relay_no_body(Status, Headers, Req, Client) ->
 
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Status, Headers, Req, Client) ->
-    case vegur_client:response_body(Client) of
-        {ok, Body, Client2} ->
-            Req1 = respond(Status, Headers, Body, Req),
-            {ok, Req1, backend_close(Client2)};
-        {error, Error} ->
-            backend_close(Client),
-            {error, Error, Req}
+    case wait_for_body(Status, Req) of
+        false ->
+            {content_size, N} = vegur_client:body_type(Client),
+            relay_stream_body(Status, Headers, N, fun stream_nothing/2, Req, Client);
+        true ->
+            case vegur_client:response_body(Client) of
+                {ok, Body, Client2} ->
+                    Req1 = respond(Status, Headers, Body, Req),
+                    {ok, Req1, backend_close(Client2)};
+                {error, Error} ->
+                    backend_close(Client),
+                    {error, Error, Req}
+            end
     end.
 
 %% The body is large and may need to be broken in multiple parts. Send them as
@@ -265,8 +271,12 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     %% Use cowboy's partial response delivery to stream contents.
     %% We use exceptions (throws) to detect bad transfers and close
     %% both connections when this happens.
+    FinalFun = case wait_for_body(Status, Req) of
+        true -> StreamFun;
+        false -> fun stream_nothing/2
+    end,
     Fun = fun(Socket, Transport) ->
-        case StreamFun({Transport,Socket}, Client) of
+        case FinalFun({Transport,Socket}, Client) of
             {ok, _Client2} -> ok;
             {error, Reason} -> throw({stream_error, Reason})
         end
@@ -285,19 +295,36 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     end.
 
 relay_chunked(Status, Headers, Req, Client) ->
+    {Version, Req2} = cowboy_req:version(Req),
+    relay_chunked(Version, Status, Headers, Req2, Client).
+
+relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
     %% This is a special case. We stream pre-delimited chunks raw instead
     %% of using cowboy, which would have to recalculate and re-delimitate
     %% sizes all over after we parsed them first. We save time by just using
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
     {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
-    case stream_chunked(RawSocket, Client) of
-        {ok, Client2} ->
-            {ok, Req3, backend_close(Client2)};
-        {error, Error} -> % uh-oh, we died during the transfer
-            backend_close(Client),
-            {error, Error, Req3}
-    end.
+    case wait_for_body(Status, Req) of
+        false ->
+            {ok, Req3, backend_close(Client)};
+        true ->
+            case stream_chunked(RawSocket, Client) of
+                {ok, Client2} ->
+                    {ok, Req3, backend_close(Client2)};
+                {error, Error} -> % uh-oh, we died during the transfer
+                    backend_close(Client),
+                    {error, Error, Req3}
+            end
+    end;
+relay_chunked('HTTP/1.0', Status, Headers, Req, Client) ->
+    %% This case means that we're forwarding chunked encoding to an
+    %% older client that doesn't support it. The way around this is to
+    %% stream the data as-is, but use no `content-length' header *AND* a
+    %% `connection: close' header to implicitly delimit the request
+    %% as streaming unknown-size HTTP.
+    relay_stream_body(Status, delete_transfer_encoding_header(Headers),
+                      undefined, fun stream_unchunked/2, Req, Client).
 
 stream_chunked({Transport,Sock}=Raw, Client) ->
     %% Fetch chunks one by one (including length and line-delimitation)
@@ -309,6 +336,24 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
         {more, _Len, Data, Client2} ->
             Transport:send(Sock, Data),
             stream_chunked(Raw, Client2);
+        {done, Data, Client2} ->
+            Transport:send(Sock, Data),
+            {ok, backend_close(Client2)};
+        {error, Reason} ->
+            backend_close(Client),
+            {error, Reason}
+    end.
+
+stream_unchunked({Transport,Sock}=Raw, Client) ->
+    %% Fetch chunks one by one (excluding length and line-delimitation)
+    %% and forward them over the raw socket.
+    case vegur_client:stream_unchunk(Client) of
+        {ok, Data, Client2} ->
+            Transport:send(Sock, Data),
+            stream_unchunked(Raw, Client2);
+        {more, _Len, Data, Client2} ->
+            Transport:send(Sock, Data),
+            stream_unchunked(Raw, Client2);
         {done, Data, Client2} ->
             Transport:send(Sock, Data),
             {ok, backend_close(Client2)};
@@ -397,13 +442,46 @@ stream_close({Transport,Sock}=Raw, Client) ->
             {error, Reason}
     end.
 
+stream_nothing(_Raw, Client) ->
+    {ok, Client}.
+
 %% We should close the connection whenever we get an Expect: 100-Continue
 %% that got answered with a final status code.
-should_close(Status, Req, _Client) ->
+connection_type(Status, Req, Client) ->
     {Cont, _} = cowboy_req:meta(continue, Req, []),
-    %% If we haven't received a 100 continue to forward AND this is
-    %% a final status, then we should close the connection
-    Cont =:= continue andalso Status >= 200.
+    %% If we haven't received a 100 continue to forward after having
+    %% received an expect AND this is a final status, then we should
+    %% close the connection.
+    case Cont =:= continue andalso Status >= 200 of
+        true ->
+            close;
+        false ->
+            %% Honor the client's decision, except if the response has no
+            %% content-length, in which case closing is mandatory
+            case vegur_client:body_type(Client) of
+                stream_close ->
+                    close;
+                chunked ->
+                    %% Chunked with an HTTP/1.0 client gets turned to a close
+                    %% to allow proper data streaming.
+                    case cowboy_req:version(Req) of
+                        {'HTTP/1.0', _} -> close;
+                        {'HTTP/1.1', _} -> cowboy_req:get(connection, Req)
+                    end;
+                _ ->
+                    cowboy_req:get(connection, Req)
+            end
+    end.
+
+wait_for_body(204, _Req) -> false;
+wait_for_body(304, _Req) -> false;
+wait_for_body(_, Req) ->
+    case cowboy_req:method(Req) of
+        {<<"HEAD">>, _} -> false;
+        _ -> true
+    end.
+
+
 
 backend_close(undefined) -> undefined;
 backend_close(Client) ->
@@ -416,8 +494,8 @@ request_headers(Headers0) ->
                         F(H)
                 end,
                 Headers0,
-                [fun delete_connection_keepalive_header/1
-                ,fun delete_host_header/1
+                [fun delete_host_header/1
+                ,fun delete_hop_by_hop/1
                 ,fun add_connection_close_header/1
                 ,fun delete_content_length_header/1
                 ]).
@@ -428,20 +506,41 @@ response_headers(Headers) ->
                         F(H)
                 end,
                 Headers,
-                [fun delete_connection_keepalive_header/1
+                [fun delete_hop_by_hop/1
                 ]).
 
-delete_connection_keepalive_header(Hdrs) ->
-    lists:delete({<<"connection">>, <<"keepalive">>}, Hdrs).
+delete_host_header(Hdrs) -> delete_all(<<"host">>, Hdrs).
 
-delete_host_header(Hdrs) ->
-    lists:keydelete(<<"host">>, 1, Hdrs).
+delete_content_length_header(Hdrs) -> delete_all(<<"content-length">>, Hdrs).
 
-delete_content_length_header(Hdrs) ->
-    lists:keydelete(<<"content-length">>, 1, Hdrs).
+delete_transfer_encoding_header(Hdrs) -> delete_all(<<"transfer-encoding">>, Hdrs).
+
+%% Hop by Hop Headers we care about removing. We remove most of them but
+%% "Proxy-Authentication" for historical reasons, "Upgrade" because we pass
+%% it through, "Transfer-Encoding" because we restrict to 'chunked' and pass
+%% it through.
+delete_hop_by_hop([]) -> [];
+delete_hop_by_hop([{<<"connection">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"te">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"keep-alive">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"proxy-authorization">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"trailer">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([Hdr|Hdrs]) -> [Hdr | delete_hop_by_hop(Hdrs)].
+
+%% We need to traverse the entire list because a user could have
+%% injected more than one instance of the same header
+delete_all(_, []) -> [];
+delete_all(Key, [{Key,_} | Hdrs]) -> delete_all(Key, Hdrs);
+delete_all(Key, [H|Hdrs]) -> [H | delete_all(Key, Hdrs)].
 
 add_connection_close_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
         false -> [{<<"connection">>, <<"close">>} | Hdrs]
+    end.
+
+add_connection_keepalive_header(Hdrs) ->
+    case lists:keymember(<<"connection">>, 1, Hdrs) of
+        true -> Hdrs;
+        false -> [{<<"connection">>, <<"keep-alive">>} | Hdrs]
     end.

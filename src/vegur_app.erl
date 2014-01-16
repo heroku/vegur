@@ -84,6 +84,10 @@ start_phase(listen, _Type, _Args) ->
 cowboy_opts() ->
     [{env, cowboy_env()}
     ,{middlewares, [vegur_midjan_middleware]}
+    ,{max_request_line_length, 8192}
+    ,{max_header_name_length, 1000}
+    ,{max_header_value_length, 8192}
+    ,{max_headers, 1000}
     ,{onrequest, fun vegur_request_log:new/1}].
 
 cowboy_env() ->

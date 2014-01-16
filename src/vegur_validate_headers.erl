@@ -4,7 +4,12 @@
 
 execute(Req, Env) ->
     {Host, Req1} = cowboy_req:host(Req),
-    validate_host(Host, Req1, Env).
+    case validate_host(Host, Req1, Env) of
+        {ok, Req2, Env2} ->
+            validate_content_length(Req2, Env2);
+        Other ->
+            Other
+    end.
 
 -spec validate_host(binary(), Req, Env) ->
                            {error, 400, Req} |
@@ -16,3 +21,27 @@ validate_host(<<>>, Req, _Env) ->
     {error, 400, Req};
 validate_host(_Host, Req, Env) ->
     {ok, Req, Env}.
+
+%% We can't allow duplicate content-length headers with varying values,
+%% or content-lengths where the values are separated by commas.
+validate_content_length(Req, Env) ->
+    {Headers, Req2} = cowboy_req:headers(Req),
+    case validate_content_length1(Headers, undefined) of
+        ok -> {ok, Req2, Env};
+        error -> {error, 400, Req}
+    end.
+
+validate_content_length1([], _) -> ok;
+validate_content_length1([{<<"content-length">>, Term} | Rest], Known) ->
+    case binary:match(Term, <<",">>) of
+        {_,_} ->
+            error; % unsupported csv format
+        nomatch ->
+            case Known of
+                undefined -> validate_content_length1(Rest, Term);
+                Term -> validate_content_length1(Rest, Known);
+                _Other -> error
+            end
+    end;
+validate_content_length1([_ | Rest], Known) ->
+    validate_content_length1(Rest, Known).
