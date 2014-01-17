@@ -196,7 +196,7 @@ upgrade(Headers, Req, BackendClient) ->
     {Server={TransStub,SockStub}, BufStub, _NewClient} = vegur_client:raw_socket(BackendClient),
     {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_sockbuf(Req),
     %% Send the response to the caller
-    Headers1 = vegur_client:headers_to_iolist(request_headers(Headers)),
+    Headers1 = vegur_client:headers_to_iolist(upgrade_response_headers(Headers)),
     TransCow:send(SockCow,
                   [<<"HTTP/1.1 101 Switching Protocols\r\n">>,
                    Headers1, <<"\r\n">>,
@@ -496,7 +496,18 @@ request_headers(Headers0) ->
                 ,fun delete_content_length_header/1
                 ]).
 
-%% Strip Connection header on response.
+%% Strip Hop-by-hop headers on a response that is being
+%% upgraded
+upgrade_response_headers(Headers) ->
+    lists:foldl(fun (F, H) ->
+                        F(H)
+                end,
+                Headers,
+                [fun delete_hop_by_hop/1,
+                 fun add_connection_upgrade_header/1
+                ]).
+
+%% Strip Hop-by-hop headers on response
 response_headers(Headers) ->
     lists:foldl(fun (F, H) ->
                         F(H)
@@ -540,4 +551,10 @@ add_connection_keepalive_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
         false -> [{<<"connection">>, <<"keep-alive">>} | Hdrs]
+    end.
+
+add_connection_upgrade_header(Hdrs) ->
+    case lists:keymember(<<"connection">>, 1, Hdrs) of
+        true -> Hdrs;
+        false -> [{<<"connection">>, <<"upgrade">>} | Hdrs]
     end.
