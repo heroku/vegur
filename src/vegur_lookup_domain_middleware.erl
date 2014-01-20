@@ -22,10 +22,10 @@ execute(Req, Env) ->
       Domain :: vegur_interface:domain(),
       HandlerState :: vegur_interface:handler_state(),
       ErrorCode :: cowboy:http_status().
-handle_domain_lookup({error, not_found, HandlerState}, Req, _Env) ->
+handle_domain_lookup({error, Error, HandlerState}, Req, _Env) ->
     % No app associated with the domain
     Req1 = vegur_utils:set_handler_state(HandlerState, Req),
-    {HttpCode, Req2} = vegur_utils:handle_error(not_found, Req1),
+    {HttpCode, Req2} = vegur_utils:handle_error(Error, Req1),
     {error, HttpCode, Req2};
 handle_domain_lookup({redirect, _Reason, _DomainGroup, RedirectTo, HandlerState}, Req, _Env) ->
     {Path, Req2} = cowboy_req:path(Req),
