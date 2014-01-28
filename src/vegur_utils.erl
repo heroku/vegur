@@ -8,6 +8,7 @@
          ,add_or_replace_header/3
          ,set_request_status/2
          ,handle_error/2
+         ,peer_ip_port/1
         ]).
 
 -spec get_interface_module(Req) ->
@@ -103,3 +104,20 @@ handle_error(Reason, Req) ->
     Req4 = set_response(ErrorHeaders, ErrorBody, Req3),
     Req5 = set_request_status(error, Req4),
     {HttpCode, Req5}.
+
+-spec peer_ip_port(Req) -> {{IpAddress, PortNumber}, Req} when
+      IpAddress :: inet:ip_address(),
+      PortNumber :: inet:port_number(),
+      Req :: cowboy_req:req().
+peer_ip_port(Req) ->
+    Transport = cowboy_req:get(transport, Req),
+    case Transport:name() of
+        proxy_protocol_tcp ->
+            ProxySocket = cowboy_req:get(socket, Req),
+            {ok, {{PeerIp, _}, {_, DestPort1}}} = Transport:proxyname(ProxySocket),
+            {{PeerIp, DestPort1}, Req};
+        _ ->
+            {{PeerIp, _}, Req3} = cowboy_req:peer(Req),
+            {Port, Req4} = cowboy_req:port(Req3),
+            {{PeerIp, Port}, Req4}
+    end.

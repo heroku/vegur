@@ -35,8 +35,10 @@ new(Req) ->
     Log1 = ?LOGGER:stamp(accepted, Log),
     Req9 = cowboy_req:set_meta(logging, Log1, Req8),
     {InterfaceModule, _, Req10} = vegur_utils:get_interface_module(Req9),
+    {PeerInfo, Req11} = vegur_utils:peer_ip_port(Req10),
+    Req12 = cowboy_req:set_meta(peer, PeerInfo, Req11),
     {ok, HandlerState} = InterfaceModule:init(Now, RequestId1),
-    vegur_utils:set_handler_state(HandlerState, Req10).
+    vegur_utils:set_handler_state(HandlerState, Req12).
 
 -spec done(Code, Headers, Body, Req) -> Req when
       Code :: cowboy:http_status(),
@@ -61,10 +63,10 @@ done(_, _, _, Req) ->
       Code :: cowboy:http_status(),
       Req :: cowboy_req:req().
 done({error, Code, Req}) ->
-    Req1 = handle_terminate(Req),
+    Req1 = handle_terminate(Code, Req),
     {error, Code, Req1};
 done({halt, Req}) ->
-    Req1 = handle_terminate(Req),
+    Req1 = handle_terminate(0, Req),
     {halt, Req1}.
 
 -spec stamp(EventType, Req) -> Req when
@@ -109,20 +111,30 @@ get_request_id() ->
 request_max_length() ->
     vegur_app:config(request_id_max_size).
 
-handle_terminate(Req) ->
+handle_terminate(Code, Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
     {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
     Log1 = ?LOGGER:stamp(responded, Log),
     TotalTime = ?LOGGER:timestamp_diff(accepted, responded, Log1),
     RouteTime = ?LOGGER:timestamp_diff(accepted, pre_connect, Log1),
     ConnectTime = ?LOGGER:event_duration(connect_time, Log1),
+    ServiceTime = ?LOGGER:event_duration(service_time, Log1),
     {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
     {BytesSent, Req3} = cowboy_req:meta(bytes_sent, Req2),
     {BytesRecv, Req4} = cowboy_req:meta(bytes_recv, Req3),
-    {InterfaceModule, HandlerState, Req5} = vegur_utils:get_interface_module(Req4),
-    InterfaceModule:terminate(RequestStatus, [{total_time, TotalTime},
-                                              {route_time, RouteTime},
-                                              {connect_time, ConnectTime},
-                                              {bytes_sent, BytesSent},
-                                              {bytes_recv, BytesRecv}], HandlerState),
-    Req5.
+    {Method, Req5} = cowboy_req:method(Req4),
+    {Path, Req6} = cowboy_req:path(Req5),
+    {Peer, Req7} = cowboy_req:meta(peer, Req6),
+    {InterfaceModule, HandlerState, Req8} = vegur_utils:get_interface_module(Req7),
+    InterfaceModule:terminate(RequestStatus, [{total_time, TotalTime}
+                                              ,{route_time, RouteTime}
+                                              ,{connect_time, ConnectTime}
+                                              ,{service_time, ServiceTime}
+                                              ,{bytes_sent, BytesSent}
+                                              ,{bytes_recv, BytesRecv}
+                                              ,{method, Method}
+                                              ,{path, Path}
+                                              ,{peer, Peer}
+                                              ,{response_code, Code}
+                                             ], HandlerState),
+    Req8.
