@@ -26,7 +26,6 @@ new(Req) ->
     {Path, Req3} = cowboy_req:path(Req2),
     {URL, Req4} = cowboy_req:url(Req3),
     {Headers, Req5} = cowboy_req:headers(Req4),
-    ?INFO("~s ~s~nUrl: ~s~n~p", [Method, Path, URL, Headers]),
     %% Get a request ID
     {RequestId, Req6} = cowboy_req:header(vegur_app:config(request_id_name), Req5),
     {RequestId1, Req7} = get_or_validate_request_id(RequestId, Req6),
