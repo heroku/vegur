@@ -4,6 +4,9 @@
 
 -define(LOGGER, vegur_req_log).
 
+-define(REQ_ID_MIN_LENGTH, 20).
+-define(REQ_ID_MAX_LENGTH, 200).
+
 -export([new/1,
          done/1,
          done/4,
@@ -27,14 +30,16 @@ new(Req) ->
     {URL, Req4} = cowboy_req:url(Req3),
     {Headers, Req5} = cowboy_req:headers(Req4),
     %% Get a request ID
-    {RequestId, Req6} = cowboy_req:header(vegur_app:config(request_id_name), Req5),
-    {RequestId1, Req7} = get_or_validate_request_id(RequestId, Req6),
-    Req8 = cowboy_req:set_meta(request_id, RequestId1, Req7),
+    {RequestIdRaw, Req6} = cowboy_req:header(vegur_app:config(request_id_name), Req5),
+    RequestId = erequest_id:ensure(RequestIdRaw,
+                                   ?REQ_ID_MIN_LENGTH,
+                                   ?REQ_ID_MAX_LENGTH),
+    Req8 = cowboy_req:set_meta(request_id, RequestId, Req6),
     Log = ?LOGGER:new(Now),
     Log1 = ?LOGGER:stamp(accepted, Log),
     Req9 = cowboy_req:set_meta(logging, Log1, Req8),
     {InterfaceModule, _, Req10} = vegur_utils:get_interface_module(Req9),
-    {ok, HandlerState} = InterfaceModule:init(Now, RequestId1),
+    {ok, HandlerState} = InterfaceModule:init(Now, RequestId),
     vegur_utils:set_handler_state(HandlerState, Req10).
 
 -spec done(Code, Headers, Body, Req) -> Req when
@@ -89,20 +94,6 @@ total_routing_time(Req) ->
 get_log_value(EventType, Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
     {?LOGGER:event_duration(EventType, Log), Req1}.
-
-get_or_validate_request_id(undefined, Req) ->
-    {get_request_id(), Req};
-get_or_validate_request_id(ReqId, Req) ->
-    case erequest_id:validate(ReqId, request_max_length()) of
-        valid ->
-            {ReqId, Req};
-        invalid ->
-            {get_request_id(), Req}
-    end.
-
-get_request_id() ->
-    {ok, ReqId} = erequest_id:create(),
-    ReqId.
 
 -spec request_max_length() -> pos_integer().
 request_max_length() ->
