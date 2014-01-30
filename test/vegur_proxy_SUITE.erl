@@ -185,9 +185,9 @@ service_try_again(Config) ->
     Port = ?config(vegur_port, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     meck:expect(vegur_stub, service_backend,
-                fun(_, HandlerState) ->
+                fun(_, Req, HandlerState) ->
                         mock_backend(?config(dyno_port, Config)),
-                        {{{127,0,0,1}, ?config(dyno_port, Config)+1}, HandlerState}
+                        {{{127,0,0,1}, ?config(dyno_port, Config)+1}, Req, HandlerState}
                 end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
@@ -207,12 +207,13 @@ request_statistics(Config) ->
     receive
         {req, _Req} ->
             receive
-                {stats, {successful, Stats, undefined}} ->
-                    118 = proplists:get_value(bytes_recv, Stats),
-                    253 = proplists:get_value(bytes_sent, Stats),
-                    true = is_integer(proplists:get_value(route_time, Stats)),
-                    true = is_integer(proplists:get_value(connect_time, Stats)),
-                    true = is_integer(proplists:get_value(total_time, Stats))
+                {stats, {successful, Upstream, undefined}} ->
+                    {118, _} = vegur:bytes_recv(Upstream),
+                    {253, _} = vegur:bytes_sent(Upstream),
+                    {RT, _} = vegur:route_time(Upstream),
+                    {CT, _} = vegur:connect_time(Upstream),
+                    {TT, _} = vegur:total_time(Upstream),
+                    [true, true, true] = lists:map(fun(X) -> is_integer(X) end, [RT, CT, TT])
             after 5000 ->
                     throw(timeout)
             end
@@ -231,22 +232,22 @@ stop_dyno() ->
 
 mock_through() ->
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(_, HandlerState) ->
-                        {ok, test_domain, HandlerState}
+                fun(_, Upstream, HandlerState) ->
+                        {ok, test_domain, Upstream, HandlerState}
                 end),
     meck:expect(vegur_stub, checkout_service,
-                fun(_, HandlerState) ->
-                        {service, test_route, HandlerState}
+                fun(_, Upstream, HandlerState) ->
+                        {service, test_route, Upstream, HandlerState}
                 end).
 
 mock_backend(Port) ->
     meck:expect(vegur_stub, service_backend,
-                fun(_, HandlerState) ->
-                        {{{127,0,0,1}, Port}, HandlerState}
+                fun(_, Upstream, HandlerState) ->
+                        {{{127,0,0,1}, Port}, Upstream, HandlerState}
                 end).
 
 mock_terminate(Test) ->
     meck:expect(vegur_stub, terminate,
-                fun(Status, Stats, HandlerState) ->
-                        Test ! {stats, {Status, Stats, HandlerState}}
+                fun(Status, Upstream, HandlerState) ->
+                        Test ! {stats, {Status, Upstream, HandlerState}}
                 end).

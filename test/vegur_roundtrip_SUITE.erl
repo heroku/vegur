@@ -36,8 +36,8 @@ groups() -> [{continue, [], [
 %%%%%%%%%%%%
 init_per_suite(Config) ->
     meck:new(vegur_stub, [passthrough, no_link]),
-    meck:expect(vegur_stub, lookup_domain_name, fun(_, HandlerState) -> {ok, test_domain, HandlerState} end),
-    meck:expect(vegur_stub, checkout_service, fun(_, HandlerState) -> {service, test_service, HandlerState} end),
+    meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
+    meck:expect(vegur_stub, checkout_service, fun(_, Req, HandlerState) -> {service, test_service, Req, HandlerState} end),
     Env = application:get_all_env(vegur),
     [{vegur_env, Env} | Config].
 
@@ -49,7 +49,7 @@ init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
     application:load(vegur),
-    meck:expect(vegur_stub, service_backend, fun(_, HandlerState) -> {{<<"127.0.0.1">>, LPort}, HandlerState} end),
+    meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{<<"127.0.0.1">>, LPort}, Req, HandlerState} end),
     {ok, ProxyPort} = application:get_env(vegur, http_listen_port),
     {ok, Started} = application:ensure_all_started(vegur),
     [{server_port, LPort},

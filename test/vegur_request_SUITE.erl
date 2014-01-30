@@ -76,9 +76,9 @@ init_per_group(vegur_request_lookups, Config) ->
     {ok, MeckStarted} = application:ensure_all_started(meck),
     TestDomain = <<"vegurtest.testdomain">>,
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(Domain, HandlerState) ->
+                fun(Domain, Req, HandlerState) ->
                         Domain = TestDomain,
-                        {ok, mocked_domain_group, HandlerState}
+                        {ok, mocked_domain_group, Req, HandlerState}
                 end),
     [{meck_started, MeckStarted},
      {test_domain, TestDomain} | Config];
@@ -105,17 +105,17 @@ init_per_testcase(empty_host, Config) ->
 init_per_testcase(url_limits, Config) ->
     meck:new(vegur_stub, [passthrough]),
     meck:expect(vegur_stub, checkout_service,
-                fun(_DomainGroup, State) -> {error, please_die, State} end),
+                fun(_DomainGroup, Req, State) -> {error, please_die, Req, State} end),
     Config;
 init_per_testcase(header_line_limits, Config) ->
     meck:new(vegur_stub, [passthrough]),
     meck:expect(vegur_stub, checkout_service,
-                fun(_DomainGroup, State) -> {error, please_die, State} end),
+                fun(_DomainGroup, Req, State) -> {error, please_die, Req, State} end),
     Config;
 init_per_testcase(header_count_limits, Config) ->
     meck:new(vegur_stub, [passthrough]),
     meck:expect(vegur_stub, checkout_service,
-                fun(_DomainGroup, State) -> {error, please_die, State} end),
+                fun(_DomainGroup, Req, State) -> {error, please_die, Req, State} end),
     Config;
 init_per_testcase(invalid_expect, Config) ->
     Config;
@@ -123,11 +123,11 @@ init_per_testcase(elb_healthcheck, Config) ->
     [{elb_endpoint, <<"F3DA8257-B28C-49DF-AACD-8171464E1D1D">>} | Config];
 init_per_testcase(herokuapp_redirect, Config) ->
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(Domain, HandlerState) ->
+                fun(Domain, Req, HandlerState) ->
                         RootDomainToReplace = vegur_app:config(heroku_domain),
                         RootDomainToReplaceWith = vegur_app:config(herokuapp_domain),
                         NewDomain = re:replace(Domain, RootDomainToReplace, RootDomainToReplaceWith),
-                        {redirect, herokuapp_redirect, [], NewDomain, HandlerState}
+                        {redirect, herokuapp_redirect, [], NewDomain, Req, HandlerState}
                 end),
     HerokuDomain = vegur_app:config(heroku_domain),
     TestDomain = <<"vegurtest.", HerokuDomain/binary>>,
@@ -135,11 +135,11 @@ init_per_testcase(herokuapp_redirect, Config) ->
 init_per_testcase(maintainance_mode_on, Config) ->
     TestDomain = <<"vegurtest.testdomain">>,
     meck:expect(vegur_stub, lookup_domain_name,
-                fun(Domain, HandlerState) ->
+                fun(Domain, Req, HandlerState) ->
                         Domain = TestDomain,
-                        {ok, mocked_domain_group, HandlerState}
+                        {ok, mocked_domain_group, Req, HandlerState}
                 end),
-    ok = mock_service_reply({error, maintainance_mode, []}),
+    ok = mock_service_reply(error, maintainance_mode),
     [{test_domain, TestDomain} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -348,67 +348,67 @@ upgrade_websockets(Config) ->
     Config.
 
 no_route(Config) ->
-    ok = mock_service_reply({error, no_route_id, []}),
+    ok = mock_service_reply(error, no_route_id),
     {ok, {{_, 502, _}, _, _}} = service_request(Config),
     Config.
 
 backlog_timeout(Config) ->
-    ok = mock_service_reply({error, {backlog_timeout, 100, 100}, []}),
+    ok = mock_service_reply(error, {backlog_timeout, 100, 100}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backlog_too_deep(Config) ->
-    ok = mock_service_reply({error, {backlog_too_deep, 100, 100}, []}),
+    ok = mock_service_reply(error, {backlog_too_deep, 100, 100}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 conn_limit_reached(Config) ->
-    ok = mock_service_reply({error, {conn_limit_reached, 100, 100}, []}),
+    ok = mock_service_reply(error, {conn_limit_reached, 100, 100}),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 route_lookup_failed(Config) ->
-    ok = mock_service_reply({error, route_lookup_failed, []}),
+    ok = mock_service_reply(error, route_lookup_failed),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 no_web_processes(Config) ->
-    ok = mock_service_reply({error, no_web_processes, []}),
+    ok = mock_service_reply(error, no_web_processes),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 crashed(Config) ->
-    ok = mock_service_reply({error, crashed, []}),
+    ok = mock_service_reply(error, crashed),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backends_quarantined(Config) ->
-    ok = mock_service_reply({error, backends_quarantined, []}),
+    ok = mock_service_reply(error, backends_quarantined),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backends_starting(Config) ->
-    ok = mock_service_reply({error, backends_starting, []}),
+    ok = mock_service_reply(error, backends_starting),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 backends_idle(Config) ->
-    ok = mock_service_reply({error, backends_idle, []}),
+    ok = mock_service_reply(error, backends_idle),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 app_blank(Config) ->
-    ok = mock_service_reply({error, app_blank, []}),
+    ok = mock_service_reply(error, app_blank),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
 app_not_found(Config) ->
-    ok = mock_service_reply({error, app_not_found, []}),
+    ok = mock_service_reply(error, app_not_found),
     {ok, {{_, 404, _}, _, _}} = service_request(Config),
     Config.
 
 app_lookup_failed(Config) ->
-    ok = mock_service_reply({error, app_lookup_failed, []}),
+    ok = mock_service_reply(error, app_lookup_failed),
     {ok, {{_, 503, _}, _, _}} = service_request(Config),
     Config.
 
@@ -429,10 +429,10 @@ service_request(Config) ->
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     httpc:request(get, {Url, [{"host", binary_to_list(Domain)}]}, [], []).
 
-mock_service_reply(Res) ->
+mock_service_reply(error, Reason) ->
     meck:expect(vegur_stub, checkout_service,
-                fun(_, _) ->
-                        Res
+                fun(_, Req, H) ->
+                        {error, Reason, Req, H}
                 end).
 
 mock_middlewares(Middlewares) ->

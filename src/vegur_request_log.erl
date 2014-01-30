@@ -22,23 +22,41 @@
       Req :: cowboy_req:req().
 new(Req) ->
     Now = os:timestamp(),
-    {Method, Req2} =  cowboy_req:method(Req),
-    {Path, Req3} = cowboy_req:path(Req2),
-    {URL, Req4} = cowboy_req:url(Req3),
-    {Headers, Req5} = cowboy_req:headers(Req4),
-    ?INFO("~s ~s~nUrl: ~s~n~p", [Method, Path, URL, Headers]),
     %% Get a request ID
-    {RequestId, Req6} = cowboy_req:header(vegur_app:config(request_id_name), Req5),
-    {RequestId1, Req7} = get_or_validate_request_id(RequestId, Req6),
-    Req8 = cowboy_req:set_meta(request_id, RequestId1, Req7),
+    {RequestId, Req1} = cowboy_req:header(vegur_app:config(request_id_name), Req),
+    {RequestId1, Req2} = get_or_validate_request_id(RequestId, Req1),
+    Req3 = cowboy_req:set_meta(request_id, RequestId1, Req2),
     Log = ?LOGGER:new(Now),
     Log1 = ?LOGGER:stamp(accepted, Log),
-    Req9 = cowboy_req:set_meta(logging, Log1, Req8),
-    {InterfaceModule, _, Req10} = vegur_utils:get_interface_module(Req9),
-    {PeerInfo, Req11} = vegur_utils:peer_ip_port(Req10),
-    Req12 = cowboy_req:set_meta(peer, PeerInfo, Req11),
-    {ok, HandlerState} = InterfaceModule:init(Now, RequestId1),
-    vegur_utils:set_handler_state(HandlerState, Req12).
+    Req4 = cowboy_req:set_meta(logging, Log1, Req3),
+    {InterfaceModule, _, Req5} = vegur_utils:get_interface_module(Req4),
+    {ok, Req6, HandlerState} = InterfaceModule:init(Now, Req5),
+    vegur_utils:set_handler_state(HandlerState, Req6).
+
+handle_terminate(Code, Req) ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
+    Log1 = ?LOGGER:stamp(responded, Log),
+    Req3 = cowboy_req:set_meta(logging, Log1, Req2),
+    Req4 = cowboy_req:set_meta(response_code, Code, Req3),
+    {InterfaceModule, HandlerState, Req5} = vegur_utils:get_interface_module(Req4),
+    InterfaceModule:terminate(RequestStatus, Req5, HandlerState),
+    Req5.
+    %% {Headers, Req9} = cowboy_req:headers(Req8),
+    %% InterfaceModule:terminate(RequestStatus, [{total_time, TotalTime}
+    %%                                           ,{route_time, RouteTime}
+    %%                                           ,{connect_time, ConnectTime}
+    %%                                           ,{service_time, ServiceTime}
+    %%                                           ,{bytes_sent, BytesSent}
+    %%                                           ,{bytes_recv, BytesRecv}
+    %%                                           ,{method, Method}
+    %%                                           ,{path, Path}
+    %%                                           ,{fwd, Fwd}
+    %%                                           ,{response_code, Code}
+    %%                                           ,{request_headers, Headers}
+    %%                                           ,{peer, Peer}
+    %%                                          ], HandlerState),
+    %% Req9.
 
 -spec done(Code, Headers, Body, Req) -> Req when
       Code :: cowboy:http_status(),
@@ -110,31 +128,3 @@ get_request_id() ->
 -spec request_max_length() -> pos_integer().
 request_max_length() ->
     vegur_app:config(request_id_max_size).
-
-handle_terminate(Code, Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
-    {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
-    Log1 = ?LOGGER:stamp(responded, Log),
-    TotalTime = ?LOGGER:timestamp_diff(accepted, responded, Log1),
-    RouteTime = ?LOGGER:timestamp_diff(accepted, pre_connect, Log1),
-    ConnectTime = ?LOGGER:event_duration(connect_time, Log1),
-    ServiceTime = ?LOGGER:event_duration(service_time, Log1),
-    {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
-    {BytesSent, Req3} = cowboy_req:meta(bytes_sent, Req2),
-    {BytesRecv, Req4} = cowboy_req:meta(bytes_recv, Req3),
-    {Method, Req5} = cowboy_req:method(Req4),
-    {Path, Req6} = cowboy_req:path(Req5),
-    {Peer, Req7} = cowboy_req:meta(peer, Req6),
-    {InterfaceModule, HandlerState, Req8} = vegur_utils:get_interface_module(Req7),
-    InterfaceModule:terminate(RequestStatus, [{total_time, TotalTime}
-                                              ,{route_time, RouteTime}
-                                              ,{connect_time, ConnectTime}
-                                              ,{service_time, ServiceTime}
-                                              ,{bytes_sent, BytesSent}
-                                              ,{bytes_recv, BytesRecv}
-                                              ,{method, Method}
-                                              ,{path, Path}
-                                              ,{peer, Peer}
-                                              ,{response_code, Code}
-                                             ], HandlerState),
-    Req8.

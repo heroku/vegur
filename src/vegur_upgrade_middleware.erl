@@ -41,8 +41,10 @@ handle_upgrade(UpgradeTokens, Req, Env) when is_list(UpgradeTokens) ->
     {ok, Req2, Env};
 handle_upgrade({error, _}, Req, _Env) ->
     Req1 = vegur_utils:set_request_status(error, Req),
+    % @todo add custom errors
     {error, 400, Req1};
 handle_upgrade(_, Req, _Env) ->
     % The upgrade header can contain other values, those will result in a client error
     Req1 = vegur_utils:set_request_status(error, Req),
+    % @todo add custom errors
     {error, 400, Req1}.
