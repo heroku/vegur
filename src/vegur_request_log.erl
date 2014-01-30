@@ -42,21 +42,6 @@ handle_terminate(Code, Req) ->
     {InterfaceModule, HandlerState, Req5} = vegur_utils:get_interface_module(Req4),
     InterfaceModule:terminate(RequestStatus, Req5, HandlerState),
     Req5.
-    %% {Headers, Req9} = cowboy_req:headers(Req8),
-    %% InterfaceModule:terminate(RequestStatus, [{total_time, TotalTime}
-    %%                                           ,{route_time, RouteTime}
-    %%                                           ,{connect_time, ConnectTime}
-    %%                                           ,{service_time, ServiceTime}
-    %%                                           ,{bytes_sent, BytesSent}
-    %%                                           ,{bytes_recv, BytesRecv}
-    %%                                           ,{method, Method}
-    %%                                           ,{path, Path}
-    %%                                           ,{fwd, Fwd}
-    %%                                           ,{response_code, Code}
-    %%                                           ,{request_headers, Headers}
-    %%                                           ,{peer, Peer}
-    %%                                          ], HandlerState),
-    %% Req9.
 
 -spec done(Code, Headers, Body, Req) -> Req when
       Code :: cowboy:http_status(),
