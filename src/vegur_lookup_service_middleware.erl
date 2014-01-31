@@ -20,8 +20,9 @@ handle_service({service, Service, HandlerState}, Req, Env) ->
     case ?LOG(connect_time, vegur_proxy:backend_connection(ServiceBackend), Req2) of
         {{connected, Client}, Req3} ->
             Req4 = cowboy_req:set_meta(backend_connection, Client, Req3),
-            Req5 = vegur_utils:set_handler_state(HandlerState1, Req4),
-            {ok, Req5, Env};
+            Req5 = cowboy_req:set_meta(service, Service, Req4),
+            Req6 = vegur_utils:set_handler_state(HandlerState1, Req5),
+            {ok, Req6, Env};
         {{error, Reason}, Req3} ->
             {DomainGroup, Req4} = cowboy_req:meta(domain_group, Req3),
             {ok, HandlerState2} = InterfaceModule:checkin_service(DomainGroup, Service, Reason, HandlerState1),
