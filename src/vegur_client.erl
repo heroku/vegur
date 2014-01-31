@@ -82,6 +82,8 @@
           bytes_recv :: non_neg_integer() | undefined %% Bytes recv from downstream
 }).
 
+-define(MAX_COOKIE_LINE_SIZE, 8192). % in bytes
+
 -opaque client() :: #client{}.
 -export_type([client/0]).
 
@@ -432,6 +434,11 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                                 true -> Client#client{connection=keepalive};
                                 false -> Client
                             end
+                    end;
+                <<"set-cookie">> ->
+                    case byte_size(Line) > ?MAX_COOKIE_LINE_SIZE of
+                        true -> {error, cookie_length};
+                        false -> Client
                     end;
                 _ ->
                     Client
