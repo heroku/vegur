@@ -127,7 +127,7 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
       Blame :: error_blame(),
       Error :: any().
 read_response(Client) ->
-    case vegur_client:response(Client, ?BUFFER_LIMIT) of
+    case vegur_client:response(Client) of
         {error, Error} -> {error, downstream, Error};
         {ok, Code, RespHeaders, Client2} ->
             {ok, Code, RespHeaders, Client2}

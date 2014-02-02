@@ -41,12 +41,12 @@
 -export([request/3]).
 -export([request/4]).
 -export([request/5]).
--export([response/2]).
+-export([response/1]).
 -export([response_body/1]).
 -export([next_chunk/1]).
 -export([next_chunk/2]).
 -export([skip_body/1]).
--export([stream_status/2]).
+-export([stream_status/1]).
 -export([stream_headers/1]).
 -export([stream_header/1]).
 -export([stream_body/1]).
@@ -209,11 +209,11 @@ parse_peer(Peer, Transport) ->
             {binary_to_list(Host), list_to_integer(binary_to_list(Port))}
     end.
 
-response(Client=#client{state=response_body}, BufferSize) ->
+response(Client=#client{state=response_body}) ->
     {done, Client2} = skip_body(Client),
-    response(Client2, BufferSize);
-response(Client=#client{state=request}, BufferSize) ->
-    case stream_status(Client, BufferSize) of
+    response(Client2);
+response(Client=#client{state=request}) ->
+    case stream_status(Client) of
         {ok, Status, _, Client2} ->
             case stream_headers(Client2) of
                 {ok, Headers, Client3} ->
@@ -346,9 +346,7 @@ skip_body(Client=#client{state=response_body}) ->
         Done -> Done
     end.
 
-stream_status(#client{buffer=Buffer}, BufferSize) when bit_size(Buffer) >= BufferSize ->
-    {error, status_overflow};
-stream_status(Client=#client{state=State, buffer=Buffer}, BufferSize)
+stream_status(Client=#client{state=State, buffer=Buffer})
         when State =:= request ->
     case binary:split(Buffer, <<"\r\n">>) of
         [Line, Rest] ->
@@ -357,7 +355,7 @@ stream_status(Client=#client{state=State, buffer=Buffer}, BufferSize)
             case recv(Client) of
                 {ok, Data} ->
                     Buffer2 = << Buffer/binary, Data/binary >>,
-                    stream_status(Client#client{buffer=Buffer2}, BufferSize);
+                    stream_status(Client#client{buffer=Buffer2});
                 {error, Reason} ->
                     {error, Reason}
             end
