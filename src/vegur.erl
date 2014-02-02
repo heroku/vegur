@@ -2,7 +2,7 @@
 %% @copyright Heroku (2013)
 %% @author Geoff Cant <nem@erlang.geek.nz>
 %% @version {@vsn}, {@date} {@time}
-%% @doc vegur req public API
+%% @doc vegur public API
 %% @end
 %%%-------------------------------------------------------------------
 
