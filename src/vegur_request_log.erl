@@ -4,6 +4,9 @@
 
 -define(LOGGER, vegur_req_log).
 
+-define(REQ_ID_MIN_LENGTH, 20).
+-define(REQ_ID_MAX_LENGTH, 200).
+
 -export([new/1,
          done/1,
          done/4,
@@ -23,15 +26,17 @@
 new(Req) ->
     Now = os:timestamp(),
     %% Get a request ID
-    {RequestId, Req1} = cowboy_req:header(vegur_app:config(request_id_name), Req),
-    {RequestId1, Req2} = get_or_validate_request_id(RequestId, Req1),
-    Req3 = cowboy_req:set_meta(request_id, RequestId1, Req2),
+    {RequestIdRaw, Req1} = cowboy_req:header(vegur_app:config(request_id_name), Req),
+    RequestId = erequest_id:ensure(RequestIdRaw,
+                                   ?REQ_ID_MIN_LENGTH,
+                                   ?REQ_ID_MAX_LENGTH),
+    Req2 = cowboy_req:set_meta(request_id, RequestId, Req1),
     Log = ?LOGGER:new(Now),
     Log1 = ?LOGGER:stamp(accepted, Log),
-    Req4 = cowboy_req:set_meta(logging, Log1, Req3),
-    {InterfaceModule, _, Req5} = vegur_utils:get_interface_module(Req4),
-    {ok, Req6, HandlerState} = InterfaceModule:init(Now, Req5),
-    vegur_utils:set_handler_state(HandlerState, Req6).
+    Req3 = cowboy_req:set_meta(logging, Log1, Req2),
+    {InterfaceModule, _, Req4} = vegur_utils:get_interface_module(Req3),
+    {ok, Req5, HandlerState} = InterfaceModule:init(Now, Req4),
+    vegur_utils:set_handler_state(HandlerState, Req5).
 
 handle_terminate(Code, Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
@@ -95,21 +100,3 @@ total_routing_time(Req) ->
 get_log_value(EventType, Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
     {?LOGGER:event_duration(EventType, Log), Req1}.
-
-get_or_validate_request_id(undefined, Req) ->
-    {get_request_id(), Req};
-get_or_validate_request_id(ReqId, Req) ->
-    case erequest_id:validate(ReqId, request_max_length()) of
-        valid ->
-            {ReqId, Req};
-        invalid ->
-            {get_request_id(), Req}
-    end.
-
-get_request_id() ->
-    {ok, ReqId} = erequest_id:create(),
-    ReqId.
-
--spec request_max_length() -> pos_integer().
-request_max_length() ->
-    vegur_app:config(request_id_max_size).

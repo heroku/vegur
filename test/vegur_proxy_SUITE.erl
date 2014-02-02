@@ -83,10 +83,10 @@ request_id(Config) ->
     end,
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"},
                                                           {binary_to_list(vegur_app:config(request_id_name)),
-                                                           "testid"}]}, [], []),
+                                                           "testid-with-a-valid-length"}]}, [], []),
     receive
         {req, Req1} ->
-            {<<"testid">>, _} = cowboy_req:header(vegur_app:config(request_id_name), Req1)
+            {<<"testid-with-a-valid-length">>, _} = cowboy_req:header(vegur_app:config(request_id_name), Req1)
     after 5000 ->
             throw(timeout)
     end,
