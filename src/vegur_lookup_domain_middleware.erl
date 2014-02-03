@@ -5,45 +5,50 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    % Check if this is a healthcheck request
     {Host, Req1} = cowboy_req:host(Req),
     {InterfaceModule, HandlerState, Req2} = vegur_utils:get_interface_module(Req1),
-    Res = InterfaceModule:lookup_domain_name(Host, HandlerState),
-    handle_domain_lookup(Res, Req2, Env).
+    case InterfaceModule:lookup_domain_name(Host, Req2, HandlerState) of 
+        {error, Reason, Req3, HandlerState1} ->
+            Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
+            handle_error(Reason, Req4, Env);
+        {redirect, Reason, DomainGroup, Domain, Req3, HandlerState1} ->
+            Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
+            handle_redirect(Reason, DomainGroup, Domain, Req4, Env);
+        {ok, DomainGroup, Req3, HandlerState1} ->
+            Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
+            Req5 = cowboy_req:set_meta(domain_group, DomainGroup, Req4),
+            {ok, Req5, Env}
+    end.
 
--spec handle_domain_lookup({error, not_found, HandlerState} |
-                           {redirect, Reason, DomainGroup, Domain, HandlerState} |
-                           {ok, DomainGroup, HandlerState}, Req, Env) ->
-                                  {error, ErrorCode, Req} |
-                                  {halt, Req} |
-                                  {ok, Req, Env} when
+-spec handle_error(Reason, Req, Env) -> 
+                          {error, HttpCode, Req} when
       Reason :: atom(),
+      Req :: cowboy_req:req(),
+      Env :: cowboy_middleware:env(),
+      HttpCode :: cowboy:http_status().
+handle_error(Reason, Req, _Env) ->
+    {HttpCode, Req1} = vegur_utils:handle_error(Reason, Req),
+    {error, HttpCode, Req1}.
+
+-spec handle_redirect(Reason, DomainGroup, Domain, Req, Env) ->
+                             {halt, Req} when
+      Reason :: any(),
       DomainGroup :: vegur_interface:domain_group(),
       Domain :: vegur_interface:domain(),
-      HandlerState :: vegur_interface:handler_state(),
-      ErrorCode :: cowboy:http_status().
-handle_domain_lookup({error, Error, HandlerState}, Req, _Env) ->
-    % No app associated with the domain
-    Req1 = vegur_utils:set_handler_state(HandlerState, Req),
-    {HttpCode, Req2} = vegur_utils:handle_error(Error, Req1),
-    {error, HttpCode, Req2};
-handle_domain_lookup({redirect, _Reason, _DomainGroup, RedirectTo, HandlerState}, Req, _Env) ->
-    {Path, Req2} = cowboy_req:path(Req),
-    {Qs, Req3} = cowboy_req:qs(Req2),
+      Req :: cowboy_req:req(),
+      Env :: cowboy_middleware:env().
+handle_redirect(_Reason, _DomainGroup, RedirectTo, Req, _Env) ->
+    {Path, Req1} = cowboy_req:path(Req),
+    {Qs, Req2} = cowboy_req:qs(Req1),
     Qs2 = case Qs of
               <<>> -> <<>>;
               _ -> ["?", Qs]
           end,
-    {HeaderValue, Req4} = cowboy_req:header(<<"x-forwarded-proto">>, Req3),
+    {HeaderValue, Req3} = cowboy_req:header(<<"x-forwarded-proto">>, Req2),
     Proto = get_proto(HeaderValue),
     FullLocation = [Proto, <<"://">>, RedirectTo, Path, Qs2],
-    {ok, Req5} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req4),
-    Req6 = vegur_utils:set_handler_state(HandlerState, Req5),
-    {halt, Req6};
-handle_domain_lookup({ok, DomainGroup, HandlerState}, Req, Env) ->
-    Req1 = cowboy_req:set_meta(domain_group, DomainGroup, Req),
-    Req2 = vegur_utils:set_handler_state(HandlerState, Req1),
-    {ok, Req2, Env}.
+    {ok, Req4} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req3),
+    {halt, Req4}.
 
 % Internal
 get_proto(<<"https">>) ->

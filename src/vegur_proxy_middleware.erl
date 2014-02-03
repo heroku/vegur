@@ -9,17 +9,24 @@
                }).
 
 execute(Req, Env) ->
-    {Client, Req1} = cowboy_req:meta(backend_connection, Req),
-    case proxy(Req1, #state{backend_client = Client, env = Env}) of
-        {ok, Req2, #state{backend_client=Client1}} ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    Log1 = vegur_req_log:stamp(pre_proxy, Log),
+    {Client, Req2} = cowboy_req:meta(backend_connection, Req1),
+    case vegur_req_log:log(service_time,
+                           fun() ->
+                                   proxy(Req2, #state{backend_client = Client, env = Env})
+                           end, Log1) of
+        {{ok, Req3, #state{backend_client=Client1}}, Log2} ->
             BytesCounts = vegur_client:byte_counts(Client1),
-            Req3 = cowboy_req:set_meta(bytes_sent, proplists:get_value(bytes_sent, BytesCounts), Req2),
-            Req4 = cowboy_req:set_meta(bytes_recv, proplists:get_value(bytes_recv, BytesCounts), Req3),
-            Req5 = cowboy_req:set_meta(status, successful, Req4),
-            {halt, Req5};
-        {error, _Blame, Reason, Req2} ->
-            {HttpCode, Req3} = vegur_utils:handle_error(Reason, Req2),
-            {error, HttpCode, Req3}
+            Req4 = cowboy_req:set_meta(bytes_sent, proplists:get_value(bytes_sent, BytesCounts), Req3),
+            Req5 = cowboy_req:set_meta(bytes_recv, proplists:get_value(bytes_recv, BytesCounts), Req4),
+            Req6 = cowboy_req:set_meta(status, successful, Req5),
+            Req7 = cowboy_req:set_meta(logging, Log2, Req6),
+            {halt, Req7};
+        {{error, Blame, Reason, Req3}, Log2} ->
+            {HttpCode, Req4} = vegur_utils:handle_error({Blame, Reason}, Req3),
+            Req5 = cowboy_req:set_meta(logging, Log2, Req4),
+            {error, HttpCode, Req5}
     end.
 
 proxy(Req, State) ->
@@ -134,18 +141,7 @@ add_request_id(Headers, Req) ->
      Req1}.
 
 add_forwarded(Headers, Req) ->
-    Transport = cowboy_req:get(transport, Req),
-    {{PeerAddress, DestPort}, Req1} =
-        case Transport:name() of
-            proxy_protocol_tcp ->
-                ProxySocket = cowboy_req:get(socket, Req),
-                {ok, {{PeerIp, _}, {_, DestPort1}}} = Transport:proxyname(ProxySocket),
-                {{PeerIp, DestPort1}, Req};
-            _ ->
-                {{PeerIp, _}, Req3} = cowboy_req:peer(Req),
-                {Port, Req4} = cowboy_req:port(Req3),
-                {{PeerIp, Port}, Req4}
-        end,
+    {{PeerAddress, DestPort}, Req1} = vegur_utils:peer_ip_port(Req),
     {Headers1, Req2} = vegur_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress),
                                                         Headers, Req1),
     Headers2 =

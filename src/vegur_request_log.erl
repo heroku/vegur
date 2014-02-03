@@ -25,22 +25,28 @@
       Req :: cowboy_req:req().
 new(Req) ->
     Now = os:timestamp(),
-    {Method, Req2} =  cowboy_req:method(Req),
-    {Path, Req3} = cowboy_req:path(Req2),
-    {URL, Req4} = cowboy_req:url(Req3),
-    {Headers, Req5} = cowboy_req:headers(Req4),
     %% Get a request ID
-    {RequestIdRaw, Req6} = cowboy_req:header(vegur_app:config(request_id_name), Req5),
+    {RequestIdRaw, Req1} = cowboy_req:header(vegur_app:config(request_id_name), Req),
     RequestId = erequest_id:ensure(RequestIdRaw,
                                    ?REQ_ID_MIN_LENGTH,
                                    ?REQ_ID_MAX_LENGTH),
-    Req8 = cowboy_req:set_meta(request_id, RequestId, Req6),
+    Req2 = cowboy_req:set_meta(request_id, RequestId, Req1),
     Log = ?LOGGER:new(Now),
     Log1 = ?LOGGER:stamp(accepted, Log),
-    Req9 = cowboy_req:set_meta(logging, Log1, Req8),
-    {InterfaceModule, _, Req10} = vegur_utils:get_interface_module(Req9),
-    {ok, HandlerState} = InterfaceModule:init(Now, RequestId),
-    vegur_utils:set_handler_state(HandlerState, Req10).
+    Req3 = cowboy_req:set_meta(logging, Log1, Req2),
+    {InterfaceModule, _, Req4} = vegur_utils:get_interface_module(Req3),
+    {ok, Req5, HandlerState} = InterfaceModule:init(Now, Req4),
+    vegur_utils:set_handler_state(HandlerState, Req5).
+
+handle_terminate(Code, Req) ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
+    Log1 = ?LOGGER:stamp(responded, Log),
+    Req3 = cowboy_req:set_meta(logging, Log1, Req2),
+    Req4 = cowboy_req:set_meta(response_code, Code, Req3),
+    {InterfaceModule, HandlerState, Req5} = vegur_utils:get_interface_module(Req4),
+    InterfaceModule:terminate(RequestStatus, Req5, HandlerState),
+    Req5.
 
 -spec done(Code, Headers, Body, Req) -> Req when
       Code :: cowboy:http_status(),
@@ -65,10 +71,10 @@ done(_, _, _, Req) ->
       Code :: cowboy:http_status(),
       Req :: cowboy_req:req().
 done({error, Code, Req}) ->
-    Req1 = handle_terminate(Req),
+    Req1 = handle_terminate(Code, Req),
     {error, Code, Req1};
 done({halt, Req}) ->
-    Req1 = handle_terminate(Req),
+    Req1 = handle_terminate(0, Req),
     {halt, Req1}.
 
 -spec stamp(EventType, Req) -> Req when
@@ -94,25 +100,3 @@ total_routing_time(Req) ->
 get_log_value(EventType, Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
     {?LOGGER:event_duration(EventType, Log), Req1}.
-
--spec request_max_length() -> pos_integer().
-request_max_length() ->
-    vegur_app:config(request_id_max_size).
-
-handle_terminate(Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
-    {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
-    Log1 = ?LOGGER:stamp(responded, Log),
-    TotalTime = ?LOGGER:timestamp_diff(accepted, responded, Log1),
-    RouteTime = ?LOGGER:timestamp_diff(accepted, pre_connect, Log1),
-    ConnectTime = ?LOGGER:event_duration(connect_time, Log1),
-    {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
-    {BytesSent, Req3} = cowboy_req:meta(bytes_sent, Req2),
-    {BytesRecv, Req4} = cowboy_req:meta(bytes_recv, Req3),
-    {InterfaceModule, HandlerState, Req5} = vegur_utils:get_interface_module(Req4),
-    InterfaceModule:terminate(RequestStatus, [{total_time, TotalTime},
-                                              {route_time, RouteTime},
-                                              {connect_time, ConnectTime},
-                                              {bytes_sent, BytesSent},
-                                              {bytes_recv, BytesRecv}], HandlerState),
-    Req5.

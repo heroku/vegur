@@ -28,8 +28,11 @@ validate_host(_Host, Req, Env) ->
 validate_content_length(Req, Env) ->
     {Headers, Req2} = cowboy_req:headers(Req),
     case validate_content_length1(Headers, undefined) of
-        ok -> {ok, Req2, Env};
-        error -> {error, 400, Req}
+        ok ->
+            {ok, Req2, Env};
+        error ->
+            %% @todo add error handling
+            {error, 400, Req}
     end.
 
 validate_content_length1([], _) -> ok;
