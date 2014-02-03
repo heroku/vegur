@@ -364,12 +364,17 @@ stream_status(Client=#client{state=State, buffer=Buffer})
 parse_version(Client, << "HTTP/1.1 ", Rest/binary >>) ->
     parse_status(Client, Rest, 'HTTP/1.1');
 parse_version(Client, << "HTTP/1.0 ", Rest/binary >>) ->
-    parse_status(Client, Rest, 'HTTP/1.0').
+    parse_status(Client, Rest, 'HTTP/1.0');
+parse_version(_, _) ->
+    {error, invalid_status}.
 
 parse_status(Client, << S3, S2, S1, " ", StatusStr/binary >>, Version)
         when S3 >= $0, S3 =< $9, S2 >= $0, S2 =< $9, S1 >= $0, S1 =< $9 ->
     Status = (S3 - $0) * 100 + (S2 - $0) * 10 + S1 - $0,
-    {ok, Status, StatusStr, Client#client{version=Version}}.
+    {ok, Status, StatusStr, Client#client{version=Version}};
+parse_status(_Client, _StatusStr, _Version_) ->
+    {error, invalid_status}.
+
 
 stream_headers(Client=#client{state=State})
         when State =:= response ->
