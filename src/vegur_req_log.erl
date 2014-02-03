@@ -21,6 +21,8 @@
         ,linear_summary/1
         ,flatten_report/1
         ,event_duration/2
+        ,event/2
+        ,event/3
         ]).
 
 
@@ -173,6 +175,26 @@ event_duration(Name, #log{events=Events}) ->
         [{Stamp1,_,pre},{Stamp2,_,post}] -> timer:now_diff(Stamp2,Stamp1) div 1000;
         [{Stamp1,_,post},{Stamp2,_,pre}] -> timer:now_diff(Stamp1,Stamp2) div 1000;
         _ -> undefined
+    end.
+
+-spec event(Name, Log) ->
+                   ms()|undefined when
+      Name :: event_type(),
+      Log :: request_log().
+event(Name, Log) ->
+    event(Name, Log, undefined).
+
+-spec event(Name, Log, Default) ->
+                   ms()|Default when
+      Name :: event_type(),
+      Log :: request_log(),
+      Default :: term().
+event(EventType, Log, Default) ->
+    case fetch_event_stamps(EventType, Log) of
+        [T1] ->
+            T1;
+        _ ->
+            Default
     end.
 
 event_find(_Name, [], Acc) -> Acc;
