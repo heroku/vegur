@@ -10,21 +10,22 @@
 
 execute(Req, Env) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
+    Log1 = vegur_req_log:stamp(pre_proxy, Log),
     {Client, Req2} = cowboy_req:meta(backend_connection, Req1),
     case vegur_req_log:log(service_time,
                            fun() ->
                                    proxy(Req2, #state{backend_client = Client, env = Env})
-                           end, Log) of
-        {{ok, Req3, #state{backend_client=Client1}}, Log1} ->
+                           end, Log1) of
+        {{ok, Req3, #state{backend_client=Client1}}, Log2} ->
             BytesCounts = vegur_client:byte_counts(Client1),
             Req4 = cowboy_req:set_meta(bytes_sent, proplists:get_value(bytes_sent, BytesCounts), Req3),
             Req5 = cowboy_req:set_meta(bytes_recv, proplists:get_value(bytes_recv, BytesCounts), Req4),
             Req6 = cowboy_req:set_meta(status, successful, Req5),
-            Req7 = cowboy_req:set_meta(logging, Log1, Req6),
+            Req7 = cowboy_req:set_meta(logging, Log2, Req6),
             {halt, Req7};
-        {{error, _Blame, Reason, Req3}, Log1} ->
-            {HttpCode, Req4} = vegur_utils:handle_error(Reason, Req3),
-            Req5 = cowboy_req:set_meta(logging, Log1, Req4),
+        {{error, Blame, Reason, Req3}, Log2} ->
+            {HttpCode, Req4} = vegur_utils:handle_error({Blame, Reason}, Req3),
+            Req5 = cowboy_req:set_meta(logging, Log2, Req4),
             {error, HttpCode, Req5}
     end.
 
