@@ -32,8 +32,13 @@ finally(Return) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
     {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
     {Service, Req3} = cowboy_req:meta(service, Req2),
-    {ok, HandlerState2} = InterfaceModule:checkin_service(DomainGroup, Service, normal, HandlerState),
-    ReqFinal = vegur_utils:set_handler_state(HandlerState2, Req3),
+    ReqFinal = case {DomainGroup, Service} of
+        {undefined, undefined} -> %% Never checked out anything
+            Req3;
+        _ ->
+            {ok, HandlerState2} = InterfaceModule:checkin_service(DomainGroup, Service, normal, HandlerState),
+            vegur_utils:set_handler_state(HandlerState2, Req3)
+    end,
     %% Call the logger
     Final = case Return of
         {halt, _} -> {halt, ReqFinal};
