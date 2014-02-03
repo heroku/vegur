@@ -210,9 +210,9 @@ request_statistics(Config) ->
                 {stats, {successful, Upstream, undefined}} ->
                     {118, _} = vegur_req:bytes_recv(Upstream),
                     {253, _} = vegur_req:bytes_sent(Upstream),
-                    {RT, _} = vegur_req:route_time(Upstream),
-                    {CT, _} = vegur_req:connect_time(Upstream),
-                    {TT, _} = vegur_req:total_time(Upstream),
+                    {RT, _} = vegur_req:route_duration(Upstream),
+                    {CT, _} = vegur_req:connect_duration(Upstream),
+                    {TT, _} = vegur_req:total_duration(Upstream),
                     [true, true, true] = lists:map(fun(X) -> is_integer(X) end, [RT, CT, TT])
             after 5000 ->
                     throw(timeout)
