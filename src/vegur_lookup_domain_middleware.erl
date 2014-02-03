@@ -8,14 +8,14 @@ execute(Req, Env) ->
     {Host, Req1} = cowboy_req:host(Req),
     {InterfaceModule, HandlerState, Req2} = vegur_utils:get_interface_module(Req1),
     case InterfaceModule:lookup_domain_name(Host, Req2, HandlerState) of 
-        {error, Reason, Req3, HandlerState} ->
-            Req4 = vegur_utils:set_handler_state(HandlerState, Req3),
+        {error, Reason, Req3, HandlerState1} ->
+            Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
             handle_error(Reason, Req4, Env);
-        {redirect, Reason, DomainGroup, Domain, Req3, HandlerState} ->
-            Req4 = vegur_utils:set_handler_state(HandlerState, Req3),
+        {redirect, Reason, DomainGroup, Domain, Req3, HandlerState1} ->
+            Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
             handle_redirect(Reason, DomainGroup, Domain, Req4, Env);
-        {ok, DomainGroup, Req3, HandlerState} ->
-            Req4 = vegur_utils:set_handler_state(HandlerState, Req3),
+        {ok, DomainGroup, Req3, HandlerState1} ->
+            Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
             Req5 = cowboy_req:set_meta(domain_group, DomainGroup, Req4),
             {ok, Req5, Env}
     end.

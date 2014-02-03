@@ -17,11 +17,11 @@ lookup_service(Req, Env) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
     {DomainGroup, Req1} = cowboy_req:meta(domain_group, Req),
     case InterfaceModule:checkout_service(DomainGroup, Req1, HandlerState) of
-        {service, Service, Req2, HandlerState} ->
-            Req3 = vegur_utils:set_handler_state(HandlerState, Req2),
+        {service, Service, Req2, HandlerState1} ->
+            Req3 = vegur_utils:set_handler_state(HandlerState1, Req2),
             handle_service(Service, Req3, Env);
-        {error, CheckoutError, Req2, HandlerState} ->
-            Req3 = vegur_utils:set_handler_state(HandlerState, Req2),
+        {error, CheckoutError, Req2, HandlerState1} ->
+            Req3 = vegur_utils:set_handler_state(HandlerState1, Req2),
             handle_error(CheckoutError, Req3, Env)
     end.
 
