@@ -456,12 +456,18 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                     {error, Reason}
             end;
         _ ->
-            case recv(Client) of
-                {ok, Data} ->
-                    Buffer2 = << Buffer/binary, Data/binary >>,
-                    stream_header(Client#client{buffer=Buffer2});
-                {error, Reason} ->
-                    {error, Reason}
+            MaxLine = vegur_app:config(max_client_header_length, 524288), %512k
+            case iolist_size(Buffer) > MaxLine of
+                true ->
+                    {error, header_length};
+                false ->
+                    case recv(Client) of
+                        {ok, Data} ->
+                            Buffer2 = << Buffer/binary, Data/binary >>,
+                            stream_header(Client#client{buffer=Buffer2});
+                        {error, Reason} ->
+                            {error, Reason}
+                    end
             end
     end.
 

@@ -16,7 +16,8 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_req,
                 duplicate_different_lengths_resp, duplicate_csv_lengths_resp,
                 duplicate_identical_lengths_resp,
-                delete_hop_by_hop, response_cookie_limits
+                delete_hop_by_hop, response_cookie_limits,
+                response_header_line_limits
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
@@ -553,6 +554,32 @@ response_cookie_limits(Config) ->
     %% Final response checking
     {match,_} = re:run(RecvClient, "502", [global,multiline]).
 
+response_header_line_limits(Config) ->
+    %% By default a header line is restricted to 512kb when sent from
+    %% the endpoint. If it goes above, a 502 is returned and the
+    %% request is discarded.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_custom_headers("name", lists:duplicate(1024*1024, $a)),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    ct:pal("Rec: ~p",[RecvClient]),
+    {match,_} = re:run(RecvClient, "502", [global,multiline]),
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
@@ -1025,10 +1052,13 @@ resp_hops() ->
 
 resp_cookies(Size) ->
     Val = lists:duplicate(max(1,Size-6), $a),
+    resp_custom_headers("Set-Cookie", "name="++Val++";").
+
+resp_custom_headers(Name, Val) ->
     "HTTP/1.1 200 OK\r\n"
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
-    "Set-Cookie: name="++Val++";\r\n"
+    ++Name++": "++Val++"\r\n"
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
