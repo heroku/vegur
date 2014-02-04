@@ -2,14 +2,12 @@ digraph vegur_lookup_domain_middleware {
         request [shape=Mdiamond];
         execute [label="execute/2"]
         request -> execute;
-        execute -> lookup_domain_name;
-        lookup_domain_name -> handle_domain_lookup;
-        handle_domain_lookup -> response_404 [label="{error, not_found}"];
-        handle_domain_lookup -> response_301 [label="{redirect, herokuapp_redirect, ...}"];
-        handle_domain_lookup -> set_request_meta [label="{ok, DomainGroup}"];
+        execute -> lookup_domain_name [label="lookup_domain_name/3"];
+        lookup_domain_name -> handle_error [label="{error, Reason, Req3, HandlerState1}"];
+        lookup_domain_name -> handle_error [label="{redirect, Reason, DomainGroup, Domain, Req3, HandlerState1}"];
+        lookup_domain_name -> set_request_meta [label="{ok, DomainGroup, Req3, HandlerState1}"];
         set_request_meta -> continue;
+        handle_error -> end;
         continue [shape=cds];
-        response_404 -> end;
-        response_301 -> end;
         end [shape=Msquare];
 }
