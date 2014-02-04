@@ -351,13 +351,27 @@ stream_status(Client=#client{state=State, buffer=Buffer})
     case binary:split(Buffer, <<"\r\n">>) of
         [Line, Rest] ->
             parse_version(Client#client{state=response, buffer=Rest}, Line);
+        [<<>>] -> % first call
+                    case recv(Client) of
+                        {ok, Data} ->
+                            Buffer2 = << Buffer/binary, Data/binary >>,
+                            stream_status(Client#client{buffer=Buffer2});
+                        {error, Reason} ->
+                            {error, Reason}
+                    end;
         _ ->
-            case recv(Client) of
-                {ok, Data} ->
-                    Buffer2 = << Buffer/binary, Data/binary >>,
-                    stream_status(Client#client{buffer=Buffer2});
-                {error, Reason} ->
-                    {error, Reason}
+            MaxStatus = vegur_app:config(max_client_status_length, 8192),
+            case byte_size(Buffer) > MaxStatus of
+                true ->
+                    {error, status_length};
+                false ->
+                    case recv(Client) of
+                        {ok, Data} ->
+                            Buffer2 = << Buffer/binary, Data/binary >>,
+                            stream_status(Client#client{buffer=Buffer2});
+                        {error, Reason} ->
+                            {error, Reason}
+                    end
             end
     end.
 
