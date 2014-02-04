@@ -92,6 +92,8 @@ error_page(maintainance_mode, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, content_length}, _DomainGroup, Upstream, HandlerState) ->
     {{502, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, cookie_length}, _DomainGroup, Upstream, HandlerState) ->
+    {{502, [], <<>>}, Upstream, HandlerState};
 error_page(empty_host, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page(expectation_failed, _DomainGroup, Upstream, HandlerState) ->

@@ -438,6 +438,12 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                                 false -> Client
                             end
                     end;
+                <<"set-cookie">> ->
+                    MaxLine = vegur_app:config(max_client_cookie_length, 8192),
+                    case byte_size(Line) > MaxLine of
+                        true -> {error, cookie_length};
+                        false -> Client
+                    end;
                 _ ->
                     Client
             end,
