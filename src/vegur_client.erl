@@ -381,17 +381,25 @@ stream_headers(Client=#client{state=State})
     stream_headers(Client, []).
 
 stream_headers(Client, Acc) ->
-    case stream_header(Client) of
+    MaxLine = vegur_app:config(max_client_header_length, 524288), %512k
+    stream_headers(Client, Acc, MaxLine).
+
+stream_headers(Client, Acc, MaxLine) ->
+    case stream_header(Client, MaxLine) of
         {ok, Name, Value, Client2} ->
-            stream_headers(Client2, [{Name, Value}|Acc]);
+            stream_headers(Client2, [{Name, Value}|Acc], MaxLine);
         {done, Client2} ->
             {ok, Acc, Client2};
         {error, Reason} ->
             {error, Reason}
     end.
 
+stream_header(Client) ->
+    MaxLine = vegur_app:config(max_client_header_length, 524288), %512k
+    stream_header(Client, MaxLine).
+
 stream_header(Client=#client{state=State, buffer=Buffer,
-        response_body=RespBody}) when State =:= response ->
+        response_body=RespBody}, MaxLine) when State =:= response ->
     case binary:split(Buffer, <<"\r\n">>) of
         [<<>>, Rest] ->
             %% If we have a body, set response_body.
@@ -439,8 +447,8 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                             end
                     end;
                 <<"set-cookie">> ->
-                    MaxLine = vegur_app:config(max_client_cookie_length, 8192),
-                    case byte_size(Line) > MaxLine of
+                    MaxCookie = vegur_app:config(max_client_cookie_length, 8192),
+                    case byte_size(Line) > MaxCookie of
                         true -> {error, cookie_length};
                         false -> Client
                     end;
@@ -449,14 +457,13 @@ stream_header(Client=#client{state=State, buffer=Buffer,
             end,
             case MaybeClient of
                 skip ->
-                    stream_header(Client#client{buffer=Rest});
+                    stream_header(Client#client{buffer=Rest}, MaxLine);
                 Client2=#client{} ->
                     {ok, Name2, Value, Client2#client{buffer=Rest}};
                 {error, Reason} ->
                     {error, Reason}
             end;
         _ ->
-            MaxLine = vegur_app:config(max_client_header_length, 524288), %512k
             case iolist_size(Buffer) > MaxLine of
                 true ->
                     {error, header_length};
@@ -464,7 +471,7 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                     case recv(Client) of
                         {ok, Data} ->
                             Buffer2 = << Buffer/binary, Data/binary >>,
-                            stream_header(Client#client{buffer=Buffer2});
+                            stream_header(Client#client{buffer=Buffer2}, MaxLine);
                         {error, Reason} ->
                             {error, Reason}
                     end
