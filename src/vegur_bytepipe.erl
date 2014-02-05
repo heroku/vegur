@@ -138,10 +138,10 @@ init(Parent, {TransC, PortC}, {TransS, PortS}, Opts) ->
 %% It's the default handler used by become/2.
 cb_close(TransC, PortC, TransS, PortS, Event) ->
     case Event of
-        {_, PortC} -> TransS:close(PortS);
         {_, PortS} -> TransC:close(PortC);
-        {_, PortC, _Reason} -> TransS:close(PortS);
+        {_, _PortC} -> TransS:close(PortS);
         {_, PortS, _Reason} -> TransC:close(PortC);
+        {_, _PortC, _Reason} -> TransS:close(PortS);
         timeout ->
             TransC:close(PortC),
             TransS:close(PortS)
@@ -166,21 +166,21 @@ loop(S=#state{client_transport=TransC, client_port=PortC,
               on_close=CloseCallback,
               on_timeout=TimeoutCallback}) ->
     receive
-        {OKC, PortC, Data} ->
-            TransS:send(PortS, Data),
-            TransC:setopts(PortC, [{active,once}]),
-            loop(S);
         {OKS, PortS, Data} ->
             TransC:send(PortC, Data),
             TransS:setopts(PortS, [{active,once}]),
             loop(S);
-        {ClosedC, PortC} = Event ->
-            CloseCallback(TransC, PortC, TransS, PortS, Event);
+        {OKC, _PortC, Data} ->
+            TransS:send(PortS, Data),
+            TransC:setopts(PortC, [{active,once}]),
+            loop(S);
         {ClosedS, PortS} = Event ->
             CloseCallback(TransC, PortC, TransS, PortS, Event);
-        {ErrC, PortC, _Reason} = Event ->
+        {ClosedC, _PortC} = Event ->
             CloseCallback(TransC, PortC, TransS, PortS, Event);
         {ErrS, PortS, _Reason} = Event ->
+            CloseCallback(TransC, PortC, TransS, PortS, Event);
+        {ErrC, _PortC, _Reason} = Event ->
             CloseCallback(TransC, PortC, TransS, PortS, Event)
     after Timeout ->
         TimeoutCallback(TransC, PortC, TransS, PortS, timeout)
