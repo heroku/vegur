@@ -351,13 +351,27 @@ stream_status(Client=#client{state=State, buffer=Buffer})
     case binary:split(Buffer, <<"\r\n">>) of
         [Line, Rest] ->
             parse_version(Client#client{state=response, buffer=Rest}, Line);
+        [<<>>] -> % first call
+                    case recv(Client) of
+                        {ok, Data} ->
+                            Buffer2 = << Buffer/binary, Data/binary >>,
+                            stream_status(Client#client{buffer=Buffer2});
+                        {error, Reason} ->
+                            {error, Reason}
+                    end;
         _ ->
-            case recv(Client) of
-                {ok, Data} ->
-                    Buffer2 = << Buffer/binary, Data/binary >>,
-                    stream_status(Client#client{buffer=Buffer2});
-                {error, Reason} ->
-                    {error, Reason}
+            MaxStatus = vegur_app:config(max_client_status_length, 8192),
+            case byte_size(Buffer) > MaxStatus of
+                true ->
+                    {error, status_length};
+                false ->
+                    case recv(Client) of
+                        {ok, Data} ->
+                            Buffer2 = << Buffer/binary, Data/binary >>,
+                            stream_status(Client#client{buffer=Buffer2});
+                        {error, Reason} ->
+                            {error, Reason}
+                    end
             end
     end.
 
@@ -381,17 +395,25 @@ stream_headers(Client=#client{state=State})
     stream_headers(Client, []).
 
 stream_headers(Client, Acc) ->
-    case stream_header(Client) of
+    MaxLine = vegur_app:config(max_client_header_length, 524288), %512k
+    stream_headers(Client, Acc, MaxLine).
+
+stream_headers(Client, Acc, MaxLine) ->
+    case stream_header(Client, MaxLine) of
         {ok, Name, Value, Client2} ->
-            stream_headers(Client2, [{Name, Value}|Acc]);
+            stream_headers(Client2, [{Name, Value}|Acc], MaxLine);
         {done, Client2} ->
             {ok, Acc, Client2};
         {error, Reason} ->
             {error, Reason}
     end.
 
+stream_header(Client) ->
+    MaxLine = vegur_app:config(max_client_header_length, 524288), %512k
+    stream_header(Client, MaxLine).
+
 stream_header(Client=#client{state=State, buffer=Buffer,
-        response_body=RespBody}) when State =:= response ->
+        response_body=RespBody}, MaxLine) when State =:= response ->
     case binary:split(Buffer, <<"\r\n">>) of
         [<<>>, Rest] ->
             %% If we have a body, set response_body.
@@ -438,24 +460,35 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                                 false -> Client
                             end
                     end;
+                <<"set-cookie">> ->
+                    MaxCookie = vegur_app:config(max_client_cookie_length, 8192),
+                    case byte_size(Line) > MaxCookie of
+                        true -> {error, cookie_length};
+                        false -> Client
+                    end;
                 _ ->
                     Client
             end,
             case MaybeClient of
                 skip ->
-                    stream_header(Client#client{buffer=Rest});
+                    stream_header(Client#client{buffer=Rest}, MaxLine);
                 Client2=#client{} ->
                     {ok, Name2, Value, Client2#client{buffer=Rest}};
                 {error, Reason} ->
                     {error, Reason}
             end;
         _ ->
-            case recv(Client) of
-                {ok, Data} ->
-                    Buffer2 = << Buffer/binary, Data/binary >>,
-                    stream_header(Client#client{buffer=Buffer2});
-                {error, Reason} ->
-                    {error, Reason}
+            case iolist_size(Buffer) > MaxLine of
+                true ->
+                    {error, header_length};
+                false ->
+                    case recv(Client) of
+                        {ok, Data} ->
+                            Buffer2 = << Buffer/binary, Data/binary >>,
+                            stream_header(Client#client{buffer=Buffer2}, MaxLine);
+                        {error, Reason} ->
+                            {error, Reason}
+                    end
             end
     end.
 

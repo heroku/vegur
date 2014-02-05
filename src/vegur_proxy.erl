@@ -128,7 +128,8 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
       Error :: any().
 read_response(Client) ->
     case vegur_client:response(Client) of
-        {error, Error} -> {error, downstream, Error};
+        {error, Error} ->
+            {error, downstream, Error};
         {ok, Code, RespHeaders, Client2} ->
             {ok, Code, RespHeaders, Client2}
     end.
