@@ -64,6 +64,7 @@
 -export([raw_socket/1]).
 -export([auth_header/1]).
 
+-export([set_stats/1]).
 -export([byte_counts/1]).
 
 
@@ -99,11 +100,9 @@ transport(#client{transport=Transport, socket=Socket}) ->
 close(#client{socket=undefined}=Client) ->
     Client;
 close(#client{transport=Transport, socket=Socket}=Client) ->
-    {SendTotal, RecvTotal} = get_stats(Socket),
+    NewClient=set_stats(Client),
     Transport:close(Socket),
-    Client#client{bytes_sent=SendTotal,
-                  bytes_recv=RecvTotal,
-                  socket=undefined}.
+    NewClient#client{socket=undefined}.
 
 connect(Transport, Host, Port, Timeout, Client) ->
     connect(Transport, Host, Port, Client#client{connect_timeout=Timeout}).
@@ -131,7 +130,7 @@ raw_request(Data, Client=#client{
         state=request, socket=Socket, transport=Transport}) ->
     case Transport:send(Socket, Data) of
         ok ->
-            {ok, Client};
+            {ok, set_stats(Client)};
         {error, _} = Err ->
             Err
     end.
@@ -211,13 +210,13 @@ parse_peer(Peer, Transport) ->
 
 response(Client=#client{state=response_body}) ->
     {done, Client2} = skip_body(Client),
-    response(Client2);
+    response(set_stats(Client2));
 response(Client=#client{state=request}) ->
     case stream_status(Client) of
         {ok, Status, _, Client2} ->
             case stream_headers(Client2) of
                 {ok, Headers, Client3} ->
-                    {ok, Status, Headers, Client3};
+                    {ok, Status, Headers, set_stats(Client3)};
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -245,7 +244,7 @@ response_body_loop(Client, Acc) ->
         {ok, Data, Client2} ->
             response_body_loop(Client2, << Acc/binary, Data/binary >>);
         {done, Client2} ->
-            {ok, Acc, Client2};
+            {ok, Acc, set_stats(Client2)};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -258,7 +257,7 @@ response_body_chunk(Client, Acc) ->
         {ok, Data, Client2} ->
             response_body_chunk(Client2, [Acc, Data]);
         {done, Buf, Client2} ->
-            {ok, [Acc, Buf], Client2};
+            {ok, [Acc, Buf], set_stats(Client2)};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -296,8 +295,8 @@ stream_chunk(Client=#client{buffer=Buffer}, ChunkMod, Cont) ->
         _ ->
             case ChunkMod:stream_chunk(Buffer, Cont) of
                 {done, Buf, Rest} ->
-                    {done, Buf, Client#client{buffer=Rest,
-                                              response_body=undefined}};
+                    {done, Buf, set_stats(Client#client{buffer=Rest,
+                                                        response_body=undefined})};
                 {chunk, Buf, Rest} ->
                     {ok, Buf, Client#client{buffer=Rest}};
                 {more, Len, Buf, State} ->
@@ -311,20 +310,18 @@ stream_chunk(Client=#client{buffer=Buffer}, ChunkMod, Cont) ->
 response_body_close(Client, Acc) ->
     case stream_close(Client) of
         {done, Client2} ->
-            {ok, Acc, Client2};
+            {ok, Acc, set_stats(Client2)};
         {ok, Body, Client2} ->
             response_body_close(Client2, [Acc, Body]);
         {error, Reason} ->
             {error, Reason}
     end.
 
-stream_close(Client=#client{bytes_sent=undefined, bytes_recv=undefined,
-                            socket=Socket}) ->
+stream_close(Client=#client{bytes_sent=undefined, bytes_recv=undefined}) ->
     % Since this stream will end on a socket close, I need to dump the
     % statistics currently associated with the socket before streaming and
     % keeping the books manually
-    {SendTotal, RecvTotal} = get_stats(Socket),
-    stream_close(Client#client{bytes_sent=SendTotal, bytes_recv=RecvTotal});
+    stream_close(set_stats(Client));
 stream_close(Client=#client{buffer=Buffer, response_body=undefined, bytes_recv=BytesRecv}) ->
     case byte_size(Buffer) of
         0 ->
@@ -561,7 +558,8 @@ auth_header(AuthInfo) when is_list(AuthInfo) ->
               encode_auth_header(User)
       end}].
 
-byte_counts(#client{bytes_sent=BytesSent, bytes_recv=BytesRecv}) ->
+byte_counts(Client) ->
+    #client{bytes_sent=BytesSent, bytes_recv=BytesRecv} = set_stats(Client),
     [{bytes_sent, BytesSent}, {bytes_recv, BytesRecv}].
 
 %% @private
@@ -573,7 +571,24 @@ encode_auth_header(User, Pass)
   when is_list(User), is_list(Pass) ->
     ["Basic ", base64:encode(User ++ ":" ++ Pass)].
 
-get_stats(Socket) ->
+set_stats(Client=#client{socket=undefined}) ->
+    Client;
+set_stats(Client=#client{bytes_sent=BytesSent, bytes_recv=BytesRecv,
+                         socket=Socket}) ->
+    {SentNew, RecvNew} = get_stats(Socket),
+    Sent = case {BytesSent, SentNew} of
+        {_, undefined} -> BytesSent;
+        {undefined, _} -> SentNew;
+        {_,_} -> max(BytesSent, SentNew)
+    end,
+    Recv = case {BytesRecv, RecvNew} of
+        {_, undefined} -> BytesRecv;
+        {undefined, _} -> RecvNew;
+        {_,_} -> max(BytesRecv, RecvNew)
+    end,
+    Client#client{bytes_sent=Sent, bytes_recv=Recv}.
+
+get_stats(Socket) when is_port(Socket) ->
     case inet:getstat(Socket, [recv_oct, send_oct]) of
         {error, _} ->
             {undefined, undefined};

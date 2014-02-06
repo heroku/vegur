@@ -7,8 +7,7 @@
          ,send_body/7
          ,read_backend_response/2
          ,upgrade/3
-         ,relay/4
-         ,byte_counts/1]).
+         ,relay/4]).
 
 -type error_blame() :: upstream|downstream.
 
@@ -204,8 +203,15 @@ upgrade(Headers, Req, BackendClient) ->
                    BufStub]),
     %% Flush leftover buffer data from the client, if any
     TransStub:send(SockStub, BufCow),
-    ok = vegur_bytepipe:become(Client, Server, [{timeout, timer:seconds(55)}]),
-    {done, Req3, backend_close(BackendClient)}.
+    CloseFun = fun(TransC, PortC, TransS, PortS, Event) ->
+        BackendClient1 = vegur_client:set_stats(BackendClient),
+        ok = vegur_bytepipe:cb_close(TransC, PortC, TransS, PortS, Event),
+        BackendClient1
+    end,
+    BackendClient1 = vegur_bytepipe:become(Client, Server, [{timeout, timer:seconds(55)},
+                                                            {on_close, CloseFun},
+                                                            {on_timeout, CloseFun}]),
+    {done, Req3, backend_close(BackendClient1)}.
 
 -spec relay(Status, Headers, Req, Client) ->
                    {ok, Req, Client} |
@@ -235,12 +241,6 @@ relay(Status, HeadersRaw, Req, Client) ->
         no_body ->
             relay_no_body(Status, Headers, Req, Client)
     end.
-
--spec byte_counts(Client) -> [{bytes_sent|bytes_recv, BytesCount}] when
-      BytesCount :: non_neg_integer()|undefined,
-      Client :: vegur_client:client().
-byte_counts(Client) ->
-    vegur_client:byte_counts(Client).
 
 %% There is no body to relay
 relay_no_body(Status, Headers, Req, Client) ->
@@ -424,7 +424,7 @@ stream_body({Transport,Sock}=Raw, Client) ->
             Transport:send(Sock, Data),
             stream_body(Raw, Client2);
         {done, Client2} ->
-            {ok, Client2};
+            {ok, vegur_client:set_stats(Client2)};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -436,7 +436,7 @@ stream_close({Transport,Sock}=Raw, Client) ->
             Transport:send(Sock, Data),
             stream_close(Raw, Client2);
         {done, Client2} ->
-            {ok, Client2};
+            {ok, vegur_client:set_stats(Client2)};
         {error, Reason} ->
             {error, downstream, Reason}
     end.
