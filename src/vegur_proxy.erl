@@ -44,8 +44,9 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% vegur_client:request_to_iolist will return a partial request with the
     %% correct headers in place, and the body can be sent later with sequential
     %% raw_request calls.
+    {Type, _} = cowboy_req:meta(request_type, Req, []),
     IoHeaders = vegur_client:request_to_headers_iolist(Method,
-                                                       request_headers(Headers),
+                                                       request_headers(Headers, Type),
                                                        Body,
                                                        'HTTP/1.1',
                                                        Url,
@@ -486,16 +487,20 @@ backend_close(Client) ->
     vegur_client:close(Client).
 
 %% Strip Connection header on request.
-request_headers(Headers0) ->
-    lists:foldl(fun (F, H) ->
-                        F(H)
-                end,
-                Headers0,
-                [fun delete_host_header/1
-                ,fun delete_hop_by_hop/1
-                ,fun add_connection_close_header/1
-                ,fun delete_content_length_header/1
-                ]).
+request_headers(Headers0, Type) ->
+    HeaderFuns = case Type of
+        [upgrade] ->
+            [fun delete_host_header/1
+            ,fun delete_hop_by_hop/1
+            ,fun add_connection_upgrade_header/1
+            ,fun delete_content_length_header/1];
+        _ ->
+            [fun delete_host_header/1
+            ,fun delete_hop_by_hop/1
+            ,fun add_connection_close_header/1
+            ,fun delete_content_length_header/1]
+    end,
+    lists:foldl(fun (F, H) -> F(H) end, Headers0, HeaderFuns).
 
 %% Strip Hop-by-hop headers on a response that is being
 %% upgraded

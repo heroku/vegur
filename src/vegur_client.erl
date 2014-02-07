@@ -226,10 +226,9 @@ response(Client=#client{state=request}) ->
     end.
 
 body_type(#client{response_body=chunked}) -> chunked;
-body_type(#client{state=request, connection=close}) -> stream_close;
 body_type(#client{state=request, response_body=0}) -> no_body;
-body_type(#client{state=response_body, response_body=Length}) ->
-    {content_size, Length}.
+body_type(#client{state=response_body, response_body=Length}) -> {content_size, Length};
+body_type(#client{state=request}) -> stream_close.
 
 version(#client{version=Version}) -> Version.
 
