@@ -74,7 +74,8 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
     end.
 
 negotiate_continue(Body, Req, BackendClient) ->
-    negotiate_continue(Body, Req, BackendClient, timer:seconds(55)).
+    Timeout = timer:seconds(vegur_app:config(idle_timeout, 55)),
+    negotiate_continue(Body, Req, BackendClient, Timeout).
 
 negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
     {error, upstream, Timeout};
@@ -208,7 +209,8 @@ upgrade(Headers, Req, BackendClient) ->
         ok = vegur_bytepipe:cb_close(TransC, PortC, TransS, PortS, Event),
         BackendClient1
     end,
-    BackendClient1 = vegur_bytepipe:become(Client, Server, [{timeout, timer:seconds(55)},
+    Timeout = timer:seconds(vegur_app:config(idle_timeout, 55)),
+    BackendClient1 = vegur_bytepipe:become(Client, Server, [{timeout, Timeout},
                                                             {on_close, CloseFun},
                                                             {on_timeout, CloseFun}]),
     {done, Req3, backend_close(BackendClient1)}.
