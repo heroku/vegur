@@ -558,10 +558,6 @@ auth_header(AuthInfo) when is_list(AuthInfo) ->
               encode_auth_header(User)
       end}].
 
-byte_counts(Client) ->
-    #client{bytes_sent=BytesSent, bytes_recv=BytesRecv} = set_stats(Client),
-    [{bytes_sent, BytesSent}, {bytes_recv, BytesRecv}].
-
 %% @private
 encode_auth_header(User) ->
     encode_auth_header(User, "").
@@ -571,27 +567,21 @@ encode_auth_header(User, Pass)
   when is_list(User), is_list(Pass) ->
     ["Basic ", base64:encode(User ++ ":" ++ Pass)].
 
+byte_counts(Client) ->
+    #client{bytes_sent=BytesSent, bytes_recv=BytesRecv} = set_stats(Client),
+    {BytesSent, BytesRecv}.
+
 set_stats(Client=#client{socket=undefined}) ->
     Client;
 set_stats(Client=#client{bytes_sent=BytesSent, bytes_recv=BytesRecv,
                          socket=Socket}) ->
-    {SentNew, RecvNew} = get_stats(Socket),
-    Sent = case {BytesSent, SentNew} of
-        {_, undefined} -> BytesSent;
-        {undefined, _} -> SentNew;
-        {_,_} -> max(BytesSent, SentNew)
-    end,
-    Recv = case {BytesRecv, RecvNew} of
-        {_, undefined} -> BytesRecv;
-        {undefined, _} -> RecvNew;
-        {_,_} -> max(BytesRecv, RecvNew)
-    end,
+    {Sent, Recv} = get_stats(Socket, BytesSent, BytesRecv),
     Client#client{bytes_sent=Sent, bytes_recv=Recv}.
 
-get_stats(Socket) when is_port(Socket) ->
+get_stats(Socket, DefaultSent, DefaultRecv) when is_port(Socket) ->
     case inet:getstat(Socket, [recv_oct, send_oct]) of
         {error, _} ->
-            {undefined, undefined};
+            {DefaultSent, DefaultRecv};
         {ok, [{recv_oct, RecvTotal},
               {send_oct, SentTotal}]} ->
             {SentTotal, RecvTotal}
