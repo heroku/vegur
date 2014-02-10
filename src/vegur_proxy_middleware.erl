@@ -17,16 +17,15 @@ execute(Req, Env) ->
                                    proxy(Req2, #state{backend_client = Client, env = Env})
                            end, Log1) of
         {{ok, Req3, #state{backend_client=Client1}}, Log2} ->
-            BytesCounts = vegur_client:byte_counts(Client1),
-            Req4 = cowboy_req:set_meta(bytes_sent, proplists:get_value(bytes_sent, BytesCounts), Req3),
-            Req5 = cowboy_req:set_meta(bytes_recv, proplists:get_value(bytes_recv, BytesCounts), Req4),
-            Req6 = cowboy_req:set_meta(status, successful, Req5),
-            Req7 = cowboy_req:set_meta(logging, Log2, Req6),
-            {halt, Req7};
+            Req4 = store_byte_counts(Req3, Client1),
+            Req5 = cowboy_req:set_meta(status, successful, Req4),
+            Req6 = cowboy_req:set_meta(logging, Log2, Req5),
+            {halt, Req6};
         {{error, Blame, Reason, Req3}, Log2} ->
             {HttpCode, Req4} = vegur_utils:handle_error({Blame, Reason}, Req3),
-            Req5 = cowboy_req:set_meta(logging, Log2, Req4),
-            {error, HttpCode, Req5}
+            Req5 = store_byte_counts(Req4, Client),
+            Req6 = cowboy_req:set_meta(logging, Log2, Req5),
+            {error, HttpCode, Req6}
     end.
 
 proxy(Req, State) ->
@@ -51,7 +50,7 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
         {done, Req1, BackendClient1} ->
             read_backend_response(Req1, State#state{backend_client=BackendClient1});
         {error, Blame, Error} ->
-            {error, Blame, Error, Req}
+            {error, Blame, Error, store_byte_counts(Req, BackendClient)}
     end.
 
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
@@ -60,7 +59,7 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
             handle_backend_response(Code, RespHeaders, Req1,
                                     State#state{backend_client=BackendClient1});
         {error, Blame, Error} ->
-            {error, Blame, Error, Req}
+            {error, Blame, Error, store_byte_counts(Req, BackendClient)}
     end.
 
 handle_backend_response(Code, RespHeaders, Req, State) ->
@@ -84,8 +83,26 @@ http_request(Code, Headers, Req,
         {ok, Req1, BackendClient1} ->
             {ok, Req1, State#state{backend_client=BackendClient1}};
         {error, Blame, Error, Req1} ->
-            {error, Blame, Error, Req1}
+            {error, Blame, Error, store_byte_counts(Req1, BackendClient)}
     end.
+
+store_byte_counts(Req, Client) ->
+    {SentNew, RecvNew} = vegur_client:byte_counts(Client),
+    {BytesSent, Req2} = cowboy_req:meta(bytes_sent, Req),
+    {BytesRecv, Req3} = cowboy_req:meta(bytes_recv, Req2),
+    Sent = case {BytesSent, SentNew} of
+        {_, undefined} -> BytesSent;
+        {undefined, _} -> SentNew;
+        {_,_} -> max(BytesSent, SentNew)
+    end,
+    Recv = case {BytesRecv, RecvNew} of
+        {_, undefined} -> BytesRecv;
+        {undefined, _} -> RecvNew;
+        {_,_} -> max(BytesRecv, RecvNew)
+    end,
+    Req4 = cowboy_req:set_meta(bytes_sent, Sent, Req3),
+    cowboy_req:set_meta(bytes_recv, Recv, Req4).
+
 
 parse_request(Req) ->
     {Method, Req2} = cowboy_req:method(Req),
