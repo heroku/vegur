@@ -13,6 +13,7 @@
 -type stat() :: {bytes_recv|bytes_sent, non_neg_integer()}|
                 {route_time|connect_time|total_time, ms()}.
 -type stats() :: [stat()]|[].
+-type feature() :: deep_continue.
 -opaque upstream() :: cowboy_req:req().
 
 -export_type([domain/0,
@@ -27,6 +28,7 @@
               stat/0,
               stats/0,
               ms/0,
+              feature/0,
               upstream/0]).
 
 -callback init(RequestAccepted, Upstream) ->
@@ -59,6 +61,10 @@
       Service :: service(),
       ServiceState :: service_state(),
       Upstream :: upstream(),
+      HandlerState :: handler_state().
+
+-callback feature(feature(), HandlerState) ->
+    {enabled | disabled, HandlerState} when
       HandlerState :: handler_state().
 
 -callback error_page(ErrorReason, DomainGroup, Upstream, HandlerState) ->

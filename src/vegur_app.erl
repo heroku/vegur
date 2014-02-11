@@ -47,8 +47,8 @@ config() ->
 middleware_stack() ->
     [vegur_healthcheck_middleware
     ,vegur_validate_headers
-    ,vegur_continue_middleware
     ,vegur_lookup_domain_middleware
+    ,vegur_continue_middleware
     ,vegur_upgrade_middleware
     ,vegur_lookup_service_middleware
     ,vegur_proxy_middleware
