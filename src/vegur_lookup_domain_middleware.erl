@@ -14,10 +14,11 @@ execute(Req, Env) ->
         {redirect, Reason, DomainGroup, Domain, Req3, HandlerState1} ->
             Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
             handle_redirect(Reason, DomainGroup, Domain, Req4, Env);
-        {ok, DomainGroup, Req3, HandlerState1} ->
+        {ok, DomainGroup, Features, Req3, HandlerState1} ->
             Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
             Req5 = cowboy_req:set_meta(domain_group, DomainGroup, Req4),
-            {ok, Req5, Env}
+            Req6 = vegur_features:set_features(Features, Req5),
+            {ok, Req6, Env}
     end.
 
 -spec handle_error(Reason, Req, Env) -> 

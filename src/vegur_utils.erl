@@ -6,6 +6,7 @@
          ,add_or_append_header/4
          ,add_if_missing_header/4
          ,add_or_replace_header/3
+         ,delete_all_headers/2
          ,set_request_status/2
          ,handle_error/2
          ,peer_ip_port/1
@@ -74,6 +75,18 @@ add_if_missing_header(Key, Val, Headers, Req) ->
       Headers :: [{iodata(), iodata()}]|[].
 add_or_replace_header(Key, Value, Headers) ->
     lists:keystore(Key, 1, Headers, {Key, Value}).
+
+%% We need to traverse the entire list because a user could have
+%% injected more than one instance of the same header, and cowboy
+%% doesn't coalesce headers for us.
+-spec delete_all_headers(Key, Headers) -> Headers when
+      Key :: iodata(),
+      Headers :: [{iodata(), iodata()}].
+delete_all_headers(_, []) -> [];
+delete_all_headers(Key, [{Key,_} | Hdrs]) -> delete_all_headers(Key, Hdrs);
+delete_all_headers(Key, [H|Hdrs]) -> [H | delete_all_headers(Key, Hdrs)].
+
+
 
 -spec set_response(Headers, Body, Req) ->
                              Req when

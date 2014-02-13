@@ -233,7 +233,7 @@ stop_dyno() ->
 mock_through() ->
     meck:expect(vegur_stub, lookup_domain_name,
                 fun(_, Upstream, HandlerState) ->
-                        {ok, test_domain, Upstream, HandlerState}
+                        {ok, test_domain, [], Upstream, HandlerState}
                 end),
     meck:expect(vegur_stub, checkout_service,
                 fun(_, Upstream, HandlerState) ->
