@@ -78,7 +78,7 @@ init_per_group(vegur_request_lookups, Config) ->
     meck:expect(vegur_stub, lookup_domain_name,
                 fun(Domain, Req, HandlerState) ->
                         Domain = TestDomain,
-                        {ok, mocked_domain_group, Req, HandlerState}
+                        {ok, mocked_domain_group, [], Req, HandlerState}
                 end),
     [{meck_started, MeckStarted},
      {test_domain, TestDomain} | Config];
@@ -137,7 +137,7 @@ init_per_testcase(maintainance_mode_on, Config) ->
     meck:expect(vegur_stub, lookup_domain_name,
                 fun(Domain, Req, HandlerState) ->
                         Domain = TestDomain,
-                        {ok, mocked_domain_group, Req, HandlerState}
+                        {ok, mocked_domain_group, [], Req, HandlerState}
                 end),
     ok = mock_service_reply(error, maintainance_mode),
     [{test_domain, TestDomain} | Config];

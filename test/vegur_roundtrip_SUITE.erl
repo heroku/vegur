@@ -10,7 +10,8 @@ groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
                 continue_upgrade_httpbis, upgrade_no_continue,
                 terminal_no_continue_partial, terminal_no_continue_complete,
-                no_expect_continue, http_1_0_continue]},
+                no_expect_continue, http_1_0_continue,
+                bypass]},
              {headers, [], [
                 duplicate_different_lengths_req, duplicate_csv_lengths_req,
                 duplicate_identical_lengths_req,
@@ -46,10 +47,21 @@ end_per_suite(Config) ->
     [application:set_env(vegur, K, V) || {K,V} <- ?config(vegur_env, Config)],
     [vegur_stub] = meck:unload().
 
+init_per_testcase(bypass, Config0) ->
+    Config = init_per_testcase(default, Config0),
+    meck:expect(vegur_stub, lookup_domain_name,
+                fun(_Domain, Upstream, HandlerState) ->
+                    {ok, domain_group, [], Upstream, HandlerState}
+                end),
+    Config;
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
     application:load(vegur),
+    meck:expect(vegur_stub, lookup_domain_name,
+                fun(_, Req, HandlerState) ->
+                    {ok, test_domain, [deep_continue], Req, HandlerState}
+                end),
     meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{<<"127.0.0.1">>, LPort}, Req, HandlerState} end),
     {ok, ProxyPort} = application:get_env(vegur, http_listen_port),
     {ok, Started} = application:ensure_all_started(vegur),
@@ -338,6 +350,41 @@ http_1_0_continue(Config) ->
     {match, _} = re:run(Response, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
     nomatch = re:run(Response, "100 Continue"),
     wait_for_closed(Server, 5000).
+
+%% 100 Continue can be bypassed by disabling the feature in the interface
+%% module, in which case the client will see the 100 continue response,
+%% but the server will not see the Expect header coming back.
+%% The server may still respond with a 100 Continue the way any other HTTP/1.1
+%% server is allowed, or forget about it entirely.
+bypass(Config) ->
+    %% We control both the client and the server, but not the proxy.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ReqHeaders = req_headers(Config),
+    ReqBody = req_body(),
+    RespReal = resp(),
+    Ref = make_ref(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, ReqHeaders),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, ReqHead} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Client, ReqBody),
+    {ok, ReqBody} = gen_tcp:recv(Server, 0, 1000),
+    {ok, ContResponse} = gen_tcp:recv(Client, 0, 1000),
+    ok = gen_tcp:send(Server, RespReal),
+    {ok, RealResponse} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    nomatch = re:run(ReqHead, "expect: ", [global,multiline,caseless]),
+    {match, _} = re:run(ContResponse, "100 continue", [global,multiline,caseless]),
+    {match, _} = re:run(RealResponse, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
+    %% Connection to the server is closed, but not to the client
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
 
 %%%%%%%%%%%%%%%
 %%% HEADERS %%%

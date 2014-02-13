@@ -21,14 +21,15 @@ init(_, Upstream) ->
 -spec lookup_domain_name(Domain, Upstream, HandlerState) -> 
                                 {error, not_found, Upstream, HandlerState} |
                                 {redirect, Reason, DomainGroup, Domain, Upstream, HandlerState} |
-                                {ok, DomainGroup, Upstream, HandlerState} when
+                                {ok, DomainGroup, Opts, Upstream, HandlerState} when
       Domain :: vegur_interface:domain(),
       Reason :: atom(),
       DomainGroup :: vegur_interface:domain_group(),
       HandlerState :: vegur_interface:handler_state(),
+      Opts :: vegur_features:options(),
       Upstream :: vegur_interface:upstream().
 lookup_domain_name(_Domain, Upstream, HandlerState) ->
-    {ok, domain_group, Upstream, HandlerState}.
+    {ok, domain_group, [deep_continue], Upstream, HandlerState}.
 
 -spec checkout_service(DomainGroup, Upstream, HandlerState) ->
                               {service, Service, Upstream, HandlerState} |
