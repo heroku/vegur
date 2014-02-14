@@ -524,11 +524,14 @@ response_headers(Headers) ->
                 [fun delete_hop_by_hop/1
                 ]).
 
-delete_host_header(Hdrs) -> delete_all(<<"host">>, Hdrs).
+delete_host_header(Hdrs) ->
+    vegur_utils:delete_all_headers(<<"host">>, Hdrs).
 
-delete_content_length_header(Hdrs) -> delete_all(<<"content-length">>, Hdrs).
+delete_content_length_header(Hdrs) ->
+    vegur_utils:delete_all_headers(<<"content-length">>, Hdrs).
 
-delete_transfer_encoding_header(Hdrs) -> delete_all(<<"transfer-encoding">>, Hdrs).
+delete_transfer_encoding_header(Hdrs) ->
+    vegur_utils:delete_all_headers(<<"transfer-encoding">>, Hdrs).
 
 %% Hop by Hop Headers we care about removing. We remove most of them but
 %% "Proxy-Authentication" for historical reasons, "Upgrade" because we pass
@@ -541,13 +544,6 @@ delete_hop_by_hop([{<<"keep-alive">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([{<<"proxy-authorization">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([{<<"trailer">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([Hdr|Hdrs]) -> [Hdr | delete_hop_by_hop(Hdrs)].
-
-%% We need to traverse the entire list because a user could have
-%% injected more than one instance of the same header, and cowboy
-%% doesn't coalesce headers for us.
-delete_all(_, []) -> [];
-delete_all(Key, [{Key,_} | Hdrs]) -> delete_all(Key, Hdrs);
-delete_all(Key, [H|Hdrs]) -> [H | delete_all(Key, Hdrs)].
 
 add_connection_close_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of

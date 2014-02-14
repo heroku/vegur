@@ -8,6 +8,7 @@
          checkout_service/3,
          checkin_service/5,
          service_backend/3,
+         feature/2,
          error_page/4]).
 
 -spec init(RequestAccepted, Upstream) ->
@@ -50,6 +51,14 @@ checkout_service(_DomainGroup, Upstream, HandlerState) ->
       Upstream :: vegur_interface:upstream().
 checkin_service(_DomainGroup, _Service, _ServiceState, Upstream, HandlerState) ->
     {ok, Upstream, HandlerState}.
+
+-spec feature(Feature, HandlerState) -> {enabled | disabled, HandlerState} when
+      Feature :: vegur_interface:feature(),
+      HandlerState :: vegur_interface:handler_state().
+feature(deep_continue, State) ->
+    {enabled, State};
+feature(_, State) ->
+    {disabled, State}.
 
 -spec error_page(ErrorReason, DomainGroup, Upstream, HandlerState) ->
                         {{HttpCode, ErrorHeaders, ErrorBody}, Upstream, HandlerState} when
