@@ -90,6 +90,7 @@ cowboy_opts() ->
     ,{max_header_name_length, config(max_server_header_name_length, 1000)}
     ,{max_header_value_length, config(max_server_header_value_length, 8192)}
     ,{max_headers, config(max_server_headers,1000)}
+    ,{timeout, timer:seconds(vegur_app:config(idle_timeout, 60))}
     ,{onrequest, fun vegur_request_log:new/1}
     ,{onresponse, fun vegur_request_log:done/4}].
 
