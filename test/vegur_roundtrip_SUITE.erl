@@ -475,7 +475,8 @@ duplicate_different_lengths_resp(Config) ->
     {match, _} = re:run(Response, "502"),
     %% Connection to the server is closed, but not to the client
     wait_for_closed(Server, 500),
-    wait_for_closed(Client, 500).
+    wait_for_closed(Client, 500),
+    check_stub_error({downstream, content_length}).
 
 
 duplicate_csv_lengths_resp(Config) ->
@@ -507,7 +508,8 @@ duplicate_csv_lengths_resp(Config) ->
     {match, _} = re:run(Response, "502"),
     %% Connection to the server is closed, but not to the client
     wait_for_closed(Server, 500),
-    wait_for_closed(Client, 500).
+    wait_for_closed(Client, 500),
+    check_stub_error({downstream, content_length}).
 
 
 duplicate_identical_lengths_resp(Config) ->
@@ -592,7 +594,8 @@ response_cookie_limits(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
-    {match,_} = re:run(RecvClient, "502", [global,multiline]).
+    {match,_} = re:run(RecvClient, "502", [global,multiline]),
+    check_stub_error({downstream, cookie_length}).
 
 response_header_line_limits(Config) ->
     %% By default a header line is restricted to 512kb when sent from
@@ -618,7 +621,8 @@ response_header_line_limits(Config) ->
     ct:pal("Rec: ~p",[RecvClient]),
     {match,_} = re:run(RecvClient, "502", [global,multiline]),
     wait_for_closed(Server, 500),
-    wait_for_closed(Client, 500).
+    wait_for_closed(Client, 500),
+    check_stub_error({downstream, header_length}).
 
 response_status_limits(Config) ->
     %% A status line is allowed ~8kb to parse when coming from
@@ -644,7 +648,8 @@ response_status_limits(Config) ->
     ct:pal("Rec: ~p",[RecvClient]),
     {match,_} = re:run(RecvClient, "502", [global,multiline]),
     wait_for_closed(Server, 500),
-    wait_for_closed(Client, 500).
+    wait_for_closed(Client, 500),
+    check_stub_error({downstream, status_length}).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1180,3 +1185,8 @@ resp_1_0() ->
 domain(Config) ->
     LPort = ?config(server_port, Config),
     binary_to_list(<<"127.0.0.1:", (integer_to_binary(LPort))/binary>>).
+
+check_stub_error(Pattern) ->
+    Local = [Args || {_, {vegur_stub, error_page, Args}, _Ret} <- meck:history(vegur_stub)],
+    ct:pal("Local: ~p~n", [Local]),
+    Pattern = hd(lists:last(Local)).
