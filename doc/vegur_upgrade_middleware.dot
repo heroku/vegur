@@ -1,20 +1,22 @@
 digraph vegur_upgrade_middleware {
         request [shape=Mdiamond];
-        has_connection_header [shape=diamond];
-        has_upgrade_header [shape=diamond];
         execute [label="execute/2"]
         request -> execute;
         execute -> get_connection_header;
-        
-        get_connection_header -> has_connection_header;
-        has_connection_header -> continue [label="No"];
-        has_connection_header -> get_upgrade_header [label="Yes"];
 
-        get_upgrade_header -> has_upgrade_header;
-        has_upgrade_header -> set_request_meta [label="Yes"];
-        has_upgrade_header -> response_400 [label="No"];
+        get_connection_header -> get_upgrade_header [label="Has Connection Header"];
+        get_connection_header -> continue [label="No Connection Header"];
+        
+        get_upgrade_header -> handle_error [label="Unable to get Upgrade header"];
+        get_upgrade_header -> validate_upgrade_header [label="Upgrader header present"];
+
+        validate_upgrade_header -> set_request_meta [label="Valid Upgrade header"];
+        validate_upgrade_header -> handle_error [label="Error getting header"];
+        validate_upgrade_header -> handle_error [label="Invalid Upgrade header"];
+
+        handle_error -> end;
         set_request_meta -> continue;
         continue [shape=cds];
-        response_400 -> end;
+        
         end [shape=Msquare];
 }

@@ -4,25 +4,14 @@ digraph vegur_lookup_service_middleware {
         request -> execute;
         execute -> lookup_service;
 
-        lookup_service -> response_502 [label="{error, no_route_id}"];
-        lookup_service -> response_503 [label="H11 - {error, {backlog_timeout, ..}}"];
-        lookup_service -> response_503 [label="H11 - {error, {backlog_too_deep, ..}}"];
-        lookup_service -> response_503 [label="H22 - {error, {conn_limit_reached, ..}}"];
-        lookup_service -> response_503 [label="H99 - {error, route_lookup_failed}"];
-        lookup_service -> response_503 [label="H14 - {error, no_web_processes}"];
-        lookup_service -> response_503 [label="H10 - {error, crashed}"];
-        lookup_service -> response_503 [label="H99- {error, backends_quarantined}"];
-        lookup_service -> response_503 [label="H20 - {error, backends_starting}"];
-        lookup_service -> response_503 [label="H99 - {error, backends_idle}"];
-        lookup_service -> response_503 [label="H99 - {error, app_blank}"];
-        lookup_service -> response_404 [label="{error, app_not_found}"];
-        lookup_service -> response_503 [label="H99 - {error, app_lookup_failed}"];
-        lookup_service -> response_503 [label="H99 - catchall"];
-        lookup_service -> set_request_meta [label="{route, Service}"];
+        lookup_service -> checkout_service [label="checkout_serice/3"];
+        checkout_service -> handle_service [label="{service, Service, Req2, HandlerState1}"];
+        checkout_service -> handle_error [label="{error, CheckoutError, Req2, HandlerState1}"];
+        handle_error -> end;
+        handle_service -> connect_to_backend;
+        connect_to_backend -> set_request_meta [label="Connection successful"];
         set_request_meta -> continue;
+        connect_to_backend -> lookup_service [label="Unable to connect"];
         continue [shape=cds];
-        response_502 -> end;
-        response_503 -> end;
-        response_404 -> end;
         end [shape=Msquare];
 }

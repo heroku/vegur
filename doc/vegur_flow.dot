@@ -1,0 +1,91 @@
+digraph {
+        request;
+        end [shape=Msquare];
+        handle_error -> end;
+
+        subgraph vegur_validate_headers {
+                request -> validate_headers;
+                validate_headers -> validate_host;
+                validate_host -> handle_error [label="Empty host"];
+                validate_host -> validate_content_length [label="Has host"];
+                validate_content_length -> handle_error [label="Mismatching or invalid content-length headers"];
+                validate_content_length -> validate_headers_done [label="No mismatching or invalid content-length header"];
+                validate_headers_done -> validate_continue;
+        }
+
+        subgraph vegur_continue_middleware {
+                deep_continue_enabled [shape=diamond];
+                validate_continue -> validate_expect_header;
+                validate_expect_header -> handle_error [label="Expect header invalid"];
+                validate_expect_header -> validate_continue_done [label="No expect header"];
+                validate_expect_header -> deep_continue_enabled [label="Expect header 100-continue"];
+                deep_continue_enabled -> send_100_continue [label="No"];
+                response_100_continue -> validate_continue_done;
+                deep_continue_enabled -> mark_request_as_100_continue [label="Yes"];
+                mark_request_as_100_continue -> validate_continue_done;
+                validate_continue_done -> lookup_domain;
+        }
+
+        subgraph vegur_lookup_domain_middleware {
+                lookup_domain -> lookup_domain_name [label="lookup_domain_name/3"];
+                lookup_domain_name -> handle_error [label="{error, Reason, Req3, HandlerState1}"];
+                lookup_domain_name -> handle_error [label="{redirect, Reason, DomainGroup, Domain, Req3, HandlerState1}"];
+                lookup_domain_name -> lookup_domain_done [label="{ok, DomainGroup, Req3, HandlerState1}"];
+                lookup_domain_done -> check_for_upgrade;
+        }
+
+        subgraph vegur_upgrade_middleware {
+                check_for_upgrade -> get_connection_header;
+                
+                get_connection_header -> get_upgrade_header [label="Has Connection Header"];
+                get_connection_header -> upgrade_check_done [label="No Connection Header"];
+                
+                get_upgrade_header -> handle_error [label="Unable to get Upgrade header"];
+                get_upgrade_header -> validate_upgrade_header [label="Upgrader header present"];
+                
+                validate_upgrade_header -> upgrade_check_done [label="Valid Upgrade header"];
+                validate_upgrade_header -> handle_error [label="Error getting header"];
+                validate_upgrade_header -> handle_error [label="Invalid Upgrade header"];
+
+                upgrade_check_done -> lookup_service;
+        }
+
+        subgraph vegur_lookup_service_middleware {
+                lookup_service -> checkout_service [label="checkout_serice/3"];
+                checkout_service -> handle_service [label="{service, Service, Req2, HandlerState1}"];
+                checkout_service -> handle_error [label="{error, CheckoutError, Req2, HandlerState1}"];
+                handle_service -> connect_to_backend;
+                connect_to_backend -> lookup_service [label="Unable to connect"];
+                connect_to_backend -> lookup_service_done [label="Connection successful"];
+                lookup_service_done -> start_proxy;
+        }
+
+        subgraph vegur_proxy_middleware {
+                start_proxy -> parse_request -> send_headers_downstream;
+                
+                send_headers_downstream -> handle_error [label="Error sending headers"];
+                send_headers_downstream -> proxy_done [label="Request ended without body sent"];
+                send_headers_downstream -> send_body_downstream [label="Headers sent downstream"];
+                
+                send_body_downstream -> handle_error [label="Error sending body"];
+                send_body_downstream -> read_downstream_response [label="Body sent downstream"];
+                
+                read_downstream_response -> handle_error [label="Error reading from downstream"];
+                read_downstream_response -> request_meta_has_upgrade;
+                
+                # Upgrade
+                request_meta_has_upgrade [shape=diamond];
+                request_meta_has_upgrade -> upgrade_connection [label="Yes"];
+                upgrade_connection -> downstream_http_code_101;
+                downstream_http_code_101 [shape=diamond];
+                downstream_http_code_101 -> upgraded [label="Yes"];
+                upgraded -> proxy_done;
+                downstream_http_code_101 -> http_request [label="No"];
+                
+                # HTTP request
+                request_meta_has_upgrade -> http_request [label="No"];
+                http_request -> relay_downstream_response;
+                relay_downstream_response -> handle_error [label="Error relaying to upstream"];
+                relay_downstream_response -> proxy_done;
+        }
+}

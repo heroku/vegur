@@ -4,17 +4,17 @@ digraph vegur_proxy_middleware {
         request -> execute;
         execute -> connect_to_downstream;
 
-        connect_to_downstream -> response_503 [label="Error connecting"];
+        connect_to_downstream -> handle_error [label="Error connecting"];
         connect_to_downstream -> parse_request -> send_headers_downstream;
 
-        send_headers_downstream -> response_503 [label="Error sending headers"];
+        send_headers_downstream -> handle_error [label="Error sending headers"];
         send_headers_downstream -> end [label="Request ended without body sent"];
         send_headers_downstream -> send_body_downstream [label="Headers sent downstream"];
 
-        send_body_downstream -> response_503 [label="Error sending body"];
+        send_body_downstream -> handle_error [label="Error sending body"];
         send_body_downstream -> read_downstream_response [label="Body sent downstream"];
 
-        read_downstream_response -> response_503 [label="Error reading from downstream"];
+        read_downstream_response -> handle_error [label="Error reading from downstream"];
         read_downstream_response -> request_meta_has_upgrade;
 
         # Upgrade
@@ -29,7 +29,8 @@ digraph vegur_proxy_middleware {
         # HTTP request
         request_meta_has_upgrade -> http_request [label="No"];
         http_request -> relay_downstream_response;
-        relay_downstream_response -> response_503 [label="Error relaying to upstream"];
+        relay_downstream_response -> handle_error [label="Error relaying to upstream"];
         relay_downstream_response -> end;
+        handle_error -> end;
         end [shape=Msquare];
 }
