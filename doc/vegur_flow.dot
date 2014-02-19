@@ -14,10 +14,15 @@ digraph {
         }
 
         subgraph vegur_continue_middleware {
+                deep_continue_enabled [shape=diamond];
                 validate_continue -> validate_expect_header;
                 validate_expect_header -> handle_error [label="Expect header invalid"];
                 validate_expect_header -> validate_continue_done [label="No expect header"];
-                validate_expect_header -> validate_continue_done [label="Expect header 100-continue"];                
+                validate_expect_header -> deep_continue_enabled [label="Expect header 100-continue"];
+                deep_continue_enabled -> send_100_continue [label="No"];
+                response_100_continue -> validate_continue_done;
+                deep_continue_enabled -> mark_request_as_100_continue [label="Yes"];
+                mark_request_as_100_continue -> validate_continue_done;
                 validate_continue_done -> lookup_domain;
         }
 
