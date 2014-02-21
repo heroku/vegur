@@ -26,9 +26,11 @@
 
 -record(state, {client_transport :: module(),
                 client_port :: any(),
+                client_match :: port(),
                 client_msg :: {OK::atom(), Closed::atom(), Error::atom()},
                 server_transport :: module(),
                 server_port :: any(),
+                server_match :: port(),
                 server_msg :: {OK::atom(), Closed::atom(), Error::atom()},
                 timeout=infinity :: infinity | non_neg_integer(),
                 on_close :: fun(),
@@ -96,9 +98,11 @@ become(Client, Server) ->
 become({TransC, PortC}, {TransS, PortS}, Opts) ->
     State = #state{client_transport=TransC,
                    client_port=PortC,
+                   client_match=port(TransC, PortC),
                    client_msg=TransC:messages(),
                    server_transport=TransS,
                    server_port=PortS,
+                   server_match=port(TransS, PortS),
                    server_msg=TransS:messages(),
                    timeout=proplists:get_value(timeout, Opts, infinity),
                    on_close=proplists:get_value(on_close, Opts, fun cb_close/5),
@@ -114,9 +118,11 @@ become({TransC, PortC}, {TransS, PortS}, Opts) ->
 init(Parent, {TransC, PortC}, {TransS, PortS}, Opts) ->
     State = #state{client_transport=TransC,
                    client_port=PortC,
+                   client_match=port(TransC, PortC),
                    client_msg=TransC:messages(),
                    server_transport=TransS,
                    server_port=PortS,
+                   server_match=port(TransS, PortS),
                    server_msg=TransS:messages(),
                    timeout=proplists:get_value(timeout, Opts, infinity),
                    on_close=proplists:get_value(on_close, Opts, fun cb_exit/5),
@@ -139,9 +145,9 @@ init(Parent, {TransC, PortC}, {TransS, PortS}, Opts) ->
 cb_close(TransC, PortC, TransS, PortS, Event) ->
     case Event of
         {_, PortS} -> TransC:close(PortC);
-        {_, _PortC} -> TransS:close(PortS);
+        {_, PortC} -> TransS:close(PortS);
         {_, PortS, _Reason} -> TransC:close(PortC);
-        {_, _PortC, _Reason} -> TransS:close(PortS);
+        {_, PortC, _Reason} -> TransS:close(PortS);
         timeout ->
             TransC:close(PortC),
             TransS:close(PortS)
@@ -159,29 +165,36 @@ cb_exit(TransC, PortC, TransS, PortS, Event) ->
 %% @private core loop that does transportation based on
 %% whatever each port receives.
 loop(S=#state{client_transport=TransC, client_port=PortC,
-              client_msg={OKC, ClosedC, ErrC},
+              client_match=MatchC, client_msg={OKC, ClosedC, ErrC},
               server_transport=TransS, server_port=PortS,
-              server_msg={OKS, ClosedS, ErrS},
+              server_match=MatchS, server_msg={OKS, ClosedS, ErrS},
               timeout=Timeout,
               on_close=CloseCallback,
               on_timeout=TimeoutCallback}) ->
     receive
-        {OKS, PortS, Data} ->
+        {OKS, MatchS, Data} ->
             TransC:send(PortC, Data),
             TransS:setopts(PortS, [{active,once}]),
             loop(S);
-        {OKC, _PortC, Data} ->
+        {OKC, MatchC, Data} ->
             TransS:send(PortS, Data),
             TransC:setopts(PortC, [{active,once}]),
             loop(S);
-        {ClosedS, PortS} = Event ->
-            CloseCallback(TransC, PortC, TransS, PortS, Event);
-        {ClosedC, _PortC} = Event ->
-            CloseCallback(TransC, PortC, TransS, PortS, Event);
-        {ErrS, PortS, _Reason} = Event ->
-            CloseCallback(TransC, PortC, TransS, PortS, Event);
-        {ErrC, _PortC, _Reason} = Event ->
-            CloseCallback(TransC, PortC, TransS, PortS, Event)
+        {ClosedS, MatchS} ->
+            CloseCallback(TransC, PortC, TransS, PortS, {ClosedS, PortS});
+        {ClosedC, MatchC} ->
+            CloseCallback(TransC, PortC, TransS, PortS, {ClosedC, PortC});
+        {ErrS, MatchS, Reason} ->
+            CloseCallback(TransC, PortC, TransS, PortS, {ErrS, PortS, Reason});
+        {ErrC, MatchC, Reason} ->
+            CloseCallback(TransC, PortC, TransS, PortS, {ErrC, PortC, Reason})
     after Timeout ->
         TimeoutCallback(TransC, PortC, TransS, PortS, timeout)
+    end.
+
+port(_Transport, Port) when is_port(Port) -> Port;
+port(Transport, Port) ->
+    case erlang:function_exported(Transport, match_port, 1) of
+        true -> Transport:match_port(Port);
+        false -> error({match_impossible, Port})
     end.
