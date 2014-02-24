@@ -49,8 +49,7 @@ maybe_healthcheck(<<"/healthcheck">>, Req, Env) ->
             Req3 = vegur_utils:set_request_status(healthcheck, Req2),
             {halt, Req3};
         {_, Req1} ->
-            Req2 = vegur_utils:set_request_status(healthcheck, Req1),
-            {ok, Req2, Env}
+            {ok, Req1, Env}
     end;
 maybe_healthcheck(_, Req, Env) ->
     {ok, Req, Env}.
