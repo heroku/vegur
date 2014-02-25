@@ -8,6 +8,7 @@
          ,add_or_replace_header/3
          ,delete_all_headers/2
          ,set_request_status/2
+         ,get_request_status/1
          ,handle_error/2
          ,peer_ip_port/1
         ]).
@@ -104,6 +105,12 @@ set_response(Headers, Body, Req) ->
       Req :: cowboy_req:req().
 set_request_status(Status, Req) ->
     cowboy_req:set_meta(status, Status, Req).
+
+-spec get_request_status(Req) -> {Status, Req} when
+      Status :: vegur_interface:terminate_reason(),
+      Req :: cowboy_req:req().
+get_request_status(Req) ->
+    cowboy_req:meta(status, Req).
 
 -spec handle_error(Reason, Req) -> {HttpCode, Req} when
       Reason :: atom(),
