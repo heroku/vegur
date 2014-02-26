@@ -9,7 +9,9 @@
          ,upgrade/3
          ,relay/4]).
 
--type error_blame() :: upstream|downstream.
+-type error_blame() :: 'undefined' % either/unknown
+                     | 'upstream' % client
+                     | 'downstream'. % back-end
 
 -spec backend_connection(ServiceBackend) ->
                                 {connected, Client} |
@@ -210,11 +212,20 @@ upgrade(Headers, Req, BackendClient) ->
         ok = vegur_bytepipe:cb_close(TransC, PortC, TransS, PortS, Event),
         BackendClient1
     end,
+    TimeoutFun = fun(TransC, PortC, TransS, PortS, Event) ->
+        BackendClient1 = CloseFun(TransC, PortC, TransS, PortS, Event),
+        {timeout, BackendClient1}
+    end,
     Timeout = timer:seconds(vegur_app:config(idle_timeout, 55)),
-    BackendClient1 = vegur_bytepipe:become(Client, Server, [{timeout, Timeout},
-                                                            {on_close, CloseFun},
-                                                            {on_timeout, CloseFun}]),
-    {done, Req3, backend_close(BackendClient1)}.
+    Res = vegur_bytepipe:become(Client, Server, [{timeout, Timeout},
+                                                 {on_close, CloseFun},
+                                                 {on_timeout, TimeoutFun}]),
+    case Res of
+        {timeout, BackendClient1} ->
+            {timeout, Req3, BackendClient1};
+        BackendClient1 ->
+            {done, Req3, backend_close(BackendClient1)}
+    end.
 
 -spec relay(Status, Headers, Req, Client) ->
                    {ok, Req, Client} |
