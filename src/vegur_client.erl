@@ -74,7 +74,7 @@
           socket = undefined :: undefined | inet:socket(),
           transport = undefined :: module(),
           connect_timeout = 3100 :: timeout(), %% @todo Configurable.
-          read_timeout = 5000 :: timeout(), %% @todo Configurable.
+          read_timeout = timer:seconds(vegur_app:config(downstream_timeout, 30)) :: timeout(),
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
           version = 'HTTP/1.1' :: cowboy:http_version(),
