@@ -18,6 +18,7 @@ groups() ->
                                 ,via
                                 ,connect_time_header
                                 ,route_time_header
+                                ,host
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
                                  ,request_statistics
@@ -217,6 +218,18 @@ request_statistics(Config) ->
             after 5000 ->
                     throw(timeout)
             end
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
+host(Config) ->
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req} ->
+            {<<"localhost">>, _} = cowboy_req:header(<<"host">>, Req)
     after 5000 ->
             throw(timeout)
     end,
