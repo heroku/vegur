@@ -73,7 +73,7 @@
           opts = [] :: [any()],
           socket = undefined :: undefined | inet:socket(),
           transport = undefined :: module(),
-          connect_timeout = 3100 :: timeout(), %% @todo Configurable.
+          connect_timeout = timer:seconds(vegur_app:config(downstream_connect_timeout, 5)) :: timeout(),
           read_timeout = timer:seconds(vegur_app:config(downstream_timeout, 30)) :: timeout(),
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
