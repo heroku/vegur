@@ -108,25 +108,23 @@ parse_request(Req) ->
     {Method, Req2} = cowboy_req:method(Req),
     {Path, Req3} = cowboy_req:path(Req2),
     {Host, Req4} = cowboy_req:host(Req3),
-    {Port, Req5} = cowboy_req:port(Req4),
-    {Headers, Req6} = cowboy_req:headers(Req5),
-    Url = iolist_to_binary([Host, ":", integer_to_list(Port)]),
+    {Headers, Req5} = cowboy_req:headers(Req4),
     %% We handle the request differently based on whether it's chunked,
     %% has a known length, or if it has no body at all.
     {Body, Req7} = 
-        case cowboy_req:has_body(Req6) of
+        case cowboy_req:has_body(Req5) of
             true ->
-                case cowboy_req:body_length(Req6) of
-                    {undefined, Req8} ->
-                        {{stream, chunked}, Req8};
-                    {Length, Req8} ->
-                        {{stream, Length}, Req8}
+                case cowboy_req:body_length(Req5) of
+                    {undefined, Req6} ->
+                        {{stream, chunked}, Req6};
+                    {Length, Req6} ->
+                        {{stream, Length}, Req6}
                 end;
             false ->
-                {<<>>, Req6}
+                {<<>>, Req5}
         end,
-    {Headers2, Req9} = add_proxy_headers(Headers, Req7),
-    {{Method, Headers2, Body, Path, Url}, Req9}.
+    {Headers2, Req8} = add_proxy_headers(Headers, Req7),
+    {{Method, Headers2, Body, Path, Host}, Req8}.
 
 add_proxy_headers(Headers, Req) ->
     {Headers1, Req1} = add_request_id(Headers, Req),
