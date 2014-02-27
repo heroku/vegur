@@ -113,7 +113,7 @@ get_request_status(Req) ->
     cowboy_req:meta(status, Req).
 
 -spec handle_error(Reason, Req) -> {HttpCode, Req} when
-      Reason :: atom(),
+      Reason :: atom() | {Blame::atom(), term()},
       HttpCode :: cowboy:http_status(),
       Req :: cowboy_req:req().
 handle_error(Reason, Req) ->

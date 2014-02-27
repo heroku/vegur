@@ -30,9 +30,9 @@ finally(Return) ->
         {error, _Code, Req0} -> Req0
     end,
     case vegur_utils:get_request_status(Req) of
-        healthcheck -> % do not report back
+        {healthcheck,_} -> % do not report back
             Req;
-        healthcheck_error -> % do not report back
+        {healthcheck_error,_} -> % do not report back
             Req;
         _ -> % regular request, do report back
             {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
