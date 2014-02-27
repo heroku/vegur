@@ -43,7 +43,7 @@ finally(Return) ->
                     Req3;
                 _ ->
                     {ok, Req4, HandlerState2} = InterfaceModule:checkin_service(
-                        DomainGroup, Service, normal, Req3, HandlerState
+                        DomainGroup, Service, connected, normal, Req3, HandlerState
                     ),
                     vegur_utils:set_handler_state(HandlerState2, Req4)
             end,
