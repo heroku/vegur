@@ -115,12 +115,14 @@ connect(Transport, Host, Port,
         when is_atom(Transport),
             (is_list(Host) orelse is_tuple(Host)),
             is_integer(Port) ->
-    case Transport:connect(Host, Port, Opts, Timeout) of
+    try Transport:connect(Host, Port, Opts, Timeout) of
         {ok, Socket} ->
             {ok, Client#client{state=request,
                                socket=Socket,
                                transport=Transport}};
         {error, _} = Err -> Err
+    catch
+        error:Reason -> {error, Reason}
     end.
 
 raw_request(Data, Client=#client{state=response_body}) ->
