@@ -31,9 +31,9 @@ finally(Return) ->
     end,
     case vegur_utils:get_request_status(Req) of
         {healthcheck,_} -> % do not report back
-            Req;
+            Return;
         {healthcheck_error,_} -> % do not report back
-            Req;
+            Return;
         _ -> % regular request, do report back
             {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
             {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
