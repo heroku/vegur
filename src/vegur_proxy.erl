@@ -240,8 +240,8 @@ relay(Status, HeadersRaw, Req, Client) ->
     %% Dispatch data from vegur_client down into the cowboy connection, either
     %% in batch or directly.
     Headers = case connection_type(Status, Req, Client) of
-        keepalive -> add_connection_keepalive_header(response_headers(HeadersRaw));
-        close  -> add_connection_close_header(response_headers(HeadersRaw))
+        keepalive -> add_via(add_connection_keepalive_header(response_headers(HeadersRaw)));
+        close  -> add_via(add_connection_close_header(response_headers(HeadersRaw)))
     end,
     case vegur_client:body_type(Client) of
         {content_size, N} when N =< ?BUFFER_LIMIT ->
@@ -573,3 +573,6 @@ add_connection_upgrade_header(Hdrs) ->
         true -> Hdrs;
         false -> [{<<"connection">>, <<"upgrade">>} | Hdrs]
     end.
+
+add_via(Hdrs) ->
+    [{<<"via">>, <<"vegur">>} | Hdrs].
