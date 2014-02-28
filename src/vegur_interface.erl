@@ -6,6 +6,7 @@
 -type queue_length() :: non_neg_integer().
 -type wait_time() :: non_neg_integer().
 -type service_backend() :: {inet:ip_address(), inet:port_number()}.
+-type phase() :: connecting | connected.
 -type service_state() :: normal|term().
 -type handler_state() :: term().
 -type terminate_reason() :: healthcheck|healthcheck_error|normal|error.
@@ -23,6 +24,7 @@
               wait_time/0,
               service_backend/0,
               handler_state/0,
+              phase/0,
               service_state/0,
               terminate_reason/0,
               stat/0,
@@ -55,10 +57,11 @@
       Upstream :: upstream(),
       HandlerState :: handler_state().
 
--callback checkin_service(DomainGroup, Service, ServiceState, Upstream, HandlerState) ->
+-callback checkin_service(DomainGroup, Service, Phase, ServiceState, Upstream, HandlerState) ->
     {ok, Upstream, HandlerState} when
       DomainGroup :: domain_group(),
       Service :: service(),
+      Phase :: phase(),
       ServiceState :: service_state(),
       Upstream :: upstream(),
       HandlerState :: handler_state().

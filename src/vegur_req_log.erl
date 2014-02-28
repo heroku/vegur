@@ -193,6 +193,8 @@ event(EventType, Log, Default) ->
     case fetch_event_stamps(EventType, Log) of
         [T1] ->
             T1;
+        List = [_|_] -> % pick the newest one
+            hd(lists:reverse(List));
         _ ->
             Default
     end.

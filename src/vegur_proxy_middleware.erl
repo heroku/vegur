@@ -72,8 +72,13 @@ handle_backend_response(Code, RespHeaders, Req, State) ->
     end.
 
 upgrade_request(101, Headers, Req, #state{backend_client=BackendClient}=State) ->
-    {done, Req1, BackendClient1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
-    {ok, Req1, State#state{backend_client=BackendClient1}};
+    {Result, Req1, BackendClient1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
+    case Result of
+        timeout ->
+            {error, undefined, timeout, store_byte_counts(Req, BackendClient1)};
+        done ->
+            {ok, Req1, State#state{backend_client=BackendClient1}}
+    end;
 upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
 

@@ -43,7 +43,7 @@ handle_service(Service, Req, Env) ->
             {ok, Req6, Env};
         {{error, Reason}, Req4} ->
             {DomainGroup, Req5} = cowboy_req:meta(domain_group, Req4),
-            {ok, Req6, HandlerState2} = InterfaceModule:checkin_service(DomainGroup, Service, Reason, Req5, HandlerState1),
+            {ok, Req6, HandlerState2} = InterfaceModule:checkin_service(DomainGroup, Service, connecting, Reason, Req5, HandlerState1),
             Req7 = vegur_utils:set_handler_state(HandlerState2, Req6),
             lookup_service(Req7, Env)
     end.

@@ -6,7 +6,7 @@
          terminate/3,
          lookup_domain_name/3,
          checkout_service/3,
-         checkin_service/5,
+         checkin_service/6,
          service_backend/3,
          feature/2,
          error_page/4]).
@@ -42,14 +42,15 @@ lookup_domain_name(_Domain, Upstream, HandlerState) ->
 checkout_service(_DomainGroup, Upstream, HandlerState) ->
     {service, service, Upstream, HandlerState}.
 
--spec checkin_service(DomainGroup, Service, ServiceState, Upstream, HandlerState) ->
+-spec checkin_service(DomainGroup, Service, Phase, ServiceState, Upstream, HandlerState) ->
                              {ok, Upstream, HandlerState} when
       DomainGroup :: vegur_interface:domain_group(),
       Service :: vegur_interface:service(),
+      Phase :: vegur_interface:phase(),
       ServiceState :: vegur_interface:service_state(),
       HandlerState :: vegur_interface:handler_state(),
       Upstream :: vegur_interface:upstream().
-checkin_service(_DomainGroup, _Service, _ServiceState, Upstream, HandlerState) ->
+checkin_service(_DomainGroup, _Service, _Phase, _ServiceState, Upstream, HandlerState) ->
     {ok, Upstream, HandlerState}.
 
 -spec feature(Feature, HandlerState) -> {enabled | disabled, HandlerState} when
