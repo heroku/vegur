@@ -29,28 +29,21 @@ finally(Return) ->
         {halt, Req0} -> Req0;
         {error, _Code, Req0} -> Req0
     end,
-    case vegur_utils:get_request_status(Req) of
-        {healthcheck,_} -> % do not report back
-            Return;
-        {healthcheck_error,_} -> % do not report back
-            Return;
-        _ -> % regular request, do report back
-            {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-            {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
-            {Service, Req3} = cowboy_req:meta(service, Req2),
-            ReqFinal = case {DomainGroup, Service} of
-                {undefined, undefined} -> %% Never checked out anything
-                    Req3;
-                _ ->
-                    {ok, Req4, HandlerState2} = InterfaceModule:checkin_service(
-                        DomainGroup, Service, connected, normal, Req3, HandlerState
-                    ),
-                    vegur_utils:set_handler_state(HandlerState2, Req4)
-            end,
-            %% Call the logger
-            Final = case Return of
+    {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
+    {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
+    {Service, Req3} = cowboy_req:meta(service, Req2),
+    ReqFinal = case {DomainGroup, Service} of
+                   {undefined, undefined} -> %% Never checked out anything
+                       Req3;
+                   _ ->
+                       {ok, Req4, HandlerState2} = InterfaceModule:checkin_service(
+                                                     DomainGroup, Service, connected, normal, Req3, HandlerState
+                                                    ),
+                       vegur_utils:set_handler_state(HandlerState2, Req4)
+               end,
+    %% Call the logger
+    Final = case Return of
                 {halt, _} -> {halt, ReqFinal};
                 {error, Code, _} -> {error, Code, ReqFinal}
             end,
-            vegur_request_log:done(Final)
-    end.
+    vegur_request_log:done(Final).
