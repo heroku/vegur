@@ -45,8 +45,7 @@ config() ->
     application:get_all_env(?APP).
 
 middleware_stack() ->
-    [vegur_healthcheck_middleware
-    ,vegur_validate_headers
+    [vegur_validate_headers
     ,vegur_lookup_domain_middleware
     ,vegur_continue_middleware
     ,vegur_upgrade_middleware

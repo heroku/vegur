@@ -21,9 +21,6 @@ groups() ->
                                    ,header_line_limits
                                    ,header_count_limits
                                    ,invalid_expect
-                                   ,elb_healthcheck
-                                   ,lockstep_healthcheck
-                                   ,healthcheck_endpoint
                                    ,absolute_uri
                                   ]},
      {vegur_request_mocks, [], [herokuapp_redirect
@@ -119,8 +116,6 @@ init_per_testcase(header_count_limits, Config) ->
     Config;
 init_per_testcase(invalid_expect, Config) ->
     Config;
-init_per_testcase(elb_healthcheck, Config) ->
-    [{elb_endpoint, <<"F3DA8257-B28C-49DF-AACD-8171464E1D1D">>} | Config];
 init_per_testcase(herokuapp_redirect, Config) ->
     meck:expect(vegur_stub, lookup_domain_name,
                 fun(Domain, Req, HandlerState) ->
@@ -267,34 +262,6 @@ invalid_expect(Config) ->
     Port = ?config(vegur_port, Config),
     Url = "http://localhost:" ++ integer_to_list(Port),
     {ok, {{_, 417, _}, _, _}} = httpc:request(get, {Url, [{"expect", "100-stay"}]}, [], []),
-    Config.
-
-elb_healthcheck(Config) ->
-    % Make a request the upstream healthcheck. @todo To ELBs set a Host header for healthchecks?
-    % if they do we should check for it in the handlers.
-    Endpoint = ?config(elb_endpoint, Config),
-    Port = ?config(vegur_port, Config),
-    Url = "http://localhost:" ++ integer_to_list(Port) ++ "/" ++ binary_to_list(Endpoint),
-    {ok, {{_, 200, _}, _, _}} = httpc:request(Url),
-    application:set_env(vegur, proxy_deny, true),
-    {ok, {{_, 500, _}, _, _}} = httpc:request(Url),
-    Config.
-
-lockstep_healthcheck(Config) ->
-    % Make a request to hermes.localhost/lockstep, it calls the stubbed out healthchecks module
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/lockstep",
-    {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes.localhost"}]}, [], []),
-    application:set_env(vegur, lockstep_fresh, false),
-    {ok, {{_, 500, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes.localhost"}]}, [], []),
-    Config.
-
-healthcheck_endpoint(Config) ->
-    % Make a request to hermes.HEROKUAPP/healthcheck. I have *no* idea why this endpoint exists
-    Port = ?config(vegur_port, Config),
-    Domain = binary_to_list(vegur_app:config(herokuapp_domain)),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/healthcheck",
-    {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes."++Domain}]}, [], []),
     Config.
 
 absolute_uri(Config) ->
