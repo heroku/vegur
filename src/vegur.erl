@@ -30,7 +30,12 @@
                   {max_header_value_length, non_neg_integer()}|
                   {max_headers, non_neg_integer()}|
                   {timeout, ms()}|
-                  {middlewares, [middleware()]}.
+                  {middlewares, [middleware()]}|
+                  {request_id_header, binary()}|
+                  {connect_time_header, binary()}|
+                  {route_time_header, binary()}|
+                  {request_id_max_size, non_neg_integer()}.
+
 
 -spec start_http(PortNumber, Interface, Options) ->
                         {ok, pid()}|no_return() when
