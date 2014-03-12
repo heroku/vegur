@@ -30,15 +30,14 @@ init_per_suite(Config) ->
     {ok, Cowboy} = application:ensure_all_started(cowboy),
     {ok, Inets} = application:ensure_all_started(inets),
     {ok, Meck} = application:ensure_all_started(meck),
-    application:load(vegur),
     VegurPort = 9333,
-    application:set_env(vegur, http_listen_port, VegurPort),
-    {ok, VegurStarted} = application:ensure_all_started(vegur),
+    {ok, _} = vegur:start_http(VegurPort, vegur_stub, []),
     mock_through(),
-    [{started, Cowboy++Inets++Meck++VegurStarted},
+    [{started, Cowboy++Inets++Meck},
      {vegur_port, VegurPort} | Config].
 
 end_per_suite(Config) ->
+    vegur:stop_http(),
     [application:stop(App) || App <- ?config(started, Config)],
     Config.
 
@@ -77,28 +76,28 @@ request_id(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {RequestId, _} = cowboy_req:header(vegur_app:config(request_id_name), Req),
-            valid = erequest_id:validate(RequestId, vegur_app:config(request_id_max_size))
+            {RequestId, _} = cowboy_req:header(vegur_utils:config(request_id_name), Req),
+            valid = erequest_id:validate(RequestId, vegur_utils:config(request_id_max_size))
     after 5000 ->
             throw(timeout)
     end,
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"},
-                                                          {binary_to_list(vegur_app:config(request_id_name)),
+                                                          {binary_to_list(vegur_utils:config(request_id_name)),
                                                            "testid-with-a-valid-length"}]}, [], []),
     receive
         {req, Req1} ->
-            {<<"testid-with-a-valid-length">>, _} = cowboy_req:header(vegur_app:config(request_id_name), Req1)
+            {<<"testid-with-a-valid-length">>, _} = cowboy_req:header(vegur_utils:config(request_id_name), Req1)
     after 5000 ->
             throw(timeout)
     end,
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"},
-                                                          {binary_to_list(vegur_app:config(request_id_name)),
+                                                          {binary_to_list(vegur_utils:config(request_id_name)),
                                                            "testid??"}]}, [], []),
     receive
         {req, Req2} ->
-            {RequestId1, _} = cowboy_req:header(vegur_app:config(request_id_name), Req2),
+            {RequestId1, _} = cowboy_req:header(vegur_utils:config(request_id_name), Req2),
             true = RequestId1 /= <<"testid??">>,
-            valid = erequest_id:validate(RequestId1, vegur_app:config(request_id_max_size))
+            valid = erequest_id:validate(RequestId1, vegur_utils:config(request_id_max_size))
     after 5000 ->
             throw(timeout)
     end,
@@ -162,7 +161,7 @@ connect_time_header(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {Res, _} = cowboy_req:header(vegur_app:config(connect_time_header), Req),
+            {Res, _} = cowboy_req:header(vegur_utils:config(connect_time_header), Req),
             true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)
@@ -175,7 +174,7 @@ route_time_header(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {Res, _} = cowboy_req:header(vegur_app:config(route_time_header), Req),
+            {Res, _} = cowboy_req:header(vegur_utils:config(route_time_header), Req),
             true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)
@@ -193,7 +192,7 @@ service_try_again(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {Res, _} = cowboy_req:header(vegur_app:config(connect_time_header), Req),
+            {Res, _} = cowboy_req:header(vegur_utils:config(connect_time_header), Req),
             true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)

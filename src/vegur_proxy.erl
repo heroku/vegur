@@ -77,7 +77,7 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
     end.
 
 negotiate_continue(Body, Req, BackendClient) ->
-    Timeout = timer:seconds(vegur_app:config(idle_timeout, 55)),
+    Timeout = timer:seconds(vegur_utils:config(idle_timeout, 55)),
     negotiate_continue(Body, Req, BackendClient, Timeout).
 
 negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
@@ -216,7 +216,7 @@ upgrade(Headers, Req, BackendClient) ->
         BackendClient1 = CloseFun(TransC, PortC, TransS, PortS, Event),
         {timeout, BackendClient1}
     end,
-    Timeout = timer:seconds(vegur_app:config(idle_timeout, 55)),
+    Timeout = timer:seconds(vegur_utils:config(idle_timeout, 55)),
     Res = vegur_bytepipe:become(Client, Server, [{timeout, Timeout},
                                                  {on_close, CloseFun},
                                                  {on_timeout, TimeoutFun}]),

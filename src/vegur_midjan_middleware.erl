@@ -11,7 +11,7 @@
       Env :: cowboy_middleware:env(),
       StatusCode :: cowboy:http_status().
 execute(Req, Env) ->
-    case midjan_core:start({Req, Env}, [{ordered, vegur_app:middleware_stack()},
+    case midjan_core:start({Req, Env}, [{ordered, vegur_utils:config(middleware_stack)},
                                         {translator, vegur_midjan_translator},
                                         {finally, fun finally/1}
                                        ]) of

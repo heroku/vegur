@@ -140,7 +140,7 @@ add_proxy_headers(Headers, Req) ->
 
 add_connect_time(Headers, Req) ->
     {Time, Req1} = vegur_request_log:get_log_value(connect_time, Req),
-    {vegur_utils:add_or_replace_header(vegur_app:config(connect_time_header),
+    {vegur_utils:add_or_replace_header(vegur_utils:config(connect_time_header),
                                        integer_to_list(Time), Headers),
      Req1}.
 
@@ -152,12 +152,12 @@ add_total_route_time(Headers, Req) ->
             {Time1, Req2} ->
                 {integer_to_list(Time1), Req2}
         end,
-    {vegur_utils:add_or_replace_header(vegur_app:config(route_time_header),
+    {vegur_utils:add_or_replace_header(vegur_utils:config(route_time_header),
                                        Time, Headers), Req1}.
 
 add_request_id(Headers, Req) ->
     {RequestId, Req1} = cowboy_req:meta(request_id, Req),
-    {vegur_utils:add_or_replace_header(vegur_app:config(request_id_name), RequestId, Headers),
+    {vegur_utils:add_or_replace_header(vegur_utils:config(request_id_name), RequestId, Headers),
      Req1}.
 
 add_forwarded(Headers, Req) ->
@@ -181,4 +181,4 @@ add_via(Headers, Req) ->
 
 -spec get_via_value() -> binary().
 get_via_value() ->
-    vegur_app:config(instance_name, <<"vegur">>).
+    vegur_utils:config(instance_name, <<"vegur">>).
