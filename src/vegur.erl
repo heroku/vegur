@@ -55,17 +55,23 @@ start_proxy(Port, Interface, Config) ->
     ProxyRef = proplists:get_value(ref, Config, ?PROXY_REF),
     start(proxy, ProxyRef, Port, Interface, Config).
 
+-spec stop_http() -> ok.
 stop_http() ->
     stop_http(?HTTP_REF).
 
+-spec stop_proxy() -> ok.
 stop_proxy() ->
     stop_proxy(?PROXY_REF).
 
+-spec stop_http(atom()) -> ok.
 stop_http(Ref) ->
-    cowboy:stop_listener(Ref).
+    ok = cowboy:stop_listener(Ref),
+    ok.
 
+-spec stop_proxy(atom()) -> ok.
 stop_proxy(Ref) ->
-    ranch:stop_listener(Ref).
+    ok = ranch:stop_listener(Ref),
+    ok.
 
 -spec default_middlewares() -> [middleware()].
 default_middlewares() ->
