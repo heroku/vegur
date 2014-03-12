@@ -65,13 +65,11 @@ stop_proxy() ->
 
 -spec stop_http(atom()) -> ok.
 stop_http(Ref) ->
-    ok = cowboy:stop_listener(Ref),
-    ok.
+    cowboy:stop_listener(Ref).
 
 -spec stop_proxy(atom()) -> ok.
 stop_proxy(Ref) ->
-    ok = ranch:stop_listener(Ref),
-    ok.
+    ranch:stop_listener(Ref).
 
 -spec default_middlewares() -> [middleware()].
 default_middlewares() ->
