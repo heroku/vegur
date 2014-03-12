@@ -26,7 +26,7 @@
 new(Req) ->
     Now = os:timestamp(),
     %% Get a request ID
-    {RequestIdRaw, Req1} = cowboy_req:header(vegur_app:config(request_id_name), Req),
+    {RequestIdRaw, Req1} = cowboy_req:header(vegur_utils:config(request_id_name), Req),
     RequestId = erequest_id:ensure(RequestIdRaw,
                                    ?REQ_ID_MIN_LENGTH,
                                    ?REQ_ID_MAX_LENGTH),

@@ -7,10 +7,10 @@
 %%%===================================================================
 
 all() ->
-    [{group, vegur_request_handling},
-     {group, vegur_request_mocks},
-     {group, vegur_request_upgrade},
-     {group, vegur_request_lookups}
+    [{group, vegur_request_handling}
+     ,{group, vegur_request_mocks}
+     ,{group, vegur_request_upgrade}
+     ,{group, vegur_request_lookups}
     ].
 
 groups() ->
@@ -21,9 +21,6 @@ groups() ->
                                    ,header_line_limits
                                    ,header_count_limits
                                    ,invalid_expect
-                                   ,elb_healthcheck
-                                   ,lockstep_healthcheck
-                                   ,healthcheck_endpoint
                                    ,absolute_uri
                                   ]},
      {vegur_request_mocks, [], [herokuapp_redirect
@@ -49,17 +46,18 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    application:load(vegur),
     {ok, Cowboy} = application:ensure_all_started(cowboy),
     {ok, Inets} = application:ensure_all_started(inets),
-    application:load(vegur),
-    HstubPort = 9333,
-    application:set_env(vegur, http_listen_port, HstubPort),
-    {ok, HstubStarted} = application:ensure_all_started(vegur),
-    [{started, Cowboy++Inets++HstubStarted},
-     {vegur_port, HstubPort} | Config].
+    VegurPort = 9333,
+    {ok, _} = vegur:start_http(VegurPort, vegur_stub, []),
+    [{started, Cowboy++Inets},
+     {vegur_port, VegurPort} | Config].
 
 end_per_suite(Config) ->
     meck:unload(),
+    vegur:stop_http(),
+    application:unload(vegur),
     [application:stop(App) || App <- lists:reverse(?config(started, Config))],
     ok.
 
@@ -86,7 +84,9 @@ init_per_group(_, Config) ->
     Config.
 
 end_per_group(vegur_request_mocks, Config) ->
-    [application:stop(App) || App <- lists:reverse(?config(meck_started, Config))],
+    meck:unload(),
+    [application:stop(App)
+     || App <- lists:reverse(?config(meck_started, Config))],
     Config;
 end_per_group(vegur_request_upgrade, Config) ->
     ok = unmock_middlewares(),
@@ -119,17 +119,15 @@ init_per_testcase(header_count_limits, Config) ->
     Config;
 init_per_testcase(invalid_expect, Config) ->
     Config;
-init_per_testcase(elb_healthcheck, Config) ->
-    [{elb_endpoint, <<"F3DA8257-B28C-49DF-AACD-8171464E1D1D">>} | Config];
 init_per_testcase(herokuapp_redirect, Config) ->
     meck:expect(vegur_stub, lookup_domain_name,
                 fun(Domain, Req, HandlerState) ->
-                        RootDomainToReplace = vegur_app:config(heroku_domain),
-                        RootDomainToReplaceWith = vegur_app:config(herokuapp_domain),
+                        RootDomainToReplace = <<"oldstub">>,
+                        RootDomainToReplaceWith = <<"vegur">>,
                         NewDomain = re:replace(Domain, RootDomainToReplace, RootDomainToReplaceWith),
                         {redirect, herokuapp_redirect, [], NewDomain, Req, HandlerState}
                 end),
-    HerokuDomain = vegur_app:config(heroku_domain),
+    HerokuDomain = <<"oldstub">>,
     TestDomain = <<"vegurtest.", HerokuDomain/binary>>,
     [{test_domain, TestDomain} | Config];
 init_per_testcase(maintainance_mode_on, Config) ->
@@ -269,34 +267,6 @@ invalid_expect(Config) ->
     {ok, {{_, 417, _}, _, _}} = httpc:request(get, {Url, [{"expect", "100-stay"}]}, [], []),
     Config.
 
-elb_healthcheck(Config) ->
-    % Make a request the upstream healthcheck. @todo To ELBs set a Host header for healthchecks?
-    % if they do we should check for it in the handlers.
-    Endpoint = ?config(elb_endpoint, Config),
-    Port = ?config(vegur_port, Config),
-    Url = "http://localhost:" ++ integer_to_list(Port) ++ "/" ++ binary_to_list(Endpoint),
-    {ok, {{_, 200, _}, _, _}} = httpc:request(Url),
-    application:set_env(vegur, proxy_deny, true),
-    {ok, {{_, 500, _}, _, _}} = httpc:request(Url),
-    Config.
-
-lockstep_healthcheck(Config) ->
-    % Make a request to hermes.localhost/lockstep, it calls the stubbed out healthchecks module
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/lockstep",
-    {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes.localhost"}]}, [], []),
-    application:set_env(vegur, lockstep_fresh, false),
-    {ok, {{_, 500, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes.localhost"}]}, [], []),
-    Config.
-
-healthcheck_endpoint(Config) ->
-    % Make a request to hermes.HEROKUAPP/healthcheck. I have *no* idea why this endpoint exists
-    Port = ?config(vegur_port, Config),
-    Domain = binary_to_list(vegur_app:config(herokuapp_domain)),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/healthcheck",
-    {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "hermes."++Domain}]}, [], []),
-    Config.
-
 absolute_uri(Config) ->
     % Make a request with a absolute URI. This is a valid request (used for CONNECT among other things
     % but it is not supported by us, we expect a 400 back. This is handled by Cowboy.
@@ -344,6 +314,7 @@ upgrade_websockets(Config) ->
                                                         {"connection", "Upgrade Keep-Alive"},
                                                         {"sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="}
                                                        ]}, [], []),
+    ct:pal("Request over"),
     true = X < 300,
     Config.
 
@@ -436,12 +407,16 @@ mock_service_reply(error, Reason) ->
                 end).
 
 mock_middlewares(Middlewares) ->
-    meck:new(vegur_app, [no_link, passthrough]),
-    meck:expect(vegur_app, middleware_stack, fun() -> Middlewares end),
+    meck:new(vegur_utils, [no_link, passthrough]),
+    meck:expect(vegur_utils, config, fun(middleware_stack) ->
+                                             Middlewares;
+                                        (Other) ->
+                                             meck:passthrough([Other])
+                                     end),
     ok.
 
 unmock_middlewares() ->
-    meck:unload(vegur_app).
+    meck:unload(vegur_utils).
 
 set_middlewares(RanchRef, Middlewares) ->
     OldOpts = ranch:get_protocol_options(RanchRef),
