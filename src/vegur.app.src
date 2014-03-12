@@ -7,5 +7,11 @@
      ,stdlib
      ,cowboy
     ]}
-  ,{env, []}
+  ,{env, [{acceptors, 100}
+          ,{max_connections, 100000}
+          ,{request_id_name, <<"x-request-id">>}
+          ,{connect_time_header, <<"connect-time">>}
+          ,{route_time_header, <<"total-route-time">>}
+          ,{request_id_max_size, 200}
+         ]}
  ]}.

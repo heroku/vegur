@@ -88,13 +88,17 @@ set_config(Key, Val) ->
 
 %% Internal
 start(Type, Ref, Port, Interface, Config) ->
-    {Acceptors, Config1} = get_default(acceptors, Config, 100),
-    {MaxConnections, Config2} = get_default(max_connections, Config1, 100000),
+    {Acceptors, Config1} = get_default(acceptors, Config, vegur_utils:config(acceptors)),
+    {MaxConnections, Config2} = get_default(max_connections, Config1, vegur_utils:config(max_connections)),
     {Middlewares, Config3} = get_default(middlewares, Config2, default_middlewares()),
-    {RequestIdName, Config4} = get_default(request_id_header, Config3, <<"x-request-id">>),
-    {ConnectTime, Config5} = get_default(connect_time_header, Config4, <<"connect-time">>),
-    {RouteTimeHeader, Config6} = get_default(route_time_header, Config5, <<"total-route-time">>),
-    {RequestIdMaxSize, Config7} = get_default(request_id_max_size, Config6, 200),
+    {RequestIdName, Config4} = get_default(request_id_header, Config3,
+                                           vegur_utils:config(request_id_name)),
+    {ConnectTime, Config5} = get_default(connect_time_header, Config4,
+                                         vegur_utils:config(connect_time_header)),
+    {RouteTimeHeader, Config6} = get_default(route_time_header, Config5,
+                                             vegur_utils:config(route_time_header)),
+    {RequestIdMaxSize, Config7} = get_default(request_id_max_size, Config6,
+                                              vegur_utils:config(request_id_max_size)),
     ok = set_config(middleware_stack, Middlewares),
     ok = set_config(interface_module, Interface),
     ok = set_config(request_id_name, RequestIdName),

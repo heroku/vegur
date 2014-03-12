@@ -46,6 +46,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    application:load(vegur),
     {ok, Cowboy} = application:ensure_all_started(cowboy),
     {ok, Inets} = application:ensure_all_started(inets),
     VegurPort = 9333,
@@ -56,6 +57,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     meck:unload(),
     vegur:stop_http(),
+    application:unload(vegur),
     [application:stop(App) || App <- lists:reverse(?config(started, Config))],
     ok.
 

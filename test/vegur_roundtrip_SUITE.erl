@@ -38,6 +38,7 @@ groups() -> [{continue, [], [
 %%% Init %%%
 %%%%%%%%%%%%
 init_per_suite(Config) ->
+    application:load(vegur),
     meck:new(vegur_stub, [passthrough, no_link]),
     meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
     meck:expect(vegur_stub, checkout_service, fun(_, Req, HandlerState) -> {service, test_service, Req, HandlerState} end),
@@ -49,7 +50,9 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     [application:stop(App) || App <- lists:reverse(?config(started, Config))],
     [application:set_env(vegur, K, V) || {K,V} <- ?config(vegur_env, Config)],
-    [vegur_stub] = meck:unload().
+    [vegur_stub] = meck:unload(),
+    application:unload(vegur),
+    Config.
 
 init_per_testcase(bypass, Config0) ->
     Config = init_per_testcase(default, Config0),

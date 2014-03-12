@@ -26,6 +26,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    application:load(vegur),
     meck:new(vegur_stub, [no_link, passthrough]),
     {ok, Cowboy} = application:ensure_all_started(cowboy),
     {ok, Inets} = application:ensure_all_started(inets),
@@ -38,6 +39,7 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     vegur:stop_http(),
+    application:unload(vegur),
     [application:stop(App) || App <- ?config(started, Config)],
     Config.
 
