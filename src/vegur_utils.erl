@@ -11,6 +11,8 @@
          ,get_request_status/1
          ,handle_error/2
          ,peer_ip_port/1
+         ,raw_cowboy_socket/1
+         ,raw_cowboy_sockbuf/1
         ]).
 
 -spec get_interface_module(Req) ->
@@ -141,3 +143,22 @@ peer_ip_port(Req) ->
             {Port, Req4} = cowboy_req:port(Req3),
             {{PeerIp, Port}, Req4}
     end.
+
+-spec raw_cowboy_socket(Req) ->  {{Transport, Socket}, Req} when
+    Transport :: module(),
+    Socket :: any(),
+    Req :: cowboy_req:req().
+raw_cowboy_socket(Req) ->
+    [Transport, Socket] = cowboy_req:get([transport, socket], Req),
+    {{Transport, Socket}, cowboy_req:set([{resp_state, done}], Req)}.
+
+-spec raw_cowboy_sockbuf(Req) -> {{Transport, Socket}, Buffer, Req} when
+    Transport :: module(),
+    Socket :: any(),
+    Buffer :: iodata(),
+    Req :: cowboy_req:req().
+raw_cowboy_sockbuf(Req) ->
+    [Transport, Socket, Buffer] = cowboy_req:get([transport, socket, buffer], Req),
+    {{Transport, Socket},
+     Buffer,
+     cowboy_req:set([{resp_state, done}, {buffer, <<>>}], Req)}.
