@@ -1,7 +1,5 @@
 -module(vegur_request_log).
 
--include("vegur_log.hrl").
-
 -define(LOGGER, vegur_req_log).
 
 -define(REQ_ID_MIN_LENGTH, 20).

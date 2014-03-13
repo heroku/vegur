@@ -1,7 +1,6 @@
 -module(vegur_lookup_domain_middleware).
 
 -behaviour(cowboy_middleware).
--include("vegur_log.hrl").
 -export([execute/2]).
 
 execute(Req, Env) ->

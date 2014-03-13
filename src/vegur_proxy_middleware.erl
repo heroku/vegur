@@ -1,7 +1,6 @@
 -module(vegur_proxy_middleware).
 
 -behaviour(cowboy_middleware).
--include("vegur_log.hrl").
 -export([execute/2]).
 
 -record(state, { backend_client :: term()
