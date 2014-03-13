@@ -139,12 +139,12 @@ peer_ip_port(Req) ->
     case Transport:name() of
         proxy_protocol_tcp ->
             ProxySocket = cowboy_req:get(socket, Req),
-            {ok, {{PeerIp, _}, {_, DestPort1}}} = Transport:proxyname(ProxySocket),
-            {{PeerIp, DestPort1}, Req};
+            {ok, {{PeerIp, PeerPort}, {_, DestPort1}}} = Transport:proxyname(ProxySocket),
+            {{PeerIp, PeerPort, DestPort1}, Req};
         _ ->
-            {{PeerIp, _}, Req3} = cowboy_req:peer(Req),
+            {{PeerIp, PeerPort}, Req3} = cowboy_req:peer(Req),
             {Port, Req4} = cowboy_req:port(Req3),
-            {{PeerIp, Port}, Req4}
+            {{PeerIp, PeerPort, Port}, Req4}
     end.
 
 -spec raw_cowboy_socket(Req) ->  {{Transport, Socket}, Req} when

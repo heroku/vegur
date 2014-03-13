@@ -165,7 +165,7 @@ add_request_id(Headers, Req) ->
      Req1}.
 
 add_forwarded(Headers, Req) ->
-    {{PeerAddress, DestPort}, Req1} = vegur_utils:peer_ip_port(Req),
+    {{PeerAddress, PeerPort, DestPort}, Req1} = vegur_utils:peer_ip_port(Req),
     {Headers1, Req2} = vegur_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress),
                                                         Headers, Req1),
     Headers2 =
@@ -178,7 +178,8 @@ add_forwarded(Headers, Req) ->
                 Headers1
         end,
     Headers3 = vegur_utils:add_or_replace_header(<<"x-forwarded-port">>, integer_to_list(DestPort), Headers2),
-    {Headers3, Req2}.
+    Headers4 = vegur_utils:add_or_replace_header(<<"x-forwarded-peerport">>, integer_to_list(PeerPort), Headers3),
+    {Headers4, Req2}.
 
 add_via(Headers, Req) ->
     vegur_utils:add_or_append_header(<<"via">>, get_via_value(), Headers, Req).
