@@ -165,20 +165,28 @@ add_request_id(Headers, Req) ->
      Req1}.
 
 add_forwarded(Headers, Req) ->
-    {{PeerAddress, PeerPort, DestPort}, Req1} = vegur_utils:peer_ip_port(Req),
-    {Headers1, Req2} = vegur_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress),
-                                                        Headers, Req1),
-    Headers2 =
+    Headers1 =
+        case vegur_utils:peer_ip_port(Req) of
+            {{PeerAddress, PeerPort, DestPort}, Req1} ->
+                vegur_utils:add_or_replace_header(<<"x-forwarded-peerport">>, integer_to_list(PeerPort), Headers);
+            {{PeerAddress, DestPort}, Req1} ->
+                Headers
+        end,
+
+    {Headers2, Req2} = vegur_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress), Headers1, Req1),
+
+    Headers3 =
         case DestPort of
             80 ->
-                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"http">>, Headers1);
+                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"http">>, Headers2);
             443 ->
-                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"https">>, Headers1);
+                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"https">>, Headers2);
             _ ->
-                Headers1
+                Headers2
         end,
-    Headers3 = vegur_utils:add_or_replace_header(<<"x-forwarded-port">>, integer_to_list(DestPort), Headers2),
-    Headers4 = vegur_utils:add_or_replace_header(<<"x-forwarded-peerport">>, integer_to_list(PeerPort), Headers3),
+
+    Headers4 = vegur_utils:add_or_replace_header(<<"x-forwarded-port">>, integer_to_list(DestPort), Headers3),
+
     {Headers4, Req2}.
 
 add_via(Headers, Req) ->
