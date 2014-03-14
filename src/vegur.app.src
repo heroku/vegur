@@ -12,6 +12,15 @@
           ,{request_id_name, <<"x-request-id">>}
           ,{connect_time_header, <<"connect-time">>}
           ,{route_time_header, <<"total-route-time">>}
+          ,{instance_name, <<"vegur">>}
           ,{request_id_max_size, 200}
+          ,{idle_timeout, 5} % seconds
+          ,{downstream_connect_timeout, 5} % seconds
+          ,{downstream_timeout, 30} % seconds
+          ,{client_tcp_buffer_limit, 1048576} % 1024 * 1024 bytes
+          ,{max_client_status_length, 8192} % bytes
+          ,{max_client_header_length, 524288} % bytes (512k)
+          ,{max_client_cookie_length, 8192} % bytes
+          ,{upstream_tcp_buffer_limit, 1048576} % 1024*1024 bytes
          ]}
  ]}.
