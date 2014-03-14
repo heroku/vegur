@@ -1,6 +1,7 @@
 -module(vegur_proxy).
 
--define(BUFFER_LIMIT, 1024). % in bytes
+-define(UPSTREAM_BODY_BUFFER_LIMIT, 1024). % in bytes
+-define(TCP_BUFFER_LIMIT, (1024 * 1024)).
 
 -export([backend_connection/1
          ,send_headers/7
@@ -19,7 +20,10 @@
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
 backend_connection({IpAddress, Port}) ->
-    {ok, Client} = vegur_client:init([]),
+    TcpBufSize = vegur_utils:config(client_tcp_buffer_limit, ?TCP_BUFFER_LIMIT),
+    ct:pal("TCP Buffer Size: ~p~n",[TcpBufSize]),
+    {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
+                                      {recbuf, TcpBufSize}]),
     case vegur_client:connect(ranch_tcp, IpAddress, Port,
                               100, Client) of
         {ok, Client1} ->
@@ -244,7 +248,7 @@ relay(Status, HeadersRaw, Req, Client) ->
         close  -> add_via(add_connection_close_header(response_headers(HeadersRaw)))
     end,
     case vegur_client:body_type(Client) of
-        {content_size, N} when N =< ?BUFFER_LIMIT ->
+        {content_size, N} when N =< ?UPSTREAM_BODY_BUFFER_LIMIT ->
             relay_full_body(Status, Headers, Req, Client);
         {content_size, N} ->
             relay_stream_body(Status, Headers, N, fun stream_body/2, Req, Client);

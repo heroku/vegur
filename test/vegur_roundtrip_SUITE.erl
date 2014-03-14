@@ -58,6 +58,16 @@ init_per_testcase(bypass, Config0) ->
     Config = init_per_testcase(default, Config0),
     meck:expect(vegur_stub, feature, fun(deep_continue, S) -> {disabled, S} end),
     Config;
+init_per_testcase(response_header_line_limits, Config0) ->
+    Config = init_per_testcase({catchall, make_ref()}, Config0),
+    Default = vegur_utils:config(client_tcp_buffer_limit),
+    application:set_env(vegur, client_tcp_buffer_limit, 100),
+    [{default_tcp, Default} | Config];
+init_per_testcase(response_status_limits, Config0) ->
+    Config = init_per_testcase({catchall, make_ref()}, Config0),
+    Default = vegur_utils:config(client_tcp_buffer_limit),
+    application:set_env(vegur, client_tcp_buffer_limit, 100),
+    [{default_tcp, Default} | Config];
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
@@ -69,6 +79,14 @@ init_per_testcase(_, Config) ->
      {server_listen, Listen}
      | Config].
 
+end_per_testcase(response_header_line_limits, Config) ->
+    Default = ?config(default_tcp, Config),
+    application:set_env(vegur, client_tcp_buffer_limit, Default),
+    end_per_testcase({catchall, make_ref()}, Config);
+end_per_testcase(response_status_limits, Config) ->
+    Default = ?config(default_tcp, Config),
+    application:set_env(vegur, client_tcp_buffer_limit, Default),
+    end_per_testcase({catchall, make_ref()}, Config);
 end_per_testcase(_, Config) ->
     vegur:stop_http(),
     gen_tcp:close(?config(server_listen, Config)).
@@ -605,6 +623,9 @@ response_header_line_limits(Config) ->
     %% By default a header line is restricted to 512kb when sent from
     %% the endpoint. If it goes above, a 502 is returned and the
     %% request is discarded.
+    %% This feature only works is the header isn't fully accumulated in the
+    %% buffer yet (otherwise, why cancel it?) -- the TCP buffer size should be
+    %% reduced.
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
     Req = req(Config),
@@ -638,6 +659,9 @@ response_status_limits(Config) ->
     Resp = resp_huge_status(10000),
     %% Open the server to listening. We then need to send data for the
     %% proxy to get the request and contact a back-end
+    %% This feature only works is the header isn't fully accumulated in the
+    %% buffer yet (otherwise, why cancel it?) -- the TCP buffer size should be
+    %% reduced.
     Ref = make_ref(),
     start_acceptor(Ref, Config),
     {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
