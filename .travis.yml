@@ -1,0 +1,15 @@
+language: erlang
+before_install:
+- ssh-keyscan git.herokai.com >> ~/.ssh/known_hosts
+script: "rebar ct"
+otp_release:
+  - R16B02
+notifications:
+  email: false
+  hipchat:
+    rooms:
+      secure: "cUmcwpiaJnjBk40i2J5/yvCelh2sxhyt4AMevCXEnFZnhA21kjkf5qFSV/GKo6cTVHb80xkQpUkZkzJNHVDwUiAh0oGvK45oOOpKSYKJ7aAdMTm/xuu8j2ZYDi7GV7j7eEHsUChlv13iu79GrRC5+3MjLyTL1K1OdHnKnFoHu8Q="
+    template:
+    - ! '%{repository}#%{build_number} (%{branch} - %{commit} : %{author}): %{message}
+      (<a href="%{build_url}">Details</a> | <a href="%{compare_url}">Change view</a>)'
+    format: html
