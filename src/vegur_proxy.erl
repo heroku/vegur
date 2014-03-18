@@ -21,7 +21,6 @@
       Client :: vegur_client:client().
 backend_connection({IpAddress, Port}) ->
     TcpBufSize = vegur_utils:config(client_tcp_buffer_limit, ?TCP_BUFFER_LIMIT),
-    ct:pal("TCP Buffer Size: ~p~n",[TcpBufSize]),
     {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
                                       {recbuf, TcpBufSize}]),
     case vegur_client:connect(ranch_tcp, IpAddress, Port,
