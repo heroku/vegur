@@ -1,7 +1,7 @@
 language: erlang
 before_install:
 - ssh-keyscan git.herokai.com >> ~/.ssh/known_hosts
-script: "rebar ct"
+script: "rebar compile ct"
 otp_release:
   - R16B02
 notifications:
