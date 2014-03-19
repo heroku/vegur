@@ -38,6 +38,9 @@ groups() -> [{continue, [], [
 %%% Init %%%
 %%%%%%%%%%%%
 init_per_suite(Config) ->
+    {ok, Port} = gen_tcp:listen(0, []),
+    {ok, [{recbuf, RecBuf}]} = inet:getopts(Port, [recbuf]),
+    ct:pal("BUF DEFAULT: ~p~n",[inet:getopts(Port, [buffer, recbuf, packet_size])]),
     application:load(vegur),
     meck:new(vegur_stub, [passthrough, no_link]),
     meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
@@ -45,6 +48,7 @@ init_per_suite(Config) ->
     Env = application:get_all_env(vegur),
     {ok, Started} = application:ensure_all_started(cowboy),
     [{vegur_env, Env},
+     {default_tcp_recbuf, RecBuf},
      {started, Started} | Config].
 
 end_per_suite(Config) ->
@@ -61,12 +65,12 @@ init_per_testcase(bypass, Config0) ->
 init_per_testcase(response_header_line_limits, Config0) ->
     Config = init_per_testcase({catchall, make_ref()}, Config0),
     Default = vegur_utils:config(client_tcp_buffer_limit),
-    application:set_env(vegur, client_tcp_buffer_limit, 100),
+    application:set_env(vegur, client_tcp_buffer_limit, ?config(default_tcp_recbuf, Config)),
     [{default_tcp, Default} | Config];
 init_per_testcase(response_status_limits, Config0) ->
     Config = init_per_testcase({catchall, make_ref()}, Config0),
     Default = vegur_utils:config(client_tcp_buffer_limit),
-    application:set_env(vegur, client_tcp_buffer_limit, 100),
+    application:set_env(vegur, client_tcp_buffer_limit, ?config(default_tcp_recbuf, Config)),
     [{default_tcp, Default} | Config];
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
@@ -656,7 +660,7 @@ response_status_limits(Config) ->
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
     Req = req(Config),
-    Resp = resp_huge_status(10000),
+    Resp = resp_huge_status(1024*1024),
     %% Open the server to listening. We then need to send data for the
     %% proxy to get the request and contact a back-end
     %% This feature only works is the header isn't fully accumulated in the
@@ -1185,10 +1189,8 @@ resp_custom_headers(Name, Val) ->
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
 
 resp_huge_status(Len) ->
-    Status = lists:duplicate(Len-6, $X),
-    "HTTP/1.1 "++Status++"\r\n"
-    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
-    "Content-Type: text/plain\r\n"
+    Status = lists:duplicate(Len, $X),
+    "HTTP/1.1 200 "++Status++"\r\n"
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
