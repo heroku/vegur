@@ -46,7 +46,7 @@ init_per_suite(Config) ->
     meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
     meck:expect(vegur_stub, checkout_service, fun(_, Req, HandlerState) -> {service, test_service, Req, HandlerState} end),
     Env = application:get_all_env(vegur),
-    {ok, Started} = application:ensure_all_started(cowboy),
+    {ok, Started} = application:ensure_all_started(vegur),
     [{vegur_env, Env},
      {default_tcp_recbuf, RecBuf},
      {started, Started} | Config].

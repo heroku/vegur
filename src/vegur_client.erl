@@ -73,8 +73,8 @@
           opts = [] :: [any()],
           socket = undefined :: undefined | inet:socket(),
           transport = undefined :: module(),
-          connect_timeout = timer:seconds(vegur_utils:config(downstream_connect_timeout, 5)) :: timeout(),
-          read_timeout = timer:seconds(vegur_utils:config(downstream_timeout, 30)) :: timeout(),
+          connect_timeout = timer:seconds(vegur_utils:config(downstream_connect_timeout)) :: timeout(),
+          read_timeout = timer:seconds(vegur_utils:config(downstream_timeout)) :: timeout(),
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
           version = 'HTTP/1.1' :: cowboy:http_version(),
@@ -358,7 +358,7 @@ stream_status(Client=#client{state=State, buffer=Buffer})
                             {error, Reason}
                     end;
         _ ->
-            MaxStatus = vegur_utils:config(max_client_status_length, 8192),
+            MaxStatus = vegur_utils:config(max_client_status_length),
             case byte_size(Buffer) > MaxStatus of
                 true ->
                     {error, status_length};
@@ -393,7 +393,7 @@ stream_headers(Client=#client{state=State})
     stream_headers(Client, []).
 
 stream_headers(Client, Acc) ->
-    MaxLine = vegur_utils:config(max_client_header_length, 524288), %512k
+    MaxLine = vegur_utils:config(max_client_header_length),
     stream_headers(Client, Acc, MaxLine).
 
 stream_headers(Client, Acc, MaxLine) ->
@@ -407,7 +407,7 @@ stream_headers(Client, Acc, MaxLine) ->
     end.
 
 stream_header(Client) ->
-    MaxLine = vegur_utils:config(max_client_header_length, 524288), %512k
+    MaxLine = vegur_utils:config(max_client_header_length),
     stream_header(Client, MaxLine).
 
 stream_header(Client=#client{state=State, buffer=Buffer,
@@ -459,7 +459,7 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                             end
                     end;
                 <<"set-cookie">> ->
-                    MaxCookie = vegur_utils:config(max_client_cookie_length, 8192),
+                    MaxCookie = vegur_utils:config(max_client_cookie_length),
                     case byte_size(Line) > MaxCookie of
                         true -> {error, cookie_length};
                         false -> Client

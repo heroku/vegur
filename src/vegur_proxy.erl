@@ -1,7 +1,6 @@
 -module(vegur_proxy).
 
 -define(UPSTREAM_BODY_BUFFER_LIMIT, 1024). % in bytes
--define(TCP_BUFFER_LIMIT, (1024 * 1024)).
 
 -export([backend_connection/1
          ,send_headers/7
@@ -20,7 +19,7 @@
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
 backend_connection({IpAddress, Port}) ->
-    TcpBufSize = vegur_utils:config(client_tcp_buffer_limit, ?TCP_BUFFER_LIMIT),
+    TcpBufSize = vegur_utils:config(client_tcp_buffer_limit),
     {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
                                       {recbuf, TcpBufSize}]),
     case vegur_client:connect(ranch_tcp, IpAddress, Port,
@@ -80,7 +79,7 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
     end.
 
 negotiate_continue(Body, Req, BackendClient) ->
-    Timeout = timer:seconds(vegur_utils:config(idle_timeout, 55)),
+    Timeout = timer:seconds(vegur_utils:config(idle_timeout)),
     negotiate_continue(Body, Req, BackendClient, Timeout).
 
 negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
@@ -219,7 +218,7 @@ upgrade(Headers, Req, BackendClient) ->
         BackendClient1 = CloseFun(TransC, PortC, TransS, PortS, Event),
         {timeout, BackendClient1}
     end,
-    Timeout = timer:seconds(vegur_utils:config(idle_timeout, 55)),
+    Timeout = timer:seconds(vegur_utils:config(idle_timeout)),
     Res = vegur_bytepipe:become(Client, Server, [{timeout, Timeout},
                                                  {on_close, CloseFun},
                                                  {on_timeout, TimeoutFun}]),

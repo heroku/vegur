@@ -180,4 +180,4 @@ add_via(Headers, Req) ->
 
 -spec get_via_value() -> binary().
 get_via_value() ->
-    vegur_utils:config(instance_name, <<"vegur">>).
+    vegur_utils:config(instance_name).

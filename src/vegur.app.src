@@ -21,6 +21,5 @@
           ,{max_client_status_length, 8192} % bytes
           ,{max_client_header_length, 524288} % bytes (512k)
           ,{max_client_cookie_length, 8192} % bytes
-          ,{upstream_tcp_buffer_limit, 1048576} % 1024*1024 bytes
          ]}
  ]}.
