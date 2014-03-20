@@ -42,7 +42,7 @@ maybe_healthcheck(<<"/lockstep">>, Req, Env) ->
             {ok, Req1, Env}
     end;
 maybe_healthcheck(<<"/healthcheck">>, Req, Env) ->
-    HerokuappDomain = vegur_app:config(herokuapp_domain),
+    HerokuappDomain = vegur_utils:config(herokuapp_domain),
     case cowboy_req:host(Req) of
         {<<"hermes.", HerokuappDomain/binary>>, Req1} ->
             Req2 = set_response_code(200, Req1),

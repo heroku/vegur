@@ -4,7 +4,7 @@
          lockstep_fresh/0]).
 
 accepting_connections() ->
-    case vegur_app:config(proxy_deny, false) of
+    case vegur_utils:config(proxy_deny, false) of
         false ->
             true;
         _ ->
@@ -12,7 +12,7 @@ accepting_connections() ->
     end.
 
 lockstep_fresh() ->
-    case vegur_app:config(lockstep_fresh, true) of
+    case vegur_utils:config(lockstep_fresh, true) of
         true ->
             true;
         _ ->

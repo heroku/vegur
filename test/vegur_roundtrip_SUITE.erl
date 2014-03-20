@@ -38,15 +38,21 @@ groups() -> [{continue, [], [
 %%% Init %%%
 %%%%%%%%%%%%
 init_per_suite(Config) ->
+    application:load(vegur),
     meck:new(vegur_stub, [passthrough, no_link]),
     meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
     meck:expect(vegur_stub, checkout_service, fun(_, Req, HandlerState) -> {service, test_service, Req, HandlerState} end),
     Env = application:get_all_env(vegur),
-    [{vegur_env, Env} | Config].
+    {ok, Started} = application:ensure_all_started(cowboy),
+    [{vegur_env, Env},
+     {started, Started} | Config].
 
 end_per_suite(Config) ->
+    [application:stop(App) || App <- lists:reverse(?config(started, Config))],
     [application:set_env(vegur, K, V) || {K,V} <- ?config(vegur_env, Config)],
-    [vegur_stub] = meck:unload().
+    [vegur_stub] = meck:unload(),
+    application:unload(vegur),
+    Config.
 
 init_per_testcase(bypass, Config0) ->
     Config = init_per_testcase(default, Config0),
@@ -55,19 +61,16 @@ init_per_testcase(bypass, Config0) ->
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
-    application:load(vegur),
     meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{<<"127.0.0.1">>, LPort}, Req, HandlerState} end),
-    {ok, ProxyPort} = application:get_env(vegur, http_listen_port),
-    {ok, Started} = application:ensure_all_started(vegur),
+    {ok, _} = vegur:start_http(9880, vegur_stub, []),
     [{server_port, LPort},
-     {proxy_port, ProxyPort},
+     {proxy_port, 9880},
      {server_ip, {127,0,0,1}},
-     {server_listen, Listen},
-     {started, Started}
+     {server_listen, Listen}
      | Config].
 
 end_per_testcase(_, Config) ->
-    [application:stop(App) || App <- lists:reverse(?config(started, Config))],
+    vegur:stop_http(),
     gen_tcp:close(?config(server_listen, Config)).
 
 %%%%%%%%%%%%%%%%%%

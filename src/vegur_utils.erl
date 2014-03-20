@@ -1,5 +1,7 @@
 -module(vegur_utils).
 
+-define(APP, vegur).
+
 -export([get_interface_module/1
          ,set_handler_state/2
          ,parse_header/2
@@ -15,6 +17,9 @@
          ,raw_cowboy_sockbuf/1
         ]).
 
+-export([config/1
+         ,config/2]).
+
 -spec get_interface_module(Req) ->
                                   {Module, HandlerState, Req}
                                       | no_return() when
@@ -23,7 +28,7 @@
       Module :: module().
 get_interface_module(Req) ->
     {HandlerState, Req1} = cowboy_req:meta(handler_state, Req, undefined),
-    {vegur_app:config(interface_module), HandlerState, Req1}.
+    {vegur_utils:config(interface_module), HandlerState, Req1}.
 
 -spec set_handler_state(HandlerState, Req) -> Req when
       HandlerState :: term(),
@@ -88,8 +93,6 @@ add_or_replace_header(Key, Value, Headers) ->
 delete_all_headers(_, []) -> [];
 delete_all_headers(Key, [{Key,_} | Hdrs]) -> delete_all_headers(Key, Hdrs);
 delete_all_headers(Key, [H|Hdrs]) -> [H | delete_all_headers(Key, Hdrs)].
-
-
 
 -spec set_response(Headers, Body, Req) ->
                              Req when
@@ -162,3 +165,16 @@ raw_cowboy_sockbuf(Req) ->
     {{Transport, Socket},
      Buffer,
      cowboy_req:set([{resp_state, done}, {buffer, <<>>}], Req)}.
+
+% Config helpers
+config(Key, Default) ->
+    case application:get_env(?APP, Key) of
+        undefined -> Default;
+        {ok, Val} -> Val
+    end.
+
+config(Key) ->
+    case application:get_env(?APP, Key) of
+        undefined -> erlang:error({missing_config, Key});
+        {ok, Val} -> Val
+    end.
