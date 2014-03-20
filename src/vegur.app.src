@@ -14,7 +14,7 @@
           ,{route_time_header, <<"total-route-time">>}
           ,{instance_name, <<"vegur">>}
           ,{request_id_max_size, 200}
-          ,{idle_timeout, 5} % seconds
+          ,{idle_timeout, 55} % seconds
           ,{downstream_connect_timeout, 5} % seconds
           ,{downstream_timeout, 30} % seconds
           ,{client_tcp_buffer_limit, 1048576} % 1024 * 1024 bytes
