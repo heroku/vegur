@@ -573,7 +573,7 @@ add_connection_keepalive_header(Hdrs) ->
 add_connection_upgrade_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
-        false -> [{<<"connection">>, <<"upgrade">>} | Hdrs]
+        false -> [{<<"connection">>, <<"Upgrade">>} | Hdrs]
     end.
 
 add_via(Hdrs) ->
