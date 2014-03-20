@@ -185,7 +185,7 @@ read_backend_response(Req, Client) ->
 
 send_continue(Req, BackendClient) ->
     HTTPVer = atom_to_binary(vegur_client:version(BackendClient), latin1),
-    {{Transport,Socket}, _} = cowboy_req:raw_socket(Req),
+    {{Transport,Socket}, _} = vegur_utils:raw_cowboy_socket(Req),
     Transport:send(Socket,
         [HTTPVer, <<" 100 Continue\r\n\r\n">>]),
     %% Got it. Now clean up the '100 Continue' state from
@@ -200,7 +200,7 @@ send_continue(Req, BackendClient) ->
 upgrade(Headers, Req, BackendClient) ->
     %% fetch raw sockets and buffers
     {Server={TransStub,SockStub}, BufStub, _NewClient} = vegur_client:raw_socket(BackendClient),
-    {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_sockbuf(Req),
+    {Client={TransCow,SockCow}, BufCow, Req3} = vegur_utils:raw_cowboy_sockbuf(Req),
     %% Send the response to the caller
     Headers1 = vegur_client:headers_to_iolist(upgrade_response_headers(Headers)),
     TransCow:send(SockCow,
@@ -319,7 +319,7 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
     %% sizes all over after we parsed them first. We save time by just using
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
-    {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
+    {RawSocket, Req3} = vegur_utils:raw_cowboy_socket(Req2),
     case wait_for_body(Status, Req) of
         dont_wait ->
             {ok, Req3, backend_close(Client)};

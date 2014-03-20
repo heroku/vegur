@@ -278,6 +278,11 @@ controlling_process({?MODULE,Port}, Pid) -> % support in-suite calls
 controlling_process(Port, Pid) ->
     gen_tcp:controlling_process(Port, Pid).
 
+match_port({?MODULE, Port}) -> % support in-suite calls
+    Port;
+match_port(Port) ->
+    Port.
+
 messages() -> {tcp, tcp_closed, tcp_error}.
 
 %%%===================================================================

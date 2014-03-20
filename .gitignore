@@ -10,3 +10,4 @@ logs/
 *.swp
 *.swo
 .rebar/
+erl_crash.dump
