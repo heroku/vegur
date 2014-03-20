@@ -336,7 +336,10 @@ stream_close(Client=#client{buffer=Buffer, response_body=undefined, bytes_recv=B
             end;
         _ ->
             {ok, Buffer, Client#client{buffer = <<>>}}
-    end.
+    end;
+stream_close({Client=#client{}, _Continuation}) ->
+    %% Used as a wrapper for streamed connections
+    stream_close(Client).
 
 skip_body(Client=#client{state=response_body}) ->
     case stream_body(Client) of
