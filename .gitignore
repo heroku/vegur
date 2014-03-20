@@ -9,3 +9,4 @@ deps/*
 logs/
 *.swp
 *.swo
+.rebar/
