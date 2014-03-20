@@ -36,15 +36,14 @@ new(Req) ->
     {ok, Req5, HandlerState} = InterfaceModule:init(Now, Req4),
     vegur_utils:set_handler_state(HandlerState, Req5).
 
-handle_terminate(Code, Req) ->
+handle_terminate(Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
     {RequestStatus, Req2} = cowboy_req:meta(status, Req1),
     Log1 = ?LOGGER:stamp(responded, Log),
     Req3 = cowboy_req:set_meta(logging, Log1, Req2),
-    Req4 = cowboy_req:set_meta(response_code, Code, Req3),
-    {InterfaceModule, HandlerState, Req5} = vegur_utils:get_interface_module(Req4),
-    InterfaceModule:terminate(RequestStatus, Req5, HandlerState),
-    Req5.
+    {InterfaceModule, HandlerState, Req4} = vegur_utils:get_interface_module(Req3),
+    InterfaceModule:terminate(RequestStatus, Req4, HandlerState),
+    Req4.
 
 -spec done(Code, Headers, Body, Req) -> Req when
       Code :: cowboy:http_status(),
@@ -69,10 +68,11 @@ done(_, _, _, Req) ->
       Code :: cowboy:http_status(),
       Req :: cowboy_req:req().
 done({error, Code, Req}) ->
-    Req1 = handle_terminate(Code, Req),
-    {error, Code, Req1};
+    Req1 = cowboy_req:set_meta(response_code, Code, Req),
+    Req2 = handle_terminate(Req1),
+    {error, Code, Req2};
 done({halt, Req}) ->
-    Req1 = handle_terminate(0, Req),
+    Req1 = handle_terminate(Req),
     {halt, Req1}.
 
 -spec stamp(EventType, Req) -> Req when
