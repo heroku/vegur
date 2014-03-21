@@ -193,7 +193,8 @@ send_continue(Req, BackendClient) ->
     cowboy_req:set_meta(continue, continued, Req).
 
 -spec upgrade(Headers, Req, Client) ->
-                     {done, Req, Client} when
+                     {done, Req, Client} |
+                     {timeout, Req, Client} when
       Req :: cowboy_req:req(),
       Headers :: [{binary(), binary()}]|[],
       Client :: vegur_client:client().

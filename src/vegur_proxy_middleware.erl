@@ -15,11 +15,11 @@ execute(Req, Env) ->
                            fun() ->
                                    proxy(Req2, #state{backend_client = Client, env = Env})
                            end, Log1) of
-        {{ok, Req3, #state{backend_client=Client1}}, Log2} ->
+        {{ok, Code, Req3, #state{backend_client=Client1}}, Log2} ->
             Req4 = store_byte_counts(Req3, Client1),
             Req5 = cowboy_req:set_meta(status, successful, Req4),
             Req6 = cowboy_req:set_meta(logging, Log2, Req5),
-            {halt, Req6};
+            {halt, Code, Req6};
         {{error, Blame, Reason, Req3}, Log2} ->
             {HttpCode, Req4} = vegur_utils:handle_error({Blame, Reason}, Req3),
             Req5 = store_byte_counts(Req4, Client),
@@ -62,8 +62,7 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
     end.
 
 handle_backend_response(Code, RespHeaders, Req, State) ->
-    Req1 = cowboy_req:set_meta(response_code, Code, Req),
-    {Type, Req2} = cowboy_req:meta(request_type, Req1, []),
+    {Type, Req2} = cowboy_req:meta(request_type, Req, []),
     case lists:sort(Type) of
         [] ->
             http_request(Code, RespHeaders, Req2, State);
@@ -77,7 +76,7 @@ upgrade_request(101, Headers, Req, #state{backend_client=BackendClient}=State) -
         timeout ->
             {error, undefined, timeout, store_byte_counts(Req, BackendClient1)};
         done ->
-            {ok, Req1, State#state{backend_client=BackendClient1}}
+            {ok, 101, Req1, State#state{backend_client=BackendClient1}}
     end;
 upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
@@ -86,7 +85,7 @@ http_request(Code, Headers, Req,
              #state{backend_client=BackendClient}=State) ->
     case vegur_proxy:relay(Code, Headers, Req, BackendClient) of
         {ok, Req1, BackendClient1} ->
-            {ok, Req1, State#state{backend_client=BackendClient1}};
+            {ok, Code, Req1, State#state{backend_client=BackendClient1}};
         {error, Blame, Error, Req1} ->
             {error, Blame, Error, store_byte_counts(Req1, BackendClient)}
     end.
