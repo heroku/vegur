@@ -112,23 +112,28 @@ parse_request(Req) ->
     {Method, Req2} = cowboy_req:method(Req),
     {Path, Req3} = cowboy_req:path(Req2),
     {Host, Req4} = cowboy_req:host(Req3),
-    {Headers, Req5} = cowboy_req:headers(Req4),
+    {Qs, Req5} = cowboy_req:qs(Req4),
+    {Headers, Req6} = cowboy_req:headers(Req5),
+    FullPath = case Qs of
+        <<>> -> Path;
+        _ -> <<Path/binary, "?", Qs/binary>>
+    end,
     %% We handle the request differently based on whether it's chunked,
     %% has a known length, or if it has no body at all.
-    {Body, Req7} = 
-        case cowboy_req:has_body(Req5) of
+    {Body, Req8} =
+        case cowboy_req:has_body(Req6) of
             true ->
-                case cowboy_req:body_length(Req5) of
-                    {undefined, Req6} ->
-                        {{stream, chunked}, Req6};
-                    {Length, Req6} ->
-                        {{stream, Length}, Req6}
+                case cowboy_req:body_length(Req6) of
+                    {undefined, Req7} ->
+                        {{stream, chunked}, Req7};
+                    {Length, Req7} ->
+                        {{stream, Length}, Req7}
                 end;
             false ->
-                {<<>>, Req5}
+                {<<>>, Req6}
         end,
-    {Headers2, Req8} = add_proxy_headers(Headers, Req7),
-    {{Method, Headers2, Body, Path, Host}, Req8}.
+    {Headers2, Req9} = add_proxy_headers(Headers, Req8),
+    {{Method, Headers2, Body, FullPath, Host}, Req9}.
 
 add_proxy_headers(Headers, Req) ->
     {Headers1, Req1} = add_request_id(Headers, Req),
