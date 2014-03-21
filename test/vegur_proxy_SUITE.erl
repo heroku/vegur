@@ -19,6 +19,7 @@ groups() ->
                                 ,connect_time_header
                                 ,route_time_header
                                 ,host
+                                ,query_string
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
                                  ,request_statistics
@@ -231,6 +232,18 @@ host(Config) ->
     receive
         {req, Req} ->
             {<<"localhost">>, _} = cowboy_req:header(<<"host">>, Req)
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
+query_string(Config) ->
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "?test=foo&bar=car#fragment=ding",
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req} ->
+            {<<"test=foo&bar=car">>, _} = cowboy_req:qs(Req)
     after 5000 ->
             throw(timeout)
     end,
