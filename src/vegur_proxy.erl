@@ -54,13 +54,17 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
                                                        'HTTP/1.1',
                                                        Url,
                                                        Path),
-    {ok, _} = vegur_client:raw_request(IoHeaders, Client),
-    {Cont, Req1} = cowboy_req:meta(continue, Req, []),
-    case Cont of
-        continue ->
-            negotiate_continue(Body, Req1, Client);
-        _ ->
-            {done, Req1, Client}
+    case vegur_client:raw_request(IoHeaders, Client) of
+        {ok, _} ->
+            {Cont, Req1} = cowboy_req:meta(continue, Req, []),
+            case Cont of
+                continue ->
+                    negotiate_continue(Body, Req1, Client);
+                _ ->
+                    {done, Req1, Client}
+            end;
+        {error, Err} ->
+            {error, downstream, Err}
     end.
 
 send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
@@ -74,8 +78,10 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
             %% use headers & body to stream correctly
             stream_request(Req2, BackendClient);
         Body ->
-            {ok, _} = vegur_client:raw_request(Body, BackendClient),
-            {done, Req, BackendClient}
+            case vegur_client:raw_request(Body, BackendClient) of
+                {ok, _} -> {done, Req, BackendClient};
+                {error, Err} -> {error, downstream, Err}
+            end
     end.
 
 negotiate_continue(Body, Req, BackendClient) ->
@@ -193,7 +199,8 @@ send_continue(Req, BackendClient) ->
     cowboy_req:set_meta(continue, continued, Req).
 
 -spec upgrade(Headers, Req, Client) ->
-                     {done, Req, Client} when
+                     {done, Req, Client} |
+                     {timeout, Req, Client} when
       Req :: cowboy_req:req(),
       Headers :: [{binary(), binary()}]|[],
       Client :: vegur_client:client().
@@ -387,11 +394,15 @@ stream_request(Req, Client) ->
     end.
 
 stream_request(Buffer, Req, Client) ->
-    {ok, _} = vegur_client:raw_request(Buffer, Client),
-    case cowboy_req:stream_body(Req) of
-        {done, Req2} -> {done, Req2, Client};
-        {ok, Data, Req2} -> stream_request(Data, Req2, Client);
-        {error, Err} -> {error, upstream, Err}
+    case vegur_client:raw_request(Buffer, Client) of
+        {ok, _} ->
+            case cowboy_req:stream_body(Req) of
+                {done, Req2} -> {done, Req2, Client};
+                {ok, Data, Req2} -> stream_request(Data, Req2, Client);
+                {error, Err} -> {error, upstream, Err}
+            end;
+        {error, Err} ->
+            {error, downstream, Err}
     end.
 
 %% Cowboy also allows to decode data further after one pass, say if it

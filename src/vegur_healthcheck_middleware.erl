@@ -21,7 +21,7 @@ maybe_healthcheck(<<"/F3DA8257-B28C-49DF-AACD-8171464E1D1D">>, Req, _Env) ->
         true ->
             Req1 = set_response_code(200, Req),
             Req2 = vegur_utils:set_request_status(healthcheck, Req1),
-            {halt, Req2};
+            {halt, 200, Req2};
         _ ->
             Req1 = vegur_utils:set_request_status(healthcheck_error, Req),
             {error, 500, Req1}
@@ -33,7 +33,7 @@ maybe_healthcheck(<<"/lockstep">>, Req, Env) ->
                 true ->
                     Req2 = set_response_code(200, Req1),
                     Req3 = vegur_utils:set_request_status(healthcheck, Req2),
-                    {halt, Req3};
+                    {halt, 200, Req3};
                 _ ->
                     Req2 = vegur_utils:set_request_status(healthcheck_error, Req1),
                     {error, 500, Req2}
@@ -47,7 +47,7 @@ maybe_healthcheck(<<"/healthcheck">>, Req, Env) ->
         {<<"hermes.", HerokuappDomain/binary>>, Req1} ->
             Req2 = set_response_code(200, Req1),
             Req3 = vegur_utils:set_request_status(healthcheck, Req2),
-            {halt, Req3};
+            {halt, 200, Req3};
         {_, Req1} ->
             {ok, Req1, Env}
     end;

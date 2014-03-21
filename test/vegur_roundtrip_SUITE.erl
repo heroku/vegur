@@ -4,7 +4,7 @@
 -compile(export_all).
 
 all() -> [{group, continue}, {group, headers}, {group, http_1_0},
-          {group, body_less}].
+          {group, chunked}, {group, body_less}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -24,6 +24,9 @@ groups() -> [{continue, [], [
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
                 chunked_to_1_0
+             ]},
+             {chunked, [], [
+                passthrough, interrupted_client, interrupted_server
              ]},
              {body_less, [], [
                 head_small_body_expect, head_large_body_expect,
@@ -805,6 +808,89 @@ chunked_to_1_0(Config) ->
     %% Check final connection status
     wait_for_closed(Server, 500).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% CHUNKED REQUESTS BEHAVIOUR %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+passthrough(Config) ->
+    %% Chunked data can move through the stack without being modified.
+    %% We *could* re-chunk data, but leaving chunks as is is more
+    %% transparent and also easier.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n\r\n",
+    Req = [chunked_headers(Config), Chunks],
+    Resp = [resp_headers(chunked), Chunks],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_timeout(Client),
+    %% Check final connection status
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    {match,_} = re:run(RecvServ, Chunks),
+    {match,_} = re:run(RecvClient, Chunks),
+    wait_for_closed(Server, 500).
+
+interrupted_client(Config) ->
+    %% Regression --
+    %% Chunked data can move through the stack without being modified.
+    %% When the connection is interrupted halfway through, the stack is
+    %% still able to close it fine despite having dirty data (like
+    %% continuations) in its arguments.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ChunksHalf = "3\r\nabc\r\n5\r\ndefg",
+    Req = [chunked_headers(Config), ChunksHalf],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    ok = gen_tcp:close(Client),
+    _ = recv_until_close(Server),
+    wait_for_closed(Client, 500).
+
+interrupted_server(Config) ->
+    %% Regression --
+    %% Chunked data can move through the stack without being modified.
+    %% When the connection is interrupted halfway through, the stack is
+    %% still able to close it fine despite having dirty data (like
+    %% continuations) in its arguments.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ChunksHalf = "3\r\nabc\r\n5\r\ndefg",
+    Chunks = [ChunksHalf, "h\r\ne\r\nijklmnopqrstuv\r\n0\r\n\r\n"],
+    Req = [chunked_headers(Config), Chunks],
+    Resp = [resp_headers(chunked), ChunksHalf],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    ok = gen_tcp:close(Server),
+    RecvClient = recv_until_close(Client),
+    %% Check final connection status
+    ct:pal("RecvClient: ~p",[RecvClient]),
+    {match,_} = re:run(RecvClient, ChunksHalf).
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% BODY LESS REQUEST BEHAVIOUR %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1036,6 +1122,12 @@ recv_until_close(Port) ->
         {ok, Data} -> [Data | recv_until_close(Port)]
     end.
 
+recv_until_timeout(Port) ->
+    case gen_tcp:recv(Port, 0, 100) of
+        {error, timeout} -> [];
+        {ok, Data} -> [Data | recv_until_timeout(Port)]
+    end.
+
 wait_for_closed(_Port, T) when T =< 0 -> error(not_closed);
 wait_for_closed(Port, T) ->
     case gen_tcp:recv(Port, 0, 0) of
@@ -1052,6 +1144,14 @@ req_headers(Config) ->
     "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
     "Expect: 100-continue\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n".
+
+chunked_headers(Config) ->
+    "POST /chunked HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10\r\n" % should be ignored for chunked
+    "Transfer-encoding: chunked\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
 

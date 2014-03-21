@@ -27,6 +27,7 @@ finally(Return) ->
     %% Check the backend back in
     Req = case Return of
         {halt, Req0} -> Req0;
+        {halt, _Code, Req0} -> Req0;
         {error, _Code, Req0} -> Req0
     end,
     case vegur_utils:get_request_status(Req) of
@@ -50,6 +51,7 @@ finally(Return) ->
             %% Call the logger
             Final = case Return of
                 {halt, _} -> {halt, ReqFinal};
+                {halt, Code, _} -> {halt, Code, ReqFinal};
                 {error, Code, _} -> {error, Code, ReqFinal}
             end,
             vegur_request_log:done(Final)

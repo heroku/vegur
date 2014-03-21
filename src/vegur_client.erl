@@ -102,7 +102,10 @@ close(#client{socket=undefined}=Client) ->
 close(#client{transport=Transport, socket=Socket}=Client) ->
     NewClient=set_stats(Client),
     Transport:close(Socket),
-    NewClient#client{socket=undefined}.
+    NewClient#client{socket=undefined};
+close({Client=#client{}, _Continuation}) ->
+    %% Used as a wrapper for streamed connections
+    close(Client).
 
 connect(Transport, Host, Port, Timeout, Client) ->
     connect(Transport, Host, Port, Client#client{connect_timeout=Timeout}).
@@ -336,10 +339,7 @@ stream_close(Client=#client{buffer=Buffer, response_body=undefined, bytes_recv=B
             end;
         _ ->
             {ok, Buffer, Client#client{buffer = <<>>}}
-    end;
-stream_close({Client=#client{}, _Continuation}) ->
-    %% Used as a wrapper for streamed connections
-    stream_close(Client).
+    end.
 
 skip_body(Client=#client{state=response_body}) ->
     case stream_body(Client) of
