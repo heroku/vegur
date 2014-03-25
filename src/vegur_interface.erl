@@ -14,7 +14,7 @@
 -type stat() :: {bytes_recv|bytes_sent, non_neg_integer()}|
                 {route_time|connect_time|total_time, ms()}.
 -type stats() :: [stat()]|[].
--type feature() :: deep_continue.
+-type feature() :: deep_continue | peer_port.
 -opaque upstream() :: cowboy_req:req().
 
 -export_type([domain/0,
