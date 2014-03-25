@@ -11,15 +11,20 @@
          feature/2,
          error_page/4]).
 
+-record(state, {
+          connect_tries = 0 :: non_neg_integer()
+         }).
+
+
 -spec init(RequestAccepted, Upstream) ->
                   {ok, Upstream, HandlerState} when
       RequestAccepted :: erlang:timestamp(),
       Upstream :: vegur_interface:upstream(),
       HandlerState :: vegur_interface:handler_state().
 init(_, Upstream) ->
-    {ok, Upstream, undefined}.
+    {ok, Upstream, #state{}}.
 
--spec lookup_domain_name(Domain, Upstream, HandlerState) -> 
+-spec lookup_domain_name(Domain, Upstream, HandlerState) ->
                                 {error, not_found, Upstream, HandlerState} |
                                 {redirect, Reason, DomainGroup, Domain, Upstream, HandlerState} |
                                 {ok, DomainGroup, Upstream, HandlerState} when
@@ -39,6 +44,10 @@ lookup_domain_name(_Domain, Upstream, HandlerState) ->
       Service :: vegur_interface:service(),
       HandlerState :: vegur_interface:handler_state(),
       Upstream :: vegur_interface:upstream().
+checkout_service(_App, Connection, #state{connect_tries=10}=HandlerState) ->
+    {error, econn_refused, Connection, HandlerState};
+checkout_service(maintenance_mode, Connection, HandlerState) ->
+    {error, maintenance_mode, Connection, HandlerState};
 checkout_service(_DomainGroup, Upstream, HandlerState) ->
     {service, service, Upstream, HandlerState}.
 
@@ -50,8 +59,8 @@ checkout_service(_DomainGroup, Upstream, HandlerState) ->
       ServiceState :: vegur_interface:service_state(),
       HandlerState :: vegur_interface:handler_state(),
       Upstream :: vegur_interface:upstream().
-checkin_service(_DomainGroup, _Service, _Phase, _ServiceState, Upstream, HandlerState) ->
-    {ok, Upstream, HandlerState}.
+checkin_service(_DomainGroup, _Service, _Phase, _ServiceState, Upstream, HandlerState=#state{connect_tries=Tries}) ->
+    {ok, Upstream, HandlerState#state{connect_tries=Tries+1}}.
 
 -spec feature(Feature, HandlerState) -> {enabled | disabled, HandlerState} when
       Feature :: vegur_interface:feature(),
