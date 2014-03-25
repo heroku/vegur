@@ -107,6 +107,15 @@ request_id(Config) ->
     Config.
 
 forwarded_for(Config) ->
+    meck:expect(vegur_utils, peer_ip_port,
+                fun(Req) ->
+                        {{PeerIp, _}, Req1} = cowboy_req:peer(Req),
+                        {Port, Req2} = cowboy_req:port(Req1),
+                        {{PeerIp, 1234, Port}, Req2}
+                   end),
+    meck:expect(vegur_stub, feature, fun(peer_port, S) -> 
+                                             {enabled, S} 
+                                     end),
     Port = ?config(vegur_port, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
@@ -114,6 +123,7 @@ forwarded_for(Config) ->
         {req, Req} ->
             {<<"127.0.0.1">>, _} = cowboy_req:header(<<"x-forwarded-for">>, Req),
             {DestPort, _} = cowboy_req:header(<<"x-forwarded-port">>, Req),
+            {<<"1234">>, _} = cowboy_req:header(<<"x-forwarded-peer-port">>, Req),
             Port = list_to_integer(binary_to_list(DestPort))
     after 5000 ->
             throw(timeout)
@@ -133,6 +143,17 @@ forwarded_for(Config) ->
         {req, Req2} ->
             {<<"443">>, _} = cowboy_req:header(<<"x-forwarded-port">>, Req2),
             {<<"https">>, _} = cowboy_req:header(<<"x-forwarded-proto">>, Req2)
+    after 5000 ->
+            throw(timeout)
+    end,
+
+    meck:expect(vegur_stub, feature, fun(peer_port, S) -> 
+                                             {disabled, S} 
+                                     end),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
+    receive
+        {req, Req3} ->
+            {undefined, _} = cowboy_req:header(<<"x-forwarded-peer-port">>, Req3)
     after 5000 ->
             throw(timeout)
     end,

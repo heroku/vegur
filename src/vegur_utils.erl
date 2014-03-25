@@ -130,7 +130,10 @@ handle_error(Reason, Req) ->
     Req6 = set_request_status(error, Req5),
     {HttpCode, Req6}.
 
--spec peer_ip_port(Req) -> {{IpAddress, PortNumber}, Req} when
+
+
+-spec peer_ip_port(Req) -> {{IpAddress, PortNumber}|
+                            {IpAddress, PortNumber, PortNumber}, Req} when
       IpAddress :: inet:ip_address(),
       PortNumber :: inet:port_number(),
       Req :: cowboy_req:req().
@@ -139,8 +142,8 @@ peer_ip_port(Req) ->
     case Transport:name() of
         proxy_protocol_tcp ->
             ProxySocket = cowboy_req:get(socket, Req),
-            {ok, {{PeerIp, _}, {_, DestPort1}}} = Transport:proxyname(ProxySocket),
-            {{PeerIp, DestPort1}, Req};
+            {ok, {{PeerIp, PeerPort}, {_, DestPort}}} = Transport:proxyname(ProxySocket),
+            {{PeerIp, PeerPort, DestPort}, Req};
         _ ->
             {{PeerIp, _}, Req3} = cowboy_req:peer(Req),
             {Port, Req4} = cowboy_req:port(Req3),

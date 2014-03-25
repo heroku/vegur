@@ -58,6 +58,8 @@ checkin_service(_DomainGroup, _Service, _Phase, _ServiceState, Upstream, Handler
       HandlerState :: vegur_interface:handler_state().
 feature(deep_continue, State) ->
     {enabled, State};
+feature(peer_port, State) ->
+    {disabled, State};
 feature(_, State) ->
     {disabled, State}.
 

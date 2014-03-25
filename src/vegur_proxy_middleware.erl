@@ -165,20 +165,28 @@ add_request_id(Headers, Req) ->
      Req1}.
 
 add_forwarded(Headers, Req) ->
-    {{PeerAddress, DestPort}, Req1} = vegur_utils:peer_ip_port(Req),
-    {Headers1, Req2} = vegur_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress),
-                                                        Headers, Req1),
-    Headers2 =
+    {Headers1, Req2} = case vegur_utils:peer_ip_port(Req) of
+                           {{PeerAddress, PeerPort, DestPort}, Req1} ->
+                               handle_feature(Req1, {Headers, PeerPort});
+                           {{PeerAddress, DestPort}, Req1} ->
+                               {Headers, Req1}
+                       end,
+
+    {Headers2, Req3} = vegur_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress), Headers1, Req2),
+
+    Headers3 =
         case DestPort of
             80 ->
-                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"http">>, Headers1);
+                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"http">>, Headers2);
             443 ->
-                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"https">>, Headers1);
+                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"https">>, Headers2);
             _ ->
-                Headers1
+                Headers2
         end,
-    Headers3 = vegur_utils:add_or_replace_header(<<"x-forwarded-port">>, integer_to_list(DestPort), Headers2),
-    {Headers3, Req2}.
+
+    Headers4 = vegur_utils:add_or_replace_header(<<"x-forwarded-port">>, integer_to_list(DestPort), Headers3),
+
+    {Headers4, Req3}.
 
 add_via(Headers, Req) ->
     vegur_utils:add_or_append_header(<<"via">>, get_via_value(), Headers, Req).
@@ -186,3 +194,15 @@ add_via(Headers, Req) ->
 -spec get_via_value() -> binary().
 get_via_value() ->
     vegur_utils:config(instance_name).
+
+handle_feature(Req, {Headers, PeerPort}) ->
+    {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
+    case InterfaceModule:feature(peer_port, HandlerState) of
+        {enabled, HandlerState2} ->
+            Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
+            Headers1 = vegur_utils:add_or_replace_header(<<"x-forwarded-peer-port">>, integer_to_list(PeerPort), Headers),
+            {Headers1, Req2};
+        {disabled, HandlerState2} ->
+            Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
+            {Headers, Req2}
+    end.

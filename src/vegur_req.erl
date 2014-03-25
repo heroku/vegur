@@ -42,7 +42,10 @@ peer(Req) ->
       Peer :: {inet:ip_address(), inet:port_number()},
       Req :: cowboy_req:req().
 proxy_peer(Req) ->
-    vegur_utils:peer_ip_port(Req).
+    case vegur_utils:peer_ip_port(Req) of
+        {{PeerIp, _PeerPort, DestPort}, Req} -> {{PeerIp, DestPort}, Req};
+        Tuple -> Tuple
+    end.
 
 -spec pre_connect(Req) -> {PreConnectTime|undefined, Req} when
       PreConnectTime :: erlang:timestamp(),
