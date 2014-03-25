@@ -59,7 +59,9 @@ start_link(Client, Server) ->
     Client :: Transport,
     Server :: Transport,
     Transport :: {module(), any()},
-    Opts :: [{on_close, fun()}].
+    Opts :: [{on_close, fun()}|
+             {on_timeout, fun()}|
+             {timeout, non_neg_integer()}].
 start_link(Client={TransC,ConnC}, Server={TransS,ConnS}, Opts) ->
     {ok, Pid, Ref} = proc_lib:start_link(?MODULE, init, [self(), Client, Server, Opts]),
     %% hand-off the ports
@@ -94,6 +96,7 @@ become(Client, Server) ->
     Server :: Transport,
     Transport :: {module(), any()},
     Opts :: [{on_close, fun()}|
+             {on_timeout, fun()}|
              {timeout, non_neg_integer()}].
 become({TransC, PortC}, {TransS, PortS}, Opts) ->
     State = #state{client_transport=TransC,
