@@ -289,6 +289,16 @@ relay_full_body(Status, Headers, Req, Client) ->
 
 %% The body is large and may need to be broken in multiple parts. Send them as
 %% they come.
+-spec relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
+    {ok, Req, Client} | {error, Blame, Reason, Req} when
+    Status :: non_neg_integer(),
+    Headers :: [{binary(),binary()}],
+    Size :: undefined | non_neg_integer(),
+    StreamFun :: fun(({module(),Sock::term()}, Client) -> {error, Reason} | {error, Blame, Reason} | {ok, Client}),
+    Req :: cowboy_req:req(),
+    Client :: vegur_client:client(),
+    Blame :: error_blame(),
+    Reason :: term().
 relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     %% Use cowboy's partial response delivery to stream contents.
     %% We use exceptions (throws) to detect bad transfers and close
@@ -300,7 +310,8 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     Fun = fun(Socket, Transport) ->
         case FinalFun({Transport,Socket}, Client) of
             {ok, _Client2} -> ok;
-            {error, Reason} -> throw({stream_error, Reason})
+            {error, Reason} -> throw({stream_error, downstream, Reason});
+            {error, Blame, Reason} -> throw({stream_error, Blame, Reason})
         end
     end,
     Req2 = case Size of
@@ -311,9 +322,9 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
         {ok, Req3} ->
             {ok, Req3, backend_close(Client)}
     catch
-        {stream_error, Error} ->
+        {stream_error, Blame, Error} ->
             backend_close(Client),
-            {error, downstream, Error, Req2}
+            {error, Blame, Error, Req2}
     end.
 
 relay_chunked(Status, Headers, Req, Client) ->
@@ -431,6 +442,8 @@ decode_chunked(Data, {Cont, Total}) ->
         {done, Buf, Rest} ->
             %% Entire request is over
             {done, Buf, Total+iolist_size(Buf), Rest};
+        {error, Reason} ->
+            {error, Reason};
         {chunk, Buf, Rest} ->
             %% Chunk is done, but more to come
             {ok, Buf, Rest, {undefined, Total+iolist_size(Buf)}};

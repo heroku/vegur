@@ -113,7 +113,7 @@ header(Key, Req) ->
 
 -spec response_code(Req) -> {Code, Req} when
       Req :: cowboy_req:req(),
-      Code :: non_neg_integer.
+      Code :: non_neg_integer().
 response_code(Req) ->
     cowboy_req:meta(response_code, Req, <<>>).
 
