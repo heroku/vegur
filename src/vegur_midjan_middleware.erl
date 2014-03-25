@@ -11,7 +11,7 @@
       Env :: cowboy_middleware:env(),
       StatusCode :: cowboy:http_status().
 execute(Req, Env) ->
-    case midjan_core:start({Req, Env}, [{ordered, vegur_app:middleware_stack()},
+    case midjan_core:start({Req, Env}, [{ordered, vegur_utils:config(middleware_stack)},
                                         {translator, vegur_midjan_translator},
                                         {finally, fun finally/1}
                                        ]) of
@@ -27,6 +27,7 @@ finally(Return) ->
     %% Check the backend back in
     Req = case Return of
         {halt, Req0} -> Req0;
+        {halt, _Code, Req0} -> Req0;
         {error, _Code, Req0} -> Req0
     end,
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
@@ -44,6 +45,7 @@ finally(Return) ->
     %% Call the logger
     Final = case Return of
                 {halt, _} -> {halt, ReqFinal};
+                {halt, Code, _} -> {halt, Code, ReqFinal};
                 {error, Code, _} -> {error, Code, ReqFinal}
             end,
     vegur_request_log:done(Final).

@@ -1,7 +1,6 @@
 -module(vegur_lookup_domain_middleware).
 
 -behaviour(cowboy_middleware).
--include("vegur_log.hrl").
 -export([execute/2]).
 
 execute(Req, Env) ->
@@ -31,11 +30,12 @@ handle_error(Reason, Req, _Env) ->
     {error, HttpCode, Req1}.
 
 -spec handle_redirect(Reason, DomainGroup, Domain, Req, Env) ->
-                             {halt, Req} when
+                             {halt, HttpCode, Req} when
       Reason :: any(),
       DomainGroup :: vegur_interface:domain_group(),
       Domain :: vegur_interface:domain(),
       Req :: cowboy_req:req(),
+      HttpCode :: cowboy:http_status(),
       Env :: cowboy_middleware:env().
 handle_redirect(_Reason, _DomainGroup, RedirectTo, Req, _Env) ->
     {Path, Req1} = cowboy_req:path(Req),
@@ -48,7 +48,7 @@ handle_redirect(_Reason, _DomainGroup, RedirectTo, Req, _Env) ->
     Proto = get_proto(HeaderValue),
     FullLocation = [Proto, <<"://">>, RedirectTo, Path, Qs2],
     {ok, Req4} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req3),
-    {halt, Req4}.
+    {halt, 301, Req4}.
 
 % Internal
 get_proto(<<"https">>) ->

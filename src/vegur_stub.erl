@@ -70,15 +70,17 @@ feature(_, State) ->
       ErrorBody :: binary(),
       HandlerState :: vegur_interface:handler_state(),
       Upstream :: vegur_interface:upstream().
+%% Example errors that could be returned by this module and end up in here,
+%% and can also be used by the existing test suite.
 error_page(not_found, _DomainGroup, Upstream, HandlerState) ->
     {{404, [], <<>>}, Upstream, HandlerState};
 error_page(no_route_id, _DomainGroup, Upstream, HandlerState) ->
     {{502, [], <<>>}, Upstream, HandlerState};
-error_page({backlog_timeout, 100, 100}, _DomainGroup, Upstream, HandlerState) ->
+error_page({backlog_timeout, _QueueLen, _WaitTime}, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
-error_page({backlog_too_deep, 100, 100}, _DomainGroup, Upstream, HandlerState) ->
+error_page({backlog_too_deep, _QueueLen, _WaitTime}, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
-error_page({conn_limit_reached, 100, 100}, _DomainGroup, Upstream, HandlerState) ->
+error_page({conn_limit_reached, _QueueLen, _WaitTime}, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
 error_page(route_lookup_failed, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
@@ -92,13 +94,35 @@ error_page(backends_starting, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
 error_page(backends_idle, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
-error_page(app_blank, _DomainGroup, Upstream, HandlerState) ->
-    {{503, [], <<>>}, Upstream, HandlerState};
 error_page(app_not_found, _DomainGroup, Upstream, HandlerState) ->
     {{404, [], <<>>}, Upstream, HandlerState};
 error_page(app_lookup_failed, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
 error_page(maintainance_mode, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page(econn_timeout, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page(econn_refused, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page(app_blank, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({app_blank, _App}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+%% Vegur-returned errors that should be handled no matter what
+error_page(expectation_failed, _DomainGroup, Upstream, HandlerState) ->
+    {{417, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, closed}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, closed}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, timeout}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, timeout}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({undefined, timeout}, _DomainGroup, Upstream, HandlerState) ->
+    %% Who knows who timed out. Technically both!
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, invalid_status}, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, content_length}, _DomainGroup, Upstream, HandlerState) ->
     {{502, [], <<>>}, Upstream, HandlerState};
@@ -108,10 +132,9 @@ error_page({downstream, header_length}, _DomainGroup, Upstream, HandlerState) ->
     {{502, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, status_length}, _DomainGroup, Upstream, HandlerState) ->
     {{502, [], <<>>}, Upstream, HandlerState};
+%% Generic handling
 error_page(empty_host, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
-error_page(expectation_failed, _DomainGroup, Upstream, HandlerState) ->
-    {{417, [], <<>>}, Upstream, HandlerState};
 error_page(bad_request, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page(_, _DomainGroup, Upstream, HandlerState) ->

@@ -1,7 +1,6 @@
 -module(vegur_proxy_middleware).
 
 -behaviour(cowboy_middleware).
--include("vegur_log.hrl").
 -export([execute/2]).
 
 -record(state, { backend_client :: term()
@@ -16,11 +15,11 @@ execute(Req, Env) ->
                            fun() ->
                                    proxy(Req2, #state{backend_client = Client, env = Env})
                            end, Log1) of
-        {{ok, Req3, #state{backend_client=Client1}}, Log2} ->
+        {{ok, Code, Req3, #state{backend_client=Client1}}, Log2} ->
             Req4 = store_byte_counts(Req3, Client1),
             Req5 = cowboy_req:set_meta(status, successful, Req4),
             Req6 = cowboy_req:set_meta(logging, Log2, Req5),
-            {halt, Req6};
+            {halt, Code, Req6};
         {{error, Blame, Reason, Req3}, Log2} ->
             {HttpCode, Req4} = vegur_utils:handle_error({Blame, Reason}, Req3),
             Req5 = store_byte_counts(Req4, Client),
@@ -77,7 +76,7 @@ upgrade_request(101, Headers, Req, #state{backend_client=BackendClient}=State) -
         timeout ->
             {error, undefined, timeout, store_byte_counts(Req, BackendClient1)};
         done ->
-            {ok, Req1, State#state{backend_client=BackendClient1}}
+            {ok, 101, Req1, State#state{backend_client=BackendClient1}}
     end;
 upgrade_request(Code, Headers, Req, State) ->
     http_request(Code, Headers, Req, State).
@@ -86,7 +85,7 @@ http_request(Code, Headers, Req,
              #state{backend_client=BackendClient}=State) ->
     case vegur_proxy:relay(Code, Headers, Req, BackendClient) of
         {ok, Req1, BackendClient1} ->
-            {ok, Req1, State#state{backend_client=BackendClient1}};
+            {ok, Code, Req1, State#state{backend_client=BackendClient1}};
         {error, Blame, Error, Req1} ->
             {error, Blame, Error, store_byte_counts(Req1, BackendClient)}
     end.
@@ -113,23 +112,28 @@ parse_request(Req) ->
     {Method, Req2} = cowboy_req:method(Req),
     {Path, Req3} = cowboy_req:path(Req2),
     {Host, Req4} = cowboy_req:host(Req3),
-    {Headers, Req5} = cowboy_req:headers(Req4),
+    {Qs, Req5} = cowboy_req:qs(Req4),
+    {Headers, Req6} = cowboy_req:headers(Req5),
+    FullPath = case Qs of
+        <<>> -> Path;
+        _ -> <<Path/binary, "?", Qs/binary>>
+    end,
     %% We handle the request differently based on whether it's chunked,
     %% has a known length, or if it has no body at all.
-    {Body, Req7} = 
-        case cowboy_req:has_body(Req5) of
+    {Body, Req8} =
+        case cowboy_req:has_body(Req6) of
             true ->
-                case cowboy_req:body_length(Req5) of
-                    {undefined, Req6} ->
-                        {{stream, chunked}, Req6};
-                    {Length, Req6} ->
-                        {{stream, Length}, Req6}
+                case cowboy_req:body_length(Req6) of
+                    {undefined, Req7} ->
+                        {{stream, chunked}, Req7};
+                    {Length, Req7} ->
+                        {{stream, Length}, Req7}
                 end;
             false ->
-                {<<>>, Req5}
+                {<<>>, Req6}
         end,
-    {Headers2, Req8} = add_proxy_headers(Headers, Req7),
-    {{Method, Headers2, Body, Path, Host}, Req8}.
+    {Headers2, Req9} = add_proxy_headers(Headers, Req8),
+    {{Method, Headers2, Body, FullPath, Host}, Req9}.
 
 add_proxy_headers(Headers, Req) ->
     {Headers1, Req1} = add_request_id(Headers, Req),
@@ -140,7 +144,7 @@ add_proxy_headers(Headers, Req) ->
 
 add_connect_time(Headers, Req) ->
     {Time, Req1} = vegur_request_log:get_log_value(connect_time, Req),
-    {vegur_utils:add_or_replace_header(vegur_app:config(connect_time_header),
+    {vegur_utils:add_or_replace_header(vegur_utils:config(connect_time_header),
                                        integer_to_list(Time), Headers),
      Req1}.
 
@@ -152,12 +156,12 @@ add_total_route_time(Headers, Req) ->
             {Time1, Req2} ->
                 {integer_to_list(Time1), Req2}
         end,
-    {vegur_utils:add_or_replace_header(vegur_app:config(route_time_header),
+    {vegur_utils:add_or_replace_header(vegur_utils:config(route_time_header),
                                        Time, Headers), Req1}.
 
 add_request_id(Headers, Req) ->
     {RequestId, Req1} = cowboy_req:meta(request_id, Req),
-    {vegur_utils:add_or_replace_header(vegur_app:config(request_id_name), RequestId, Headers),
+    {vegur_utils:add_or_replace_header(vegur_utils:config(request_id_name), RequestId, Headers),
      Req1}.
 
 add_forwarded(Headers, Req) ->
@@ -181,4 +185,4 @@ add_via(Headers, Req) ->
 
 -spec get_via_value() -> binary().
 get_via_value() ->
-    vegur_app:config(instance_name, <<"vegur">>).
+    vegur_utils:config(instance_name).

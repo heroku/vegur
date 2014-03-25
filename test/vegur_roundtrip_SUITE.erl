@@ -4,7 +4,7 @@
 -compile(export_all).
 
 all() -> [{group, continue}, {group, headers}, {group, http_1_0},
-          {group, body_less}].
+          {group, chunked}, {group, body_less}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -25,6 +25,9 @@ groups() -> [{continue, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
                 chunked_to_1_0
              ]},
+             {chunked, [], [
+                passthrough, interrupted_client, interrupted_server
+             ]},
              {body_less, [], [
                 head_small_body_expect, head_large_body_expect,
                 head_no_body_expect, head_chunked_expect,
@@ -38,36 +41,61 @@ groups() -> [{continue, [], [
 %%% Init %%%
 %%%%%%%%%%%%
 init_per_suite(Config) ->
+    {ok, Port} = gen_tcp:listen(0, []),
+    {ok, [{recbuf, RecBuf}]} = inet:getopts(Port, [recbuf]),
+    ct:pal("BUF DEFAULT: ~p~n",[inet:getopts(Port, [buffer, recbuf, packet_size])]),
+    application:load(vegur),
     meck:new(vegur_stub, [passthrough, no_link]),
     meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
     meck:expect(vegur_stub, checkout_service, fun(_, Req, HandlerState) -> {service, test_service, Req, HandlerState} end),
     Env = application:get_all_env(vegur),
-    [{vegur_env, Env} | Config].
+    {ok, Started} = application:ensure_all_started(vegur),
+    [{vegur_env, Env},
+     {default_tcp_recbuf, RecBuf},
+     {started, Started} | Config].
 
 end_per_suite(Config) ->
+    [application:stop(App) || App <- lists:reverse(?config(started, Config))],
     [application:set_env(vegur, K, V) || {K,V} <- ?config(vegur_env, Config)],
-    [vegur_stub] = meck:unload().
+    [vegur_stub] = meck:unload(),
+    application:unload(vegur),
+    Config.
 
 init_per_testcase(bypass, Config0) ->
     Config = init_per_testcase(default, Config0),
     meck:expect(vegur_stub, feature, fun(deep_continue, S) -> {disabled, S} end),
     Config;
+init_per_testcase(response_header_line_limits, Config0) ->
+    Config = init_per_testcase({catchall, make_ref()}, Config0),
+    Default = vegur_utils:config(client_tcp_buffer_limit),
+    application:set_env(vegur, client_tcp_buffer_limit, ?config(default_tcp_recbuf, Config)),
+    [{default_tcp, Default} | Config];
+init_per_testcase(response_status_limits, Config0) ->
+    Config = init_per_testcase({catchall, make_ref()}, Config0),
+    Default = vegur_utils:config(client_tcp_buffer_limit),
+    application:set_env(vegur, client_tcp_buffer_limit, ?config(default_tcp_recbuf, Config)),
+    [{default_tcp, Default} | Config];
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
-    application:load(vegur),
     meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{<<"127.0.0.1">>, LPort}, Req, HandlerState} end),
-    {ok, ProxyPort} = application:get_env(vegur, http_listen_port),
-    {ok, Started} = application:ensure_all_started(vegur),
+    {ok, _} = vegur:start_http(9880, vegur_stub, []),
     [{server_port, LPort},
-     {proxy_port, ProxyPort},
+     {proxy_port, 9880},
      {server_ip, {127,0,0,1}},
-     {server_listen, Listen},
-     {started, Started}
+     {server_listen, Listen}
      | Config].
 
+end_per_testcase(response_header_line_limits, Config) ->
+    Default = ?config(default_tcp, Config),
+    application:set_env(vegur, client_tcp_buffer_limit, Default),
+    end_per_testcase({catchall, make_ref()}, Config);
+end_per_testcase(response_status_limits, Config) ->
+    Default = ?config(default_tcp, Config),
+    application:set_env(vegur, client_tcp_buffer_limit, Default),
+    end_per_testcase({catchall, make_ref()}, Config);
 end_per_testcase(_, Config) ->
-    [application:stop(App) || App <- lists:reverse(?config(started, Config))],
+    vegur:stop_http(),
     gen_tcp:close(?config(server_listen, Config)).
 
 %%%%%%%%%%%%%%%%%%
@@ -602,6 +630,9 @@ response_header_line_limits(Config) ->
     %% By default a header line is restricted to 512kb when sent from
     %% the endpoint. If it goes above, a 502 is returned and the
     %% request is discarded.
+    %% This feature only works is the header isn't fully accumulated in the
+    %% buffer yet (otherwise, why cancel it?) -- the TCP buffer size should be
+    %% reduced.
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
     Req = req(Config),
@@ -632,9 +663,12 @@ response_status_limits(Config) ->
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
     Req = req(Config),
-    Resp = resp_huge_status(10000),
+    Resp = resp_huge_status(1024*1024),
     %% Open the server to listening. We then need to send data for the
     %% proxy to get the request and contact a back-end
+    %% This feature only works is the header isn't fully accumulated in the
+    %% buffer yet (otherwise, why cancel it?) -- the TCP buffer size should be
+    %% reduced.
     Ref = make_ref(),
     start_acceptor(Ref, Config),
     {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
@@ -773,6 +807,89 @@ chunked_to_1_0(Config) ->
     {match,_} = re:run(Response, "abcdefghijklmnopqrstu", [global,multiline,caseless]),
     %% Check final connection status
     wait_for_closed(Server, 500).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% CHUNKED REQUESTS BEHAVIOUR %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+passthrough(Config) ->
+    %% Chunked data can move through the stack without being modified.
+    %% We *could* re-chunk data, but leaving chunks as is is more
+    %% transparent and also easier.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n\r\n",
+    Req = [chunked_headers(Config), Chunks],
+    Resp = [resp_headers(chunked), Chunks],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_timeout(Client),
+    %% Check final connection status
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    {match,_} = re:run(RecvServ, Chunks),
+    {match,_} = re:run(RecvClient, Chunks),
+    wait_for_closed(Server, 500).
+
+interrupted_client(Config) ->
+    %% Regression --
+    %% Chunked data can move through the stack without being modified.
+    %% When the connection is interrupted halfway through, the stack is
+    %% still able to close it fine despite having dirty data (like
+    %% continuations) in its arguments.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ChunksHalf = "3\r\nabc\r\n5\r\ndefg",
+    Req = [chunked_headers(Config), ChunksHalf],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    ok = gen_tcp:close(Client),
+    _ = recv_until_close(Server),
+    wait_for_closed(Client, 500).
+
+interrupted_server(Config) ->
+    %% Regression --
+    %% Chunked data can move through the stack without being modified.
+    %% When the connection is interrupted halfway through, the stack is
+    %% still able to close it fine despite having dirty data (like
+    %% continuations) in its arguments.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ChunksHalf = "3\r\nabc\r\n5\r\ndefg",
+    Chunks = [ChunksHalf, "h\r\ne\r\nijklmnopqrstuv\r\n0\r\n\r\n"],
+    Req = [chunked_headers(Config), Chunks],
+    Resp = [resp_headers(chunked), ChunksHalf],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    ok = gen_tcp:close(Server),
+    RecvClient = recv_until_close(Client),
+    %% Check final connection status
+    ct:pal("RecvClient: ~p",[RecvClient]),
+    {match,_} = re:run(RecvClient, ChunksHalf).
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% BODY LESS REQUEST BEHAVIOUR %%%
@@ -1005,6 +1122,12 @@ recv_until_close(Port) ->
         {ok, Data} -> [Data | recv_until_close(Port)]
     end.
 
+recv_until_timeout(Port) ->
+    case gen_tcp:recv(Port, 0, 100) of
+        {error, timeout} -> [];
+        {ok, Data} -> [Data | recv_until_timeout(Port)]
+    end.
+
 wait_for_closed(_Port, T) when T =< 0 -> error(not_closed);
 wait_for_closed(Port, T) ->
     case gen_tcp:recv(Port, 0, 0) of
@@ -1021,6 +1144,14 @@ req_headers(Config) ->
     "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
     "Expect: 100-continue\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n".
+
+chunked_headers(Config) ->
+    "POST /chunked HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10\r\n" % should be ignored for chunked
+    "Transfer-encoding: chunked\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
 
@@ -1158,10 +1289,8 @@ resp_custom_headers(Name, Val) ->
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
 
 resp_huge_status(Len) ->
-    Status = lists:duplicate(Len-6, $X),
-    "HTTP/1.1 "++Status++"\r\n"
-    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
-    "Content-Type: text/plain\r\n"
+    Status = lists:duplicate(Len, $X),
+    "HTTP/1.1 200 "++Status++"\r\n"
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".

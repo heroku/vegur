@@ -1,6 +1,6 @@
 -module(vegur_proxy).
 
--define(BUFFER_LIMIT, 1024). % in bytes
+-define(UPSTREAM_BODY_BUFFER_LIMIT, 1024). % in bytes
 
 -export([backend_connection/1
          ,send_headers/7
@@ -19,7 +19,9 @@
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
 backend_connection({IpAddress, Port}) ->
-    {ok, Client} = vegur_client:init([]),
+    TcpBufSize = vegur_utils:config(client_tcp_buffer_limit),
+    {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
+                                      {recbuf, TcpBufSize}]),
     case vegur_client:connect(ranch_tcp, IpAddress, Port,
                               100, Client) of
         {ok, Client1} ->
@@ -52,13 +54,17 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
                                                        'HTTP/1.1',
                                                        Url,
                                                        Path),
-    {ok, _} = vegur_client:raw_request(IoHeaders, Client),
-    {Cont, Req1} = cowboy_req:meta(continue, Req, []),
-    case Cont of
-        continue ->
-            negotiate_continue(Body, Req1, Client);
-        _ ->
-            {done, Req1, Client}
+    case vegur_client:raw_request(IoHeaders, Client) of
+        {ok, _} ->
+            {Cont, Req1} = cowboy_req:meta(continue, Req, []),
+            case Cont of
+                continue ->
+                    negotiate_continue(Body, Req1, Client);
+                _ ->
+                    {done, Req1, Client}
+            end;
+        {error, Err} ->
+            {error, downstream, Err}
     end.
 
 send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
@@ -72,12 +78,14 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
             %% use headers & body to stream correctly
             stream_request(Req2, BackendClient);
         Body ->
-            {ok, _} = vegur_client:raw_request(Body, BackendClient),
-            {done, Req, BackendClient}
+            case vegur_client:raw_request(Body, BackendClient) of
+                {ok, _} -> {done, Req, BackendClient};
+                {error, Err} -> {error, downstream, Err}
+            end
     end.
 
 negotiate_continue(Body, Req, BackendClient) ->
-    Timeout = timer:seconds(vegur_app:config(idle_timeout, 55)),
+    Timeout = timer:seconds(vegur_utils:config(idle_timeout)),
     negotiate_continue(Body, Req, BackendClient, Timeout).
 
 negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
@@ -183,7 +191,7 @@ read_backend_response(Req, Client) ->
 
 send_continue(Req, BackendClient) ->
     HTTPVer = atom_to_binary(vegur_client:version(BackendClient), latin1),
-    {{Transport,Socket}, _} = cowboy_req:raw_socket(Req),
+    {{Transport,Socket}, _} = vegur_utils:raw_cowboy_socket(Req),
     Transport:send(Socket,
         [HTTPVer, <<" 100 Continue\r\n\r\n">>]),
     %% Got it. Now clean up the '100 Continue' state from
@@ -191,14 +199,15 @@ send_continue(Req, BackendClient) ->
     cowboy_req:set_meta(continue, continued, Req).
 
 -spec upgrade(Headers, Req, Client) ->
-                     {done, Req, Client} when
+                     {done, Req, Client} |
+                     {timeout, Req, Client} when
       Req :: cowboy_req:req(),
       Headers :: [{binary(), binary()}]|[],
       Client :: vegur_client:client().
 upgrade(Headers, Req, BackendClient) ->
     %% fetch raw sockets and buffers
     {Server={TransStub,SockStub}, BufStub, _NewClient} = vegur_client:raw_socket(BackendClient),
-    {Client={TransCow,SockCow}, BufCow, Req3} = cowboy_req:raw_sockbuf(Req),
+    {Client={TransCow,SockCow}, BufCow, Req3} = vegur_utils:raw_cowboy_sockbuf(Req),
     %% Send the response to the caller
     Headers1 = vegur_client:headers_to_iolist(upgrade_response_headers(Headers)),
     TransCow:send(SockCow,
@@ -216,7 +225,7 @@ upgrade(Headers, Req, BackendClient) ->
         BackendClient1 = CloseFun(TransC, PortC, TransS, PortS, Event),
         {timeout, BackendClient1}
     end,
-    Timeout = timer:seconds(vegur_app:config(idle_timeout, 55)),
+    Timeout = timer:seconds(vegur_utils:config(idle_timeout)),
     Res = vegur_bytepipe:become(Client, Server, [{timeout, Timeout},
                                                  {on_close, CloseFun},
                                                  {on_timeout, TimeoutFun}]),
@@ -244,7 +253,7 @@ relay(Status, HeadersRaw, Req, Client) ->
         close  -> add_via(add_connection_close_header(response_headers(HeadersRaw)))
     end,
     case vegur_client:body_type(Client) of
-        {content_size, N} when N =< ?BUFFER_LIMIT ->
+        {content_size, N} when N =< ?UPSTREAM_BODY_BUFFER_LIMIT ->
             relay_full_body(Status, Headers, Req, Client);
         {content_size, N} ->
             relay_stream_body(Status, Headers, N, fun stream_body/2, Req, Client);
@@ -317,7 +326,7 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
     %% sizes all over after we parsed them first. We save time by just using
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
-    {RawSocket, Req3} = cowboy_req:raw_socket(Req2),
+    {RawSocket, Req3} = vegur_utils:raw_cowboy_socket(Req2),
     case wait_for_body(Status, Req) of
         dont_wait ->
             {ok, Req3, backend_close(Client)};
@@ -385,11 +394,15 @@ stream_request(Req, Client) ->
     end.
 
 stream_request(Buffer, Req, Client) ->
-    {ok, _} = vegur_client:raw_request(Buffer, Client),
-    case cowboy_req:stream_body(Req) of
-        {done, Req2} -> {done, Req2, Client};
-        {ok, Data, Req2} -> stream_request(Data, Req2, Client);
-        {error, Err} -> {error, upstream, Err}
+    case vegur_client:raw_request(Buffer, Client) of
+        {ok, _} ->
+            case cowboy_req:stream_body(Req) of
+                {done, Req2} -> {done, Req2, Client};
+                {ok, Data, Req2} -> stream_request(Data, Req2, Client);
+                {error, Err} -> {error, upstream, Err}
+            end;
+        {error, Err} ->
+            {error, downstream, Err}
     end.
 
 %% Cowboy also allows to decode data further after one pass, say if it
@@ -571,7 +584,7 @@ add_connection_keepalive_header(Hdrs) ->
 add_connection_upgrade_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
-        false -> [{<<"connection">>, <<"upgrade">>} | Hdrs]
+        false -> [{<<"connection">>, <<"Upgrade">>} | Hdrs]
     end.
 
 add_via(Hdrs) ->
