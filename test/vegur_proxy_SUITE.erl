@@ -231,7 +231,7 @@ request_statistics(Config) ->
     receive
         {req, _Req} ->
             receive
-                {stats, {successful, Upstream, undefined}} ->
+                {stats, {successful, Upstream, _State}} ->
                     {118, _} = vegur_req:bytes_recv(Upstream),
                     {250, _} = vegur_req:bytes_sent(Upstream),
                     {RT, _} = vegur_req:route_duration(Upstream),
