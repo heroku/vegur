@@ -123,7 +123,7 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
                 {error, timeout} ->
                     negotiate_continue(Body, Req, BackendClient, Timeout-Wait);
                 {error, Error} ->
-                    {error, Error}
+                    {error, downstream, Error}
             end;
         {error, Error} ->
             {error, upstream, Error}
