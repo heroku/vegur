@@ -99,7 +99,7 @@ chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
                     {done, Buf, Rest}
             end;
         undefined ->
-            {error, no_length};
+            {error, {bad_chunk, no_length}};
         Len ->
             data(Rest, S)
     end;
@@ -121,13 +121,13 @@ chunk_size(<<H, Rest/binary>>, S=#state{length=Len}) when H >= $A, H =< $F;
     chunk_size(Rest, S#state{length=NewLen});
 chunk_size(<<";", Rest/binary>>, S=#state{length=Len}) ->
     case Len of
-        undefined -> {error, no_length};
+        undefined -> {error, {bad_chunk, no_length}};
         _ -> extension(Rest, S)
     end;
 chunk_size(<<>>, State) ->
     {more, {fun chunk_size/2, State}};
 chunk_size(<<BadChar, _/binary>>, _State) ->
-    {error, {length_char, <<BadChar>>}}.
+    {error, {bad_chunk, {length_char, <<BadChar>>}}}.
 
 extension(Bin, State) -> ext_name(Bin, State).
 

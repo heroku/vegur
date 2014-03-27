@@ -103,7 +103,7 @@ chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
                     {done, [Buf, <<"\r\n">>], Rest}
             end;
         undefined ->
-            {error, no_length};
+            {error, {bad_chunk, no_length}};
         Len ->
             data(Rest, S#state{buffer = [Buf, <<"\r\n">>]})
     end;
@@ -125,13 +125,13 @@ chunk_size(<<H, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when H >= $A, H
     chunk_size(Rest, S#state{length=NewLen, buffer = [Buf, H]});
 chunk_size(<<";", Rest/binary>>, S=#state{length=Len}) ->
     case Len of
-        undefined -> {error, no_length};
+        undefined -> {error, {bad_chunk, no_length}};
         _ -> extension(Rest, S)
     end;
 chunk_size(<<>>, State) ->
     {more, {fun chunk_size/2, State}};
 chunk_size(<<BadChar, _/binary>>, _State) ->
-    {error, {length_char, <<BadChar>>}}.
+    {error, {bad_chunk, {length_char, <<BadChar>>}}}.
 
 extension(Bin, State) -> ext_name(Bin, State).
 
@@ -184,5 +184,9 @@ data(Bin, S=#state{length=Len, buffer=Buf}) when Len > 0 ->
         Bin -> %% Data possibly missing.
             {more, {fun data/2, S#state{length = Len-byte_size(Bin),
                                         buffer=[Buf,Bin]}}}
-    end.
+    end;
+data(Bin, #state{length=0, buffer=Buf}) ->
+    %% We have more data than the length would tell us.
+    %% Bad chunk.
+    {error, {bad_chunk, {0, [Buf,Bin]}}}.
 

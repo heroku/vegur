@@ -392,7 +392,7 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
             {ok, backend_close(Client2)};
         {error, Reason} ->
             backend_close(Client),
-            {error, Reason}
+            {error, downstream, Reason}
     end.
 
 %% Deal with the transfer of a large or chunked request body by
