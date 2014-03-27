@@ -22,12 +22,14 @@ groups() ->
                                 ,query_string
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
-                                 ,request_statistics
+                                ,request_statistics
+                                ,websockets
                                 ]}
     ].
 
 init_per_suite(Config) ->
     application:load(vegur),
+    ok = application:load(websocket_client),
     meck:new(vegur_stub, [no_link, passthrough]),
     {ok, Cowboy} = application:ensure_all_started(cowboy),
     {ok, Inets} = application:ensure_all_started(inets),
@@ -41,6 +43,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     vegur:stop_http(),
     application:unload(vegur),
+    application:unload(websocket_client),
     [application:stop(App) || App <- ?config(started, Config)],
     Config.
 
@@ -113,8 +116,8 @@ forwarded_for(Config) ->
                         {Port, Req2} = cowboy_req:port(Req1),
                         {{PeerIp, 1234, Port}, Req2}
                    end),
-    meck:expect(vegur_stub, feature, fun(peer_port, S) -> 
-                                             {enabled, S} 
+    meck:expect(vegur_stub, feature, fun(peer_port, S) ->
+                                             {enabled, S}
                                      end),
     Port = ?config(vegur_port, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
@@ -147,8 +150,8 @@ forwarded_for(Config) ->
             throw(timeout)
     end,
 
-    meck:expect(vegur_stub, feature, fun(peer_port, S) -> 
-                                             {disabled, S} 
+    meck:expect(vegur_stub, feature, fun(peer_port, S) ->
+                                             {disabled, S}
                                      end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
     receive
@@ -244,6 +247,21 @@ request_statistics(Config) ->
     after 5000 ->
             throw(timeout)
     end,
+    Config.
+
+websockets(Config) ->
+    Msg = <<"Test Msg!">>,
+    Port = ?config(vegur_port, Config),
+    Host = "127.0.0.1",
+    Url = "ws://"++Host++":"++integer_to_list(Port)++"/ws",
+    {ok, Pid} = vegur_websocket_client:start_link(Url, self(), Msg),
+    receive
+        {msg, Msg} ->
+            ok
+    after
+        5000 -> throw(timeout)
+    end,
+    Pid ! stop,
     Config.
 
 host(Config) ->

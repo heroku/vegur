@@ -6,8 +6,9 @@
 
 start(Port, Opts) ->
     Dispatch = cowboy_router:compile([
-            {'_', [{'_', ?MODULE, Opts}]}
-        ]),
+                                     {'_', [{"/ws", vegur_websockets_dyno, []}
+                                           ,{'_', ?MODULE, Opts}]}
+                                     ]),
     cowboy:start_http(?MODULE, 100,
         [{port, Port}],
         [{env, [{dispatch, Dispatch}]}]).
