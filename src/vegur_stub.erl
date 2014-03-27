@@ -149,6 +149,10 @@ error_page({upstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
 error_page({downstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
     %% bad chunked encoding from server
     {{502, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, non_terminal_status_after_continue}, _DomainGroup, Upstream, HandlerState) ->
+    %% Can't send a 1xx status after a 100 continue (except for upgrades)
+    %% when expect: 100-continue is declared
+    {{502, [], <<>>}, Upstream, HandlerState};
 %% Generic handling
 error_page(empty_host, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
