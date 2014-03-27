@@ -206,16 +206,16 @@ send_continue(Req, BackendClient) ->
       Client :: vegur_client:client().
 upgrade(Headers, Req, BackendClient) ->
     %% fetch raw sockets and buffers
-    {Server={TransStub,SockStub}, BufStub, _NewClient} = vegur_client:raw_socket(BackendClient),
+    {Server={TransVeg,SockVeg}, BufVeg, _NewClient} = vegur_client:raw_socket(BackendClient),
     {Client={TransCow,SockCow}, BufCow, Req3} = vegur_utils:raw_cowboy_sockbuf(Req),
     %% Send the response to the caller
     Headers1 = vegur_client:headers_to_iolist(upgrade_response_headers(Headers)),
     TransCow:send(SockCow,
                   [<<"HTTP/1.1 101 Switching Protocols\r\n">>,
                    Headers1, <<"\r\n">>,
-                   BufStub]),
+                   BufVeg]),
     %% Flush leftover buffer data from the client, if any
-    TransStub:send(SockStub, BufCow),
+    TransVeg:send(SockVeg, BufCow),
     CloseFun = fun(TransC, PortC, TransS, PortS, Event) ->
         BackendClient1 = vegur_client:set_stats(BackendClient),
         ok = vegur_bytepipe:cb_close(TransC, PortC, TransS, PortS, Event),
