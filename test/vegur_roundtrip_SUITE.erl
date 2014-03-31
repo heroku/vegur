@@ -916,9 +916,10 @@ interrupted_server(Config) ->
     ok = gen_tcp:send(Server, Resp),
     ok = gen_tcp:close(Server),
     RecvClient = recv_until_close(Client),
-    %% Check final connection status
+    %% Connection closed and may or may not have reported partial chunks
+    %% based on timing that would close the socket.
     ct:pal("RecvClient: ~p",[RecvClient]),
-    {match,_} = re:run(RecvClient, ChunksHalf).
+    check_stub_error({downstream, closed}).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
