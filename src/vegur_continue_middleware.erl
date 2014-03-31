@@ -5,16 +5,20 @@
 
 execute(Req, Env) ->
     case vegur_utils:parse_header(<<"expect">>, Req) of
-        {[<<"100-continue">>], Req1} ->
+        {ok, {[<<"100-continue">>], Req1}} ->
             %% We only have continue as an expectation
             {Req2, Env2} = handle_feature(Req1, Env),
             {ok, Req2, Env2};
-        {[undefined], Req1} ->
+        {ok, {[undefined], Req1}} ->
             %% no Expect header
             {ok, Req1, Env};
-        _ ->
+        {ok, _} ->
             %% Any other value for expect headers
             {HttpCode, Req1} = vegur_utils:handle_error(expectation_failed, Req),
+            {error, HttpCode, Req1};
+        {error, _} ->
+            %% Bad request, invalid header value
+            {HttpCode, Req1} = vegur_utils:handle_error(bad_request, Req),
             {error, HttpCode, Req1}
     end.
 

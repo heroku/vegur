@@ -11,7 +11,7 @@ groups() -> [{continue, [], [
                 continue_upgrade_httpbis, upgrade_no_continue,
                 terminal_no_continue_partial, terminal_no_continue_complete,
                 no_expect_continue, http_1_0_continue,
-                bypass]},
+                unknown_expect, bad_syntax_expect, bypass]},
              {headers, [], [
                 duplicate_different_lengths_req, duplicate_csv_lengths_req,
                 duplicate_identical_lengths_req,
@@ -372,6 +372,36 @@ http_1_0_continue(Config) ->
     {match, _} = re:run(Response, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
     nomatch = re:run(Response, "100 Continue"),
     wait_for_closed(Server, 5000).
+
+%% When an unknown expect header value is used, we should fail with a 417
+%% error.
+unknown_expect(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ReqHeaders = custom_expect_headers(Config, "whatever"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, ReqHeaders),
+    %% No data to exchange because this failed
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match, _} = re:run(Response, "417").
+
+%% When an unknown expect header value is used, we should fail with a 417
+%% error, even if the header is unparseable by the standards
+bad_syntax_expect(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ReqHeaders = custom_expect_headers(Config, "100 continue"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, ReqHeaders),
+    %% No data to exchange because this failed
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match, _} = re:run(Response, "400").
 
 %% 100 Continue can be bypassed by disabling the feature in the interface
 %% module, in which case the client will see the 100 continue response,
@@ -1140,10 +1170,13 @@ wait_for_closed(Port, T) ->
 
 %% Request data
 req_headers(Config) ->
+    custom_expect_headers(Config, "100-continue").
+
+custom_expect_headers(Config, Value) ->
     "POST /continue-1 HTTP/1.1\r\n"
     "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
-    "Expect: 100-continue\r\n"
+    "Expect: "++Value++"\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
 
