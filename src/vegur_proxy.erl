@@ -31,8 +31,9 @@ backend_connection({IpAddress, Port}) ->
     end.
 
 -spec send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
-                          {done, Blame, Req, Client} |
-                          {error, any()} when
+                          {done, Req, Client} |
+                          {ok, Code, Headers, Client} |
+                          {error, Blame, any()} when
       Body :: {stream, chunked|non_neg_integer()}|binary(),
       Method :: binary(),
       Headers :: [{binary(), binary()}]|[],
@@ -40,6 +41,7 @@ backend_connection({IpAddress, Port}) ->
       Url :: binary(),
       Req :: cowboy_req:req(),
       Client :: vegur_client:client(),
+      Code :: non_neg_integer(),
       Blame :: error_blame().
 send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% Sends a request with a body yet to come through streaming. The BodyLen
