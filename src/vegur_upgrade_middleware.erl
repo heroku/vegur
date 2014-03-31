@@ -4,7 +4,9 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    {ConnectionTokens,Req1} = vegur_utils:parse_header(<<"connection">>, Req),
+    match_headers(vegur_utils:parse_header(<<"connection">>, Req), Req, Env).
+
+match_headers({ok,{ConnectionTokens, Req1}}, _, Env) ->
     case lists:member(<<"upgrade">>, ConnectionTokens) of
         false ->
             {ok, Req1, Env};
@@ -23,7 +25,10 @@ execute(Req, Env) ->
                     {HttpCode, Req2} = vegur_utils:handle_error(bad_request, Req1),
                     {error, HttpCode, Req2}
             end
-    end.
+    end;
+match_headers({error,_}, Req, _Env) ->
+    {HttpCode, Req1} = vegur_utils:handle_error(bad_request, Req),
+    {error, HttpCode, Req1}.
 
 % http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.42
 -spec handle_upgrade(undefined|[binary()] | {error, term()}, Req, Env) ->

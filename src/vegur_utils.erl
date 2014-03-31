@@ -37,12 +37,14 @@ set_handler_state(HandlerState, Req) ->
     cowboy_req:set_meta(handler_state, HandlerState, Req).
 
 -spec parse_header(binary(), cowboy_req:req()) ->
-                          {[]|[binary()|undefined], cowboy_req:req()}.
+                          {ok, {[]|[binary()|undefined], cowboy_req:req()}}
+                        | {error, badarg}.
 parse_header(Key, Req) ->
     case cowboy_req:parse_header(Key, Req) of
-        {ok, L, Req0} when is_list(L) -> {L, Req0};
-        {ok, Term, Req0} -> {[Term], Req0};
-        {undefined, Term, Req0} ->  {[Term], Req0}
+        {ok, L, Req0} when is_list(L) -> {ok, {L, Req0}};
+        {ok, Term, Req0} -> {ok, {[Term], Req0}};
+        {undefined, Term, Req0} ->  {ok, {[Term], Req0}};
+        {error, badarg} -> {error, badarg}
     end.
 
 -spec add_or_append_header(Key, Value, Headers, Req) ->
