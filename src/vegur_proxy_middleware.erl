@@ -10,21 +10,22 @@
 execute(Req, Env) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
     Log1 = vegur_req_log:stamp(pre_proxy, Log),
-    {Client, Req2} = cowboy_req:meta(backend_connection, Req1),
+    Req2 = cowboy_req:set_meta(logging, Log1, Req1),
+    {Client, Req3} = cowboy_req:meta(backend_connection, Req2),
     case vegur_req_log:log(service_time,
                            fun() ->
-                                   proxy(Req2, #state{backend_client = Client, env = Env})
+                                   proxy(Req3, #state{backend_client = Client, env = Env})
                            end, Log1) of
-        {{ok, Code, Req3, #state{backend_client=Client1}}, Log2} ->
-            Req4 = store_byte_counts(Req3, Client1),
-            Req5 = cowboy_req:set_meta(status, successful, Req4),
-            Req6 = cowboy_req:set_meta(logging, Log2, Req5),
-            {halt, Code, Req6};
-        {{error, Blame, Reason, Req3}, Log2} ->
-            {HttpCode, Req4} = vegur_utils:handle_error({Blame, Reason}, Req3),
-            Req5 = store_byte_counts(Req4, Client),
-            Req6 = cowboy_req:set_meta(logging, Log2, Req5),
-            {error, HttpCode, Req6}
+        {{ok, Code, Req4, #state{backend_client=Client1}}, Log2} ->
+            Req5 = store_byte_counts(Req4, Client1),
+            Req6 = cowboy_req:set_meta(status, successful, Req5),
+            Req7 = cowboy_req:set_meta(logging, Log2, Req6),
+            {halt, Code, Req7};
+        {{error, Blame, Reason, Req4}, Log2} ->
+            {HttpCode, Req5} = vegur_utils:handle_error({Blame, Reason}, Req4),
+            Req6 = store_byte_counts(Req5, Client),
+            Req7 = cowboy_req:set_meta(logging, Log2, Req6),
+            {error, HttpCode, Req7}
     end.
 
 proxy(Req, State) ->
@@ -140,7 +141,15 @@ add_proxy_headers(Headers, Req) ->
     {Headers2, Req2} = add_forwarded(Headers1, Req1),
     {Headers3, Req3} = add_via(Headers2, Req2),
     {Headers4, Req4} = add_connect_time(Headers3, Req3),
-    add_total_route_time(Headers4, Req4).
+    {Headers5, Req5} = add_start_time(Headers4, Req4),
+    add_total_route_time(Headers5, Req5).
+
+add_start_time(Headers, Req) ->
+    {Time, Req1} = vegur_req:pre_proxy(Req),
+    {vegur_utils:add_or_replace_header(vegur_utils:config(start_time_header),
+                                       integer_to_list(timer:now_diff(Time, {0,0,0}) div 1000),
+                                       Headers),
+     Req1}.
 
 add_connect_time(Headers, Req) ->
     {Time, Req1} = vegur_request_log:get_log_value(connect_time, Req),

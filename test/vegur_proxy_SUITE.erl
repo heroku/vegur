@@ -17,6 +17,7 @@ groups() ->
                                 ,forwarded_for
                                 ,via
                                 ,connect_time_header
+                                ,start_time_header
                                 ,route_time_header
                                 ,host
                                 ,query_string
@@ -182,6 +183,19 @@ via(Config) ->
     end,
     Config.
 
+start_time_header(Config) ->
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req} ->
+            {Res, _} = cowboy_req:header(vegur_utils:config(start_time_header), Req),
+            true = is_integer(list_to_integer(binary_to_list(Res)))
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
 connect_time_header(Config) ->
     Port = ?config(vegur_port, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
@@ -236,7 +250,7 @@ request_statistics(Config) ->
             receive
                 {stats, {successful, Upstream, _State}} ->
                     {118, _} = vegur_req:bytes_recv(Upstream),
-                    {250, _} = vegur_req:bytes_sent(Upstream),
+                    {282, _} = vegur_req:bytes_sent(Upstream),
                     {RT, _} = vegur_req:route_duration(Upstream),
                     {CT, _} = vegur_req:connect_duration(Upstream),
                     {TT, _} = vegur_req:total_duration(Upstream),

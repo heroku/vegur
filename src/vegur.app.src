@@ -10,6 +10,7 @@
   ,{env, [{acceptors, 1024}
           ,{max_connections, 100000}
           ,{request_id_name, <<"x-request-id">>}
+          ,{start_time_header, <<"x-request-start">>}
           ,{connect_time_header, <<"connect-time">>}
           ,{route_time_header, <<"total-route-time">>}
           ,{instance_name, <<"vegur">>}
