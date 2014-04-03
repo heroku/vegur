@@ -74,7 +74,7 @@ stamp(EventType, T, Details, Log = #log{events = Q}) ->
 timestamp_diff(BeginningEventType, EndingEventType, Log) ->
     timestamp_diff(BeginningEventType, EndingEventType, undefined, Log).
 
-%% returns a millisecond diff between two event_types if there exists a 
+%% returns a millisecond diff between two event_types if there exists a
 %% single stamp for each event_type
 -spec timestamp_diff(event_type(), event_type(), term(), request_log()) -> term().
 timestamp_diff(BeginningEventType, EndingEventType, Default, Log) ->
