@@ -28,8 +28,12 @@ execute(Req, Env) ->
     end.
 
 proxy(Req, State) ->
-    {BackendReq, Req1} = parse_request(Req),
-    send_to_backend(BackendReq, Req1, State).
+    case parse_request(Req) of
+        {BackendReq, Req1} ->
+            send_to_backend(BackendReq, Req1, State);
+        {error, Blame, Reason, Req1} ->
+            {error, Blame, Reason, Req1}
+    end.
 
 send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
                 #state{backend_client=BackendClient}=State) ->
@@ -120,20 +124,28 @@ parse_request(Req) ->
     end,
     %% We handle the request differently based on whether it's chunked,
     %% has a known length, or if it has no body at all.
-    {Body, Req8} =
-        case cowboy_req:has_body(Req6) of
-            true ->
-                case cowboy_req:body_length(Req6) of
-                    {undefined, Req7} ->
-                        {{stream, chunked}, Req7};
-                    {Length, Req7} ->
-                        {{stream, Length}, Req7}
-                end;
-            false ->
-                {<<>>, Req6}
-        end,
-    {Headers2, Req9} = add_proxy_headers(Headers, Req8),
-    {{Method, Headers2, Body, FullPath, Host}, Req9}.
+    case get_body(Req6) of
+        {Body, Req7} ->
+            {Headers2, Req8} = add_proxy_headers(Headers, Req7),
+            {{Method, Headers2, Body, FullPath, Host}, Req8};
+        {error, Blame, Reason, Req7} ->
+            {error, Blame, Reason, Req7}
+    end.
+
+get_body(Req) ->
+    case cowboy_req:has_body(Req) of
+        true ->
+            case cowboy_req:body_length(Req) of
+                {undefined, Req1} ->
+                    {{stream, chunked}, Req1};
+                {error, badarg} ->
+                    {error, upstream, invalid_request, Req};
+                {Length, Req1} ->
+                    {{stream, Length}, Req1}
+            end;
+        false ->
+            {<<>>, Req}
+    end.
 
 add_proxy_headers(Headers, Req) ->
     {Headers1, Req1} = add_request_id(Headers, Req),
