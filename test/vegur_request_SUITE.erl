@@ -22,6 +22,9 @@ groups() ->
                                    ,header_count_limits
                                    ,invalid_expect
                                    ,absolute_uri
+                                   ,newline_hd_value
+                                   ,newline_in_hd_value
+                                   ,request_injection
                                   ]},
      {vegur_request_mocks, [], [herokuapp_redirect
                                 ,maintainance_mode_on
@@ -277,6 +280,43 @@ absolute_uri(Config) ->
     Data = get_until_closed(Socket, <<>>),
     M = binary:match(Data, <<"400">>),
     true = is_tuple(M),
+    Config.
+
+newline_hd_value(Config) ->
+    % Make a request with a newline in header value
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 400, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}
+                                                         ,{"A-Header","\r\nvalueasdf 1"}
+                                                         ,{"Following-Header", "test"}
+                                                         ]},
+                                              [], []),
+    Config.
+
+newline_in_hd_value(Config) ->
+    % Make a request with a newline in header value
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 400, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}
+                                                         ,{"A-Header","AAAAAAAAAAAAAAAAAAAAAAAAA\r\nAsd; asdasdasd asd e"}
+                                                         ,{"Following-Header", "test"}
+                                                         ]},
+                                              [], []),
+    Config.
+
+request_injection(Config) ->
+    % Try to inject a request
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Req = "GET / HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "GET / HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n",
+    {ok, Client} = gen_tcp:connect({127,0,0,1}, Port, [{active,false},list], 1000),
+    ok = gen_tcp:send(Client, Req),
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    nomatch /= binary:match(list_to_binary(Response), <<"400">>),
     Config.
 
 herokuapp_redirect(Config) ->

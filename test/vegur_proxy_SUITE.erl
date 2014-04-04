@@ -20,6 +20,7 @@ groups() ->
                                 ,route_time_header
                                 ,host
                                 ,query_string
+                                ,body_length_fail
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
                                 ,request_statistics
@@ -286,6 +287,20 @@ query_string(Config) ->
     after 5000 ->
             throw(timeout)
     end,
+    Config.
+
+body_length_fail(Config) ->
+    Port = ?config(vegur_port, Config),
+    Req = "GET / HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Transfer-Encoding:  \r\n"
+        "Content-Length: 8\r\n\r\n"
+        "asd\r\n\r\n"
+        "s",
+    {ok, Client} = gen_tcp:connect({127,0,0,1}, Port, [{active,false},list], 1000),
+    ok = gen_tcp:send(Client, Req),
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    nomatch /= binary:match(list_to_binary(Response), <<"400">>),
     Config.
 
 %% Helpers
