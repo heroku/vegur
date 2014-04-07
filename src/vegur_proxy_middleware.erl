@@ -145,7 +145,7 @@ add_proxy_headers(Headers, Req) ->
     add_total_route_time(Headers5, Req5).
 
 add_start_time(Headers, Req) ->
-    {Time, Req1} = vegur_req:pre_proxy(Req),
+    {Time, Req1} = vegur_req:start_time(Req),
     {vegur_utils:add_or_replace_header(vegur_utils:config(start_time_header),
                                        integer_to_list(timer:now_diff(Time, {0,0,0}) div 1000),
                                        Headers),
@@ -206,12 +206,34 @@ get_via_value() ->
 
 handle_feature(Req, {Headers, PeerPort}) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-    case InterfaceModule:feature(peer_port, HandlerState) of
-        {enabled, HandlerState2} ->
-            Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
-            Headers1 = vegur_utils:add_or_replace_header(<<"x-forwarded-peer-port">>, integer_to_list(PeerPort), Headers),
-            {Headers1, Req2};
-        {disabled, HandlerState2} ->
-            Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
-            {Headers, Req2}
+    Headers1 = case InterfaceModule:feature(peer_port, HandlerState) of
+                   {enabled, HandlerState2} ->
+                       Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
+                       vegur_utils:add_or_replace_header(<<"x-forwarded-peer-port">>,
+                                                                   integer_to_list(PeerPort),
+                                                                    Headers);
+                   {disabled, HandlerState2} ->
+                       Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
+                       Headers
+               end,
+
+    case InterfaceModule:feature(router_metrics, HandlerState2) of
+        {enabled, HandlerState3} ->
+            Req3 = vegur_utils:set_handler_state(HandlerState3, Req2),
+            InstanceName = InterfaceModule:instance_name(),
+            Headers2 = vegur_utils:add_or_replace_header(<<"Heroku-Hermes-Instance-Name">>,
+                                                         InstanceName,
+                                                         Headers1),
+            {ConnectDuration, Req4} = vegur_req:connect_duration(Req3),
+            Headers3 = vegur_utils:add_or_replace_header(<<"Heroku-Connect-Time">>,
+                                                        list_to_binary(integer_to_list(ConnectDuration)),
+                                                        Headers2),
+            {StartToProxy, Req5} = vegur_req:start_to_proxy_duration(Req4),
+            Headers4 = vegur_utils:add_or_replace_header(<<"Heroku-Total-Route-Time">>,
+                                                        list_to_binary(integer_to_list(StartToProxy)),
+                                                        Headers3),
+            {Headers4, Req5};
+        {disabled, HandlerState3} ->
+            Req3 = vegur_utils:set_handler_state(HandlerState3, Req2),
+            {Headers1, Req3}
     end.

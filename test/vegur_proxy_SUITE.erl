@@ -118,7 +118,9 @@ forwarded_for(Config) ->
                         {{PeerIp, 1234, Port}, Req2}
                    end),
     meck:expect(vegur_stub, feature, fun(peer_port, S) ->
-                                             {enabled, S}
+                                             {enabled, S};
+                                        (_, S) ->
+                                             {disabled, S}
                                      end),
     Port = ?config(vegur_port, Config),
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
@@ -132,6 +134,7 @@ forwarded_for(Config) ->
     after 5000 ->
             throw(timeout)
     end,
+
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"},
                                                           {"x-forwarded-for", "10.0.0.1"}]}, [], []),
     receive
@@ -151,13 +154,32 @@ forwarded_for(Config) ->
             throw(timeout)
     end,
 
+    meck:expect(vegur_stub, feature, fun(router_metrics, S) ->
+                                             {enabled, S};
+                                        (_, S) ->
+                                             {disabled, S}
+                                     end),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req3} ->
+            {<<"vegur_stub">>, _} = cowboy_req:header(<<"heroku-hermes-instance-name">>, Req3),
+            {ConnectTime, _} = cowboy_req:header(<<"heroku-connect-time">>, Req3),
+            true = is_integer(list_to_integer(binary_to_list(ConnectTime))),
+            {TotalRouteTime, _} = cowboy_req:header(<<"heroku-total-route-time">>, Req3),
+            true = is_integer(list_to_integer(binary_to_list(TotalRouteTime)))
+    after 5000 ->
+            throw(timeout)
+    end,
+
     meck:expect(vegur_stub, feature, fun(peer_port, S) ->
+                                             {disabled, S};
+                                        (_, S) ->
                                              {disabled, S}
                                      end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
     receive
-        {req, Req3} ->
-            {undefined, _} = cowboy_req:header(<<"x-forwarded-peer-port">>, Req3)
+        {req, Req4} ->
+            {undefined, _} = cowboy_req:header(<<"x-forwarded-peer-port">>, Req4)
     after 5000 ->
             throw(timeout)
     end,

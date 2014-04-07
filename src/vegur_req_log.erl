@@ -9,6 +9,7 @@
               events = queue:new()}).
 
 -export([new/1
+        ,start_time/1
         ,log/3
         ,stamp/2
         ,stamp/3
@@ -40,6 +41,11 @@
 -spec new(erlang:timestamp()) -> request_log().
 new({_,_,_} = StartTime) ->
     #log{start = StartTime}.
+
+%% Returns start time from req log
+-spec start_time(request_log()) -> erlang:timestamp().
+start_time(#log{start = StartTime}) ->
+    StartTime.
 
 %% Log a given event. The log of an event results in a stamp added right before
 %% and right after the event (wrapped as a 0-argument fun).

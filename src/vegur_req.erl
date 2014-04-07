@@ -9,7 +9,9 @@
 -module(vegur_req).
 
 %% API
--export([request_id/1
+-export([start_time/1
+         ,start_to_proxy_duration/1
+         ,request_id/1
          ,peer/1
          ,proxy_peer/1
          ,route_duration/1
@@ -25,6 +27,21 @@
          ,header/2
          ,response_code/1
         ]).
+
+-spec start_time(Req) -> {StartTime, Req} when
+      Req :: cowboy_req:req(),
+      StartTime :: erlang:timestamp().
+start_time(Req) ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {vegur_req_log:start_time(Log), Req1}.
+
+-spec start_to_proxy_duration(Req) -> {StartToProxyDuration, Req} when
+      Req :: cowboy_req:req(),
+      StartToProxyDuration :: erlang:timestamp().
+start_to_proxy_duration(Req) ->
+    {StartTime, Req1} = start_time(Req),
+    {PreProxy, Req2} = pre_proxy(Req1),
+    {timer:now_diff(PreProxy, StartTime) div 1000, Req2}.
 
 -spec request_id(Req) -> {RequestId, Req} when
       Req :: cowboy_req:req(),

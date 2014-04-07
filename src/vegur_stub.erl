@@ -9,7 +9,8 @@
          checkin_service/6,
          service_backend/3,
          feature/2,
-         error_page/4]).
+         error_page/4,
+         instance_name/0]).
 
 -record(state, {
           connect_tries = 0 :: non_neg_integer()
@@ -160,6 +161,9 @@ error_page(bad_request, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page(_, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState}.
+
+instance_name() ->
+    <<"vegur_stub">>.
 
 -spec service_backend(Service, Upstream, HandlerState) ->
                              {ServiceBackend, Upstream, HandlerState} when
