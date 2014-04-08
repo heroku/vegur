@@ -366,11 +366,15 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
     %% and forward them over the raw socket.
     case vegur_client:stream_chunk(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_chunked(Raw, Client2);
+            case Transport:send(Sock, Data) of
+                ok -> stream_chunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {more, _Len, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_chunked(Raw, Client2);
+            case Transport:send(Sock, Data) of
+                ok -> stream_chunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Data, Client2} ->
             Transport:send(Sock, Data),
             {ok, backend_close(Client2)};
@@ -384,11 +388,15 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
     %% and forward them over the raw socket.
     case vegur_client:stream_unchunk(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_unchunked(Raw, Client2);
+            case Transport:send(Sock, Data) of
+                ok -> stream_unchunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {more, _Len, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_unchunked(Raw, Client2);
+            case Transport:send(Sock, Data) of
+                ok -> stream_unchunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Data, Client2} ->
             Transport:send(Sock, Data),
             {ok, backend_close(Client2)};
@@ -463,20 +471,24 @@ stream_body({Transport,Sock}=Raw, Client) ->
     %% was in its content-length initially.
     case vegur_client:stream_body(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_body(Raw, Client2);
+            case Transport:send(Sock, Data) of
+                ok -> stream_body(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Client2} ->
             {ok, vegur_client:set_stats(Client2)};
         {error, Reason} ->
-            {error, Reason}
+            {error, downstream, Reason}
     end.
 
 stream_close({Transport,Sock}=Raw, Client) ->
     %% Stream the body until the connection is closed.
     case vegur_client:stream_close(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_close(Raw, Client2);
+            case Transport:send(Sock, Data) of
+                ok -> stream_close(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Client2} ->
             {ok, vegur_client:set_stats(Client2)};
         {error, Reason} ->
