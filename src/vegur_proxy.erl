@@ -366,12 +366,12 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
     %% and forward them over the raw socket.
     case vegur_client:stream_chunk(Client) of
         {ok, Data, Client2} ->
-            case Transport:send(Sock, Data) of
+            case check_and_send(Transport, Sock, Data) of
                 ok -> stream_chunked(Raw, Client2);
                 {error, Reason} -> {error, upstream, Reason}
             end;
         {more, _Len, Data, Client2} ->
-            case Transport:send(Sock, Data) of
+            case check_and_send(Transport, Sock, Data) of
                 ok -> stream_chunked(Raw, Client2);
                 {error, Reason} -> {error, upstream, Reason}
             end;
@@ -388,12 +388,12 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
     %% and forward them over the raw socket.
     case vegur_client:stream_unchunk(Client) of
         {ok, Data, Client2} ->
-            case Transport:send(Sock, Data) of
+            case check_and_send(Transport, Sock, Data) of
                 ok -> stream_unchunked(Raw, Client2);
                 {error, Reason} -> {error, upstream, Reason}
             end;
         {more, _Len, Data, Client2} ->
-            case Transport:send(Sock, Data) of
+            case check_and_send(Transport, Sock, Data) of
                 ok -> stream_unchunked(Raw, Client2);
                 {error, Reason} -> {error, upstream, Reason}
             end;
@@ -471,7 +471,7 @@ stream_body({Transport,Sock}=Raw, Client) ->
     %% was in its content-length initially.
     case vegur_client:stream_body(Client) of
         {ok, Data, Client2} ->
-            case Transport:send(Sock, Data) of
+            case check_and_send(Transport, Sock, Data) of
                 ok -> stream_body(Raw, Client2);
                 {error, Reason} -> {error, upstream, Reason}
             end;
@@ -485,7 +485,7 @@ stream_close({Transport,Sock}=Raw, Client) ->
     %% Stream the body until the connection is closed.
     case vegur_client:stream_close(Client) of
         {ok, Data, Client2} ->
-            case Transport:send(Sock, Data) of
+            case check_and_send(Transport, Sock, Data) of
                 ok -> stream_close(Raw, Client2);
                 {error, Reason} -> {error, upstream, Reason}
             end;
@@ -616,3 +616,32 @@ add_connection_upgrade_header(Hdrs) ->
 
 add_via(Hdrs) ->
     [{<<"via">>, <<"vegur">>} | Hdrs].
+
+
+%% When sending data in passive mode, it is usually impossible to be notified
+%% of connections being closed. For this to be done, we need to poll the socket
+%% we're writing to.
+%%
+%% This function does it in a protected way that breaks pipelining because it
+%% keeps no buffer of the data. If a client is sending data to the backend
+%% after the backend has started streaming data back, the data will be lost
+%% and the request interrupted.
+%%
+%% There is no expectation that data sent after a successful check actually
+%% makes it to the client -- this is only done to detect if FIN packets have
+%% ever been sent on the port so that the connection can be closed from our
+%% side to. Not doing this creates half-closed connections where we can
+%% write to the front-end but they can't write back, forever.
+check_and_send(Transport, Sock, Data) ->
+    case check(Transport, Sock) of
+        ok -> Transport:send(Sock, Data);
+        Err -> Err
+    end.
+
+check(Transport, Sock) ->
+    %% Read 1 byte, wait 0ms.
+    case Transport:recv(Sock, 1, 0) of
+        {error, timeout} -> ok; % no data waiting, connection still alive.
+        {ok, _Data} -> {error, unexpected_data};
+        {error, Reason} -> {error, Reason}
+    end.
