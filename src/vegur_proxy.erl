@@ -324,7 +324,7 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
         undefined -> cowboy_req:set_resp_body_fun(Fun, Req); % end on close
         _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req)    % end on size
     end,
-    put(cowboy_buffer, []),
+    put(cowboy_buffer, <<>>),
     try cowboy_req:reply(Status, Headers, Req2) of
         {ok, Req3} ->
             Buf = erase(cowboy_buffer),
@@ -353,7 +353,7 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
         dont_wait ->
             {ok, Req3, backend_close(Client)};
         wait ->
-            put(cowboy_buffer, []),
+            put(cowboy_buffer, <<>>),
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
                     Buf = erase(cowboy_buffer),
@@ -656,19 +656,18 @@ check(Transport, Sock) ->
     %% Read data, wait 0ms. This function is messy and cooperates with
     %% relay_stream_body/6 and relay_chunked/5 to carry around a limited
     %% buffer of unexpected data coming from the client.
-    Buf = get(cowboy_buffer),
-    Size = iolist_size(Buf),
-    case Transport:recv(Sock, 0, 0) of
+    case Transport:recv(Sock, 1, 0) of
         {error, timeout} ->
             ok; % no data waiting, connection still alive.
         {error, Reason} ->
             {error, Reason};
-        {ok, Data} ->
-            case iolist_size(Data)+Size of
-                N when N > ?UPSTREAM_BODY_BUFFER_LIMIT ->
-                    {error, unexpected_data_full_buffer};
-                _ ->
-                    put(cowboy_buffer, [Buf,Data]),
+        {ok, Byte} ->
+            Buf = get(cowboy_buffer),
+            case byte_size(Buf) >= ?UPSTREAM_BODY_BUFFER_LIMIT of
+                true ->
+                    {error, undexpected_data_full_buffer};
+                false ->
+                    put(cowboy_buffer, <<Buf/binary, Byte/binary>>),
                     ok
             end
     end.
