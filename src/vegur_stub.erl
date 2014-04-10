@@ -146,7 +146,7 @@ error_page({downstream, status_length}, _DomainGroup, Upstream, HandlerState) ->
 error_page({upstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
     %% bad chunked encoding from client
     {{400, [], <<>>}, Upstream, HandlerState};
-error_page({upstream, unexpected_data}, _DomainGroup, Upstream, HandlerState) ->
+error_page({upstream, unexpected_data_full_buffer}, _DomainGroup, Upstream, HandlerState) ->
     %% pipelined request (maybe), not supported.
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->

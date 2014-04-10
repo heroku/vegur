@@ -305,6 +305,10 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     %% Use cowboy's partial response delivery to stream contents.
     %% We use exceptions (throws) to detect bad transfers and close
     %% both connections when this happens.
+    %% We also use the process dictionary to carry around a buffer of
+    %% data read from cowboy's client socket, necessary to detect connections
+    %% that closed. In such cases, it is possible that data makes it to us
+    %% and requires to be buffered to be served better.
     FinalFun = case wait_for_body(Status, Req) of
         wait -> StreamFun;
         dont_wait -> fun stream_nothing/2
@@ -320,11 +324,16 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
         undefined -> cowboy_req:set_resp_body_fun(Fun, Req); % end on close
         _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req)    % end on size
     end,
+    put(cowboy_buffer, []),
     try cowboy_req:reply(Status, Headers, Req2) of
         {ok, Req3} ->
-            {ok, Req3, backend_close(Client)}
+            Buf = erase(cowboy_buffer),
+            {ok,
+             vegur_utils:append_to_cowboy_buffer(Buf,Req3),
+             backend_close(Client)}
     catch
         {stream_error, Blame, Error} ->
+            erase(cowboy_buffer),
             backend_close(Client),
             {error, Blame, Error, Req2}
     end.
@@ -344,10 +353,15 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
         dont_wait ->
             {ok, Req3, backend_close(Client)};
         wait ->
+            put(cowboy_buffer, []),
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
-                    {ok, Req3, backend_close(Client2)};
+                    Buf = erase(cowboy_buffer),
+                    {ok,
+                     vegur_utils:append_to_cowboy_buffer(Buf,Req3),
+                     backend_close(Client2)};
                 {error, Blame, Error} -> % uh-oh, we died during the transfer
+                    erase(cowboy_buffer),
                     backend_close(Client),
                     {error, Blame, Error, Req3}
             end
@@ -406,7 +420,7 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
     end.
 
 %% Deal with the transfer of a large or chunked request body by
-%% going from a cowboy stream to raw htsub_client requests
+%% going from a cowboy stream to raw vegur_client requests
 stream_request(Req, Client) ->
     case cowboy_req:stream_body(Req) of
         {done, Req2} -> {done, Req2, Client};
@@ -639,9 +653,22 @@ check_and_send(Transport, Sock, Data) ->
     end.
 
 check(Transport, Sock) ->
-    %% Read 1 byte, wait 0ms.
-    case Transport:recv(Sock, 1, 0) of
-        {error, timeout} -> ok; % no data waiting, connection still alive.
-        {ok, _Data} -> {error, unexpected_data};
-        {error, Reason} -> {error, Reason}
+    %% Read data, wait 0ms. This function is messy and cooperates with
+    %% relay_stream_body/6 and relay_chunked/5 to carry around a limited
+    %% buffer of unexpected data coming from the client.
+    Buf = get(cowboy_buffer),
+    Size = iolist_size(Buf),
+    case Transport:recv(Sock, 0, 0) of
+        {error, timeout} ->
+            ok; % no data waiting, connection still alive.
+        {error, Reason} ->
+            {error, Reason};
+        {ok, Data} ->
+            case iolist_size(Data)+Size of
+                N when N > ?UPSTREAM_BODY_BUFFER_LIMIT ->
+                    {error, unexpected_data_full_buffer};
+                _ ->
+                    put(cowboy_buffer, [Buf,Data]),
+                    ok
+            end
     end.
