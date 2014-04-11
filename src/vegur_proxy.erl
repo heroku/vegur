@@ -1,6 +1,6 @@
 -module(vegur_proxy).
 
--define(UPSTREAM_BODY_BUFFER_LIMIT, 1024). % in bytes
+-define(UPSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
 
 -export([backend_connection/1
          ,send_headers/7
@@ -324,16 +324,16 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
         undefined -> cowboy_req:set_resp_body_fun(Fun, Req); % end on close
         _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req)    % end on size
     end,
-    put(cowboy_buffer, <<>>),
+    buffer_init(),
     try cowboy_req:reply(Status, Headers, Req2) of
         {ok, Req3} ->
-            Buf = erase(cowboy_buffer),
+            Buf = buffer_clear(),
             {ok,
              vegur_utils:append_to_cowboy_buffer(Buf,Req3),
              backend_close(Client)}
     catch
         {stream_error, Blame, Error} ->
-            erase(cowboy_buffer),
+            buffer_clear(),
             backend_close(Client),
             {error, Blame, Error, Req2}
     end.
@@ -353,15 +353,15 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
         dont_wait ->
             {ok, Req3, backend_close(Client)};
         wait ->
-            put(cowboy_buffer, <<>>),
+            buffer_init(),
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
-                    Buf = erase(cowboy_buffer),
+                    Buf = buffer_clear(),
                     {ok,
                      vegur_utils:append_to_cowboy_buffer(Buf,Req3),
                      backend_close(Client2)};
                 {error, Blame, Error} -> % uh-oh, we died during the transfer
-                    erase(cowboy_buffer),
+                    buffer_clear(),
                     backend_close(Client),
                     {error, Blame, Error, Req3}
             end
@@ -656,18 +656,37 @@ check(Transport, Sock) ->
     %% Read data, wait 0ms. This function is messy and cooperates with
     %% relay_stream_body/6 and relay_chunked/5 to carry around a limited
     %% buffer of unexpected data coming from the client.
-    case Transport:recv(Sock, 1, 0) of
-        {error, timeout} ->
-            ok; % no data waiting, connection still alive.
-        {error, Reason} ->
-            {error, Reason};
-        {ok, Byte} ->
-            Buf = get(cowboy_buffer),
-            case byte_size(Buf) >= ?UPSTREAM_BODY_BUFFER_LIMIT of
-                true ->
-                    {error, undexpected_data_full_buffer};
-                false ->
-                    put(cowboy_buffer, <<Buf/binary, Byte/binary>>),
+    case buffer_size() >= ?UPSTREAM_BODY_BUFFER_LIMIT of
+        true -> % no check after buffer is full, let the kernel handle it.
+            ok;
+        false ->
+            case Transport:recv(Sock, 0, 0) of
+                {error, timeout} -> % connection still alive, but no data
+                    ok;
+                {error, Reason} ->
+                    {error, Reason};
+                {ok, Data} ->
+                    buffer_append(Data),
+                    buffer_size() >= ?UPSTREAM_BODY_BUFFER_LIMIT andalso
+                        lager:info("mod=vegur_proxy at=check message=buffer_full"),
                     ok
             end
     end.
+
+%%% Buffer management functions
+
+%% Creates a new empty buffer for pipelined requests
+buffer_init() -> put(vegur_pipeline_buffer, <<>>).
+
+%% Removes data from the pipelined requests buffer, and
+%% returns what was in there
+buffer_clear() -> erase(vegur_pipeline_buffer).
+
+%% Returns the size of the buffer, in bytes
+buffer_size() -> byte_size(get(vegur_pipeline_buffer)).
+
+%% Adds an arbitrary piece of binary data at the end of
+%% the existing buffer value.
+buffer_append(Data) when is_binary(Data) ->
+    Buf = get(vegur_pipeline_buffer),
+    put(vegur_pipeline_buffer, <<Buf/binary, Data/binary>>).
