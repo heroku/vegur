@@ -10,6 +10,8 @@
 
 -export([new/1
         ,start_time/1
+        ,start_to_proxy_duration/1
+        ,connect_duration/1
         ,log/3
         ,stamp/2
         ,stamp/3
@@ -46,6 +48,16 @@ new({_,_,_} = StartTime) ->
 -spec start_time(request_log()) -> erlang:timestamp().
 start_time(#log{start = StartTime}) ->
     StartTime.
+
+-spec start_to_proxy_duration(request_log()) -> ms().
+start_to_proxy_duration(Log) ->
+    StartTime = start_time(Log),
+    PreProxy = vegur_req_log:event(pre_proxy, Log),
+    timer:now_diff(PreProxy, StartTime) div 1000.
+
+-spec connect_duration(request_log()) -> ms().
+connect_duration(Log) ->
+    event_duration(connect_time, Log).
 
 %% Log a given event. The log of an event results in a stamp added right before
 %% and right after the event (wrapped as a 0-argument fun).

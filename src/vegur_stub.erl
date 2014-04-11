@@ -9,6 +9,7 @@
          checkin_service/6,
          service_backend/3,
          feature/2,
+         additional_headers/2,
          error_page/4,
          instance_name/0]).
 
@@ -72,6 +73,25 @@ feature(peer_port, State) ->
     {disabled, State};
 feature(_, State) ->
     {disabled, State}.
+
+-spec additional_headers(Log, HandlerState) ->
+    {HeadersToAddOrReplace, HandlerState} when
+      Log :: vegur_req_log:request_log(),
+      HeadersToAddOrReplace :: [{binary(), iolist()}],
+      HandlerState :: vegur_interface:handler_state().
+additional_headers(Log, HandlerState) ->
+    case ?MODULE:feature(router_metrics, HandlerState) of
+        {enabled, HandlerState1} ->
+            ConnectDuration = vegur_req_log:connect_duration(Log),
+            StartToProxy = vegur_req_log:start_to_proxy_duration(Log),
+            Headers = [{<<"Heroku-Hermes-Instance-Name">>, instance_name()}
+                      ,{<<"Heroku-Connect-Time">>, list_to_binary(integer_to_list(ConnectDuration))}
+                      ,{<<"Heroku-Total-Route-Time">>, list_to_binary(integer_to_list(StartToProxy))}],
+            {Headers, HandlerState1};
+        {disabled, HandlerState1} ->
+            {[], HandlerState1}
+    end.
+
 
 -spec error_page(ErrorReason, DomainGroup, Upstream, HandlerState) ->
                         {{HttpCode, ErrorHeaders, ErrorBody}, Upstream, HandlerState} when

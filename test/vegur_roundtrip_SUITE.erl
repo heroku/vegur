@@ -63,7 +63,7 @@ end_per_suite(Config) ->
 
 init_per_testcase(bypass, Config0) ->
     Config = init_per_testcase(default, Config0),
-    meck:expect(vegur_stub, feature, fun(deep_continue, S) -> {disabled, S} end),
+    meck:expect(vegur_stub, feature, fun(deep_continue, S) -> {disabled, S}; (_, S) -> {disabled, S} end),
     Config;
 init_per_testcase(response_header_line_limits, Config0) ->
     Config = init_per_testcase({catchall, make_ref()}, Config0),
