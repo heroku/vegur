@@ -80,16 +80,16 @@ feature(_, State) ->
       HeadersToAddOrReplace :: [{binary(), iolist()}],
       HandlerState :: vegur_interface:handler_state().
 additional_headers(Log, HandlerState) ->
-    case ?MODULE:feature(router_metrics, HandlerState) of
-        {enabled, HandlerState1} ->
+    case HandlerState of
+        router_metrics ->
             ConnectDuration = vegur_req_log:connect_duration(Log),
             StartToProxy = vegur_req_log:start_to_proxy_duration(Log),
             Headers = [{<<"Heroku-Hermes-Instance-Name">>, instance_name()}
                       ,{<<"Heroku-Connect-Time">>, list_to_binary(integer_to_list(ConnectDuration))}
                       ,{<<"Heroku-Total-Route-Time">>, list_to_binary(integer_to_list(StartToProxy))}],
-            {Headers, HandlerState1};
-        {disabled, HandlerState1} ->
-            {[], HandlerState1}
+            {Headers, HandlerState};
+        _ ->
+            {[], HandlerState}
     end.
 
 
