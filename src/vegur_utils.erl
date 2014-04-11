@@ -15,6 +15,7 @@
          ,peer_ip_port/1
          ,raw_cowboy_socket/1
          ,raw_cowboy_sockbuf/1
+         ,append_to_cowboy_buffer/2
         ]).
 
 -export([config/1
@@ -170,6 +171,14 @@ raw_cowboy_sockbuf(Req) ->
     {{Transport, Socket},
      Buffer,
      cowboy_req:set([{resp_state, done}, {buffer, <<>>}], Req)}.
+
+-spec append_to_cowboy_buffer(Buffer, Req) -> Req when
+    Buffer :: iodata(),
+    Req :: cowboy_req:req().
+append_to_cowboy_buffer(Buffer, Req) ->
+    [CowBuffer] = cowboy_req:get([buffer], Req),
+    cowboy_req:set([{buffer, iolist_to_binary([CowBuffer, Buffer])}], Req).
+
 
 % Config helpers
 config(Key, Default) ->

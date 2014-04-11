@@ -1,6 +1,6 @@
 -module(vegur_proxy).
 
--define(UPSTREAM_BODY_BUFFER_LIMIT, 1024). % in bytes
+-define(UPSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
 
 -export([backend_connection/1
          ,send_headers/7
@@ -305,6 +305,10 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     %% Use cowboy's partial response delivery to stream contents.
     %% We use exceptions (throws) to detect bad transfers and close
     %% both connections when this happens.
+    %% We also use the process dictionary to carry around a buffer of
+    %% data read from cowboy's client socket, necessary to detect connections
+    %% that closed. In such cases, it is possible that data makes it to us
+    %% and requires to be buffered to be served better.
     FinalFun = case wait_for_body(Status, Req) of
         wait -> StreamFun;
         dont_wait -> fun stream_nothing/2
@@ -320,11 +324,16 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
         undefined -> cowboy_req:set_resp_body_fun(Fun, Req); % end on close
         _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req)    % end on size
     end,
+    buffer_init(),
     try cowboy_req:reply(Status, Headers, Req2) of
         {ok, Req3} ->
-            {ok, Req3, backend_close(Client)}
+            Buf = buffer_clear(),
+            {ok,
+             vegur_utils:append_to_cowboy_buffer(Buf,Req3),
+             backend_close(Client)}
     catch
         {stream_error, Blame, Error} ->
+            buffer_clear(),
             backend_close(Client),
             {error, Blame, Error, Req2}
     end.
@@ -344,10 +353,15 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
         dont_wait ->
             {ok, Req3, backend_close(Client)};
         wait ->
+            buffer_init(),
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
-                    {ok, Req3, backend_close(Client2)};
+                    Buf = buffer_clear(),
+                    {ok,
+                     vegur_utils:append_to_cowboy_buffer(Buf,Req3),
+                     backend_close(Client2)};
                 {error, Blame, Error} -> % uh-oh, we died during the transfer
+                    buffer_clear(),
                     backend_close(Client),
                     {error, Blame, Error, Req3}
             end
@@ -366,11 +380,15 @@ stream_chunked({Transport,Sock}=Raw, Client) ->
     %% and forward them over the raw socket.
     case vegur_client:stream_chunk(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_chunked(Raw, Client2);
+            case check_and_send(Transport, Sock, Data) of
+                ok -> stream_chunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {more, _Len, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_chunked(Raw, Client2);
+            case check_and_send(Transport, Sock, Data) of
+                ok -> stream_chunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Data, Client2} ->
             Transport:send(Sock, Data),
             {ok, backend_close(Client2)};
@@ -384,11 +402,15 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
     %% and forward them over the raw socket.
     case vegur_client:stream_unchunk(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_unchunked(Raw, Client2);
+            case check_and_send(Transport, Sock, Data) of
+                ok -> stream_unchunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {more, _Len, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_unchunked(Raw, Client2);
+            case check_and_send(Transport, Sock, Data) of
+                ok -> stream_unchunked(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Data, Client2} ->
             Transport:send(Sock, Data),
             {ok, backend_close(Client2)};
@@ -398,7 +420,7 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
     end.
 
 %% Deal with the transfer of a large or chunked request body by
-%% going from a cowboy stream to raw htsub_client requests
+%% going from a cowboy stream to raw vegur_client requests
 stream_request(Req, Client) ->
     case cowboy_req:stream_body(Req) of
         {done, Req2} -> {done, Req2, Client};
@@ -463,20 +485,24 @@ stream_body({Transport,Sock}=Raw, Client) ->
     %% was in its content-length initially.
     case vegur_client:stream_body(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_body(Raw, Client2);
+            case check_and_send(Transport, Sock, Data) of
+                ok -> stream_body(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Client2} ->
             {ok, vegur_client:set_stats(Client2)};
         {error, Reason} ->
-            {error, Reason}
+            {error, downstream, Reason}
     end.
 
 stream_close({Transport,Sock}=Raw, Client) ->
     %% Stream the body until the connection is closed.
     case vegur_client:stream_close(Client) of
         {ok, Data, Client2} ->
-            Transport:send(Sock, Data),
-            stream_close(Raw, Client2);
+            case check_and_send(Transport, Sock, Data) of
+                ok -> stream_close(Raw, Client2);
+                {error, Reason} -> {error, upstream, Reason}
+            end;
         {done, Client2} ->
             {ok, vegur_client:set_stats(Client2)};
         {error, Reason} ->
@@ -604,3 +630,63 @@ add_connection_upgrade_header(Hdrs) ->
 
 add_via(Hdrs) ->
     [{<<"via">>, <<"vegur">>} | Hdrs].
+
+
+%% When sending data in passive mode, it is usually impossible to be notified
+%% of connections being closed. For this to be done, we need to poll the socket
+%% we're writing to.
+%%
+%% This function does it in a protected way that breaks pipelining because it
+%% keeps no buffer of the data. If a client is sending data to the backend
+%% after the backend has started streaming data back, the data will be lost
+%% and the request interrupted.
+%%
+%% There is no expectation that data sent after a successful check actually
+%% makes it to the client -- this is only done to detect if FIN packets have
+%% ever been sent on the port so that the connection can be closed from our
+%% side to. Not doing this creates half-closed connections where we can
+%% write to the front-end but they can't write back, forever.
+check_and_send(Transport, Sock, Data) ->
+    case check(Transport, Sock) of
+        ok -> Transport:send(Sock, Data);
+        Err -> Err
+    end.
+
+check(Transport, Sock) ->
+    %% Read data, wait 0ms. This function is messy and cooperates with
+    %% relay_stream_body/6 and relay_chunked/5 to carry around a limited
+    %% buffer of unexpected data coming from the client.
+    case buffer_size() >= ?UPSTREAM_BODY_BUFFER_LIMIT of
+        true -> % no check after buffer is full, let the kernel handle it.
+            ok;
+        false ->
+            case Transport:recv(Sock, 0, 0) of
+                {error, timeout} -> % connection still alive, but no data
+                    ok;
+                {error, Reason} ->
+                    {error, Reason};
+                {ok, Data} ->
+                    buffer_append(Data),
+                    buffer_size() >= ?UPSTREAM_BODY_BUFFER_LIMIT andalso
+                        lager:info("mod=vegur_proxy at=check message=buffer_full"),
+                    ok
+            end
+    end.
+
+%%% Buffer management functions
+
+%% Creates a new empty buffer for pipelined requests
+buffer_init() -> put(vegur_pipeline_buffer, <<>>).
+
+%% Removes data from the pipelined requests buffer, and
+%% returns what was in there
+buffer_clear() -> erase(vegur_pipeline_buffer).
+
+%% Returns the size of the buffer, in bytes
+buffer_size() -> byte_size(get(vegur_pipeline_buffer)).
+
+%% Adds an arbitrary piece of binary data at the end of
+%% the existing buffer value.
+buffer_append(Data) when is_binary(Data) ->
+    Buf = get(vegur_pipeline_buffer),
+    put(vegur_pipeline_buffer, <<Buf/binary, Data/binary>>).
