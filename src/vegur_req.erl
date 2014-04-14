@@ -37,7 +37,7 @@ start_time(Req) ->
 
 -spec start_to_proxy_duration(Req) -> {StartToProxyDuration, Req} when
       Req :: cowboy_req:req(),
-      StartToProxyDuration :: erlang:timestamp().
+      StartToProxyDuration :: integer().
 start_to_proxy_duration(Req) ->
     {StartTime, Req1} = start_time(Req),
     {PreProxy, Req2} = pre_proxy(Req1),
