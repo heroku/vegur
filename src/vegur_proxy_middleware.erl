@@ -3,7 +3,7 @@
 -behaviour(cowboy_middleware).
 -export([execute/2]).
 
--record(state, { backend_client :: term()
+-record(state, { backend_client :: vegur_client:client()
                  ,env
                }).
 
@@ -16,7 +16,7 @@ execute(Req, Env) ->
                            fun() ->
                                    proxy(Req3, #state{backend_client = Client, env = Env})
                            end, Log1) of
-        {{ok, Code, Req4, #state{backend_client=Client1}}, Log2} ->
+        {{ok, Code, _Status, Req4, #state{backend_client=Client1}}, Log2} ->
             Req5 = store_byte_counts(Req4, Client1),
             Req6 = cowboy_req:set_meta(status, successful, Req5),
             Req7 = cowboy_req:set_meta(logging, Log2, Req6),
@@ -37,8 +37,8 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
     case vegur_proxy:send_headers(Method, Header, Body, Path, Url, Req, BackendClient) of
         {done, Req1, BackendClient1} -> % headers sent
             send_body_to_backend(Request, Req1, State#state{backend_client=BackendClient1});
-        {ok, Code, RespHeaders, BackendClient1} -> % request ended without body sent
-            handle_backend_response(Code, RespHeaders, Req,
+        {ok, Code, Status, RespHeaders, BackendClient1} -> % request ended without body sent
+            handle_backend_response(Code, Status, RespHeaders, Req,
                                     State#state{backend_client=BackendClient1});
         {error, Blame, Error} ->
             {error, Blame, Error, Req}
@@ -55,38 +55,38 @@ send_body_to_backend({Method, Header, Body, Path, Url}, Req,
 
 read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
     case vegur_proxy:read_backend_response(Req, BackendClient) of
-        {ok, Code, RespHeaders, Req1, BackendClient1} ->
-            handle_backend_response(Code, RespHeaders, Req1,
+        {ok, Code, Status, RespHeaders, Req1, BackendClient1} ->
+            handle_backend_response(Code, Status, RespHeaders, Req1,
                                     State#state{backend_client=BackendClient1});
         {error, Blame, Error} ->
             {error, Blame, Error, store_byte_counts(Req, BackendClient)}
     end.
 
-handle_backend_response(Code, RespHeaders, Req, State) ->
+handle_backend_response(Code, Status, RespHeaders, Req, State) ->
     {Type, Req2} = cowboy_req:meta(request_type, Req, []),
     case lists:sort(Type) of
         [] ->
-            http_request(Code, RespHeaders, Req2, State);
+            http_request(Code, Status, RespHeaders, Req2, State);
         [upgrade] ->
-            upgrade_request(Code, RespHeaders, Req2, State)
+            upgrade_request(Code, Status, RespHeaders, Req2, State)
     end.
 
-upgrade_request(101, Headers, Req, #state{backend_client=BackendClient}=State) ->
+upgrade_request(101, Status, Headers, Req, #state{backend_client=BackendClient}=State) ->
     {Result, Req1, BackendClient1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
     case Result of
         timeout ->
             {error, undefined, timeout, store_byte_counts(Req, BackendClient1)};
         done ->
-            {ok, 101, Req1, State#state{backend_client=BackendClient1}}
+            {ok, 101, Status, Req1, State#state{backend_client=BackendClient1}}
     end;
-upgrade_request(Code, Headers, Req, State) ->
-    http_request(Code, Headers, Req, State).
+upgrade_request(Code, Status, Headers, Req, State) ->
+    http_request(Code, Status, Headers, Req, State).
 
-http_request(Code, Headers, Req,
+http_request(Code, Status, Headers, Req,
              #state{backend_client=BackendClient}=State) ->
-    case vegur_proxy:relay(Code, Headers, Req, BackendClient) of
+    case vegur_proxy:relay(Code, Status, Headers, Req, BackendClient) of
         {ok, Req1, BackendClient1} ->
-            {ok, Code, Req1, State#state{backend_client=BackendClient1}};
+            {ok, Code, Status, Req1, State#state{backend_client=BackendClient1}};
         {error, Blame, Error, Req1} ->
             {error, Blame, Error, store_byte_counts(Req1, BackendClient)}
     end.

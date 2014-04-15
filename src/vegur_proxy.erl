@@ -7,7 +7,7 @@
          ,send_body/7
          ,read_backend_response/2
          ,upgrade/3
-         ,relay/4]).
+         ,relay/5]).
 
 -type error_blame() :: 'undefined' % either/unknown
                      | 'upstream' % client
@@ -32,16 +32,17 @@ backend_connection({IpAddress, Port}) ->
 
 -spec send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
                           {done, Req, Client} |
-                          {ok, Code, Headers, Client} |
+                          {ok, Code, Status, Headers, Client} |
                           {error, Blame, any()} when
-      Body :: {stream, chunked|non_neg_integer()}|binary(),
       Method :: binary(),
       Headers :: [{binary(), binary()}]|[],
+      Body :: {stream, chunked|non_neg_integer()} | binary() | iodata(),
       Path :: binary(),
       Url :: binary(),
       Req :: cowboy_req:req(),
       Client :: vegur_client:client(),
       Code :: non_neg_integer(),
+      Status :: binary(),
       Blame :: error_blame().
 send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% Sends a request with a body yet to come through streaming. The BodyLen
@@ -109,7 +110,7 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
             case vegur_client:buffer_data(0, Wait, BackendClient) of
                 {ok, BackendClient1} ->
                     case read_response(BackendClient1) of
-                        {ok, 100, _RespHeaders, _BackendClient2} ->
+                        {ok, 100, _Status, _RespHeaders, _BackendClient2} ->
                             %% We don't carry the headers on a 100 Continue
                             %% for a simpler implementation -- there is no
                             %% header prescribed for it in the spec anyway.
@@ -117,8 +118,8 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
                             %% We use the original client so that no state
                             %% change due to 100 Continue is observable.
                             {done, Req1, BackendClient};
-                        {ok, Code, RespHeaders, BackendClient2} ->
-                            {ok, Code, RespHeaders, BackendClient2};
+                        {ok, Code, Status, RespHeaders, BackendClient2} ->
+                            {ok, Code, Status, RespHeaders, BackendClient2};
                         {error, Blame, Reason} ->
                             {error, Blame, Reason}
                     end;
@@ -132,10 +133,11 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
     end.
 
 -spec read_response(Client) ->
-                           {ok, Code, Headers, Client} |
+                           {ok, Code, Status, Headers, Client} |
                            {error, Blame, Error} when
       Client :: vegur_client:client(),
       Code :: pos_integer(),
+      Status :: binary(),
       Headers :: [{binary(), binary()}]|[],
       Blame :: error_blame(),
       Error :: any().
@@ -143,26 +145,27 @@ read_response(Client) ->
     case vegur_client:response(Client) of
         {error, Error} ->
             {error, downstream, Error};
-        {ok, Code, RespHeaders, Client2} ->
-            {ok, Code, RespHeaders, Client2}
+        {ok, Code, Status, RespHeaders, Client2} ->
+            {ok, Code, Status, RespHeaders, Client2}
     end.
 
 %% This function works like read_response, but actually handles
 %% the 100-Continue business to keep it out of the regular request flow
 %% for the middleware.
 -spec read_backend_response(Req, Client) ->
-                           {ok, Code, Headers, Req, Client} |
+                           {ok, Code, Status, Headers, Req, Client} |
                            {error, Blame, Error} when
       Req :: cowboy_req:req(),
       Client :: vegur_client:client(),
       Code :: pos_integer(),
+      Status :: binary(),
       Headers :: [{binary(), binary()}]|[],
       Blame :: error_blame(),
       Error :: any().
 read_backend_response(Req, Client) ->
     case read_response(Client) of
         {error, Blame, Error} -> {error, Blame, Error};
-        {ok, Code, RespHeaders, Client1} ->
+        {ok, Code, Status, RespHeaders, Client1} ->
             {Cont, Req1} = cowboy_req:meta(continue, Req, []),
             case {Code, Cont} of
                 {100, continue} ->
@@ -187,7 +190,7 @@ read_backend_response(Req, Client) ->
                             read_backend_response(Req3, Client1)
                     end;
                 _ ->
-                    {ok, Code, RespHeaders, Req1, Client1}
+                    {ok, Code, Status, RespHeaders, Req1, Client1}
             end
     end.
 
@@ -238,46 +241,47 @@ upgrade(Headers, Req, BackendClient) ->
             {done, Req3, backend_close(BackendClient1)}
     end.
 
--spec relay(Status, Headers, Req, Client) ->
+-spec relay(Code, Status, Headers, Req, Client) ->
                    {ok, Req, Client} |
                    {error, Blame, Error, Req} when
-      Status :: pos_integer(),
+      Code :: pos_integer(),
+      Status :: binary(),
       Headers :: [{binary(), binary()}]|[],
       Req :: cowboy_req:req(),
       Client :: vegur_client:client(),
       Error :: any(),
       Blame :: error_blame().
-relay(Status, HeadersRaw, Req, Client) ->
+relay(Code, Status, HeadersRaw, Req, Client) ->
     %% Dispatch data from vegur_client down into the cowboy connection, either
     %% in batch or directly.
-    Headers = case connection_type(Status, Req, Client) of
+    Headers = case connection_type(Code, Req, Client) of
         keepalive -> add_via(add_connection_keepalive_header(response_headers(HeadersRaw)));
         close  -> add_via(add_connection_close_header(response_headers(HeadersRaw)))
     end,
     case vegur_client:body_type(Client) of
         {content_size, N} when N =< ?UPSTREAM_BODY_BUFFER_LIMIT ->
-            relay_full_body(Status, Headers, Req, Client);
+            relay_full_body(Code, Status, Headers, Req, Client);
         {content_size, N} ->
-            relay_stream_body(Status, Headers, N, fun stream_body/2, Req, Client);
+            relay_stream_body(Code, Status, Headers, N, fun stream_body/2, Req, Client);
         stream_close -> % unknown content-lenght, stream until connection close
-            relay_stream_body(Status, Headers, undefined, fun stream_close/2, Req, Client);
+            relay_stream_body(Code, Status, Headers, undefined, fun stream_close/2, Req, Client);
         chunked ->
-            relay_chunked(Status, Headers, Req, Client);
+            relay_chunked(Code, Status, Headers, Req, Client);
         no_body ->
-            relay_no_body(Status, Headers, Req, Client)
+            relay_no_body(Code, Status, Headers, Req, Client)
     end.
 
 %% There is no body to relay
-relay_no_body(Status, Headers, Req, Client) ->
+relay_no_body(_Code, Status, Headers, Req, Client) ->
     Req1 = respond(Status, Headers, <<>>, Req),
     {ok, Req1, backend_close(Client)}.
 
 %% The entire body is known and we can pipe it through as is.
-relay_full_body(Status, Headers, Req, Client) ->
-    case wait_for_body(Status, Req) of
+relay_full_body(Code, Status, Headers, Req, Client) ->
+    case wait_for_body(Code, Req) of
         dont_wait ->
             {content_size, N} = vegur_client:body_type(Client),
-            relay_stream_body(Status, Headers, N, fun stream_nothing/2, Req, Client);
+            relay_stream_body(Code, Status, Headers, N, fun stream_nothing/2, Req, Client);
         wait ->
             case vegur_client:response_body(Client) of
                 {ok, Body, Client2} ->
@@ -291,9 +295,10 @@ relay_full_body(Status, Headers, Req, Client) ->
 
 %% The body is large and may need to be broken in multiple parts. Send them as
 %% they come.
--spec relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
+-spec relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     {ok, Req, Client} | {error, Blame, Reason, Req} when
-    Status :: non_neg_integer(),
+    Code :: non_neg_integer(),
+    Status :: binary(),
     Headers :: [{binary(),binary()}],
     Size :: undefined | non_neg_integer(),
     StreamFun :: fun(({module(),Sock::term()}, Client) -> {error, Reason} | {error, Blame, Reason} | {ok, Client}),
@@ -301,7 +306,7 @@ relay_full_body(Status, Headers, Req, Client) ->
     Client :: vegur_client:client(),
     Blame :: error_blame(),
     Reason :: term().
-relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
+relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     %% Use cowboy's partial response delivery to stream contents.
     %% We use exceptions (throws) to detect bad transfers and close
     %% both connections when this happens.
@@ -309,14 +314,13 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
     %% data read from cowboy's client socket, necessary to detect connections
     %% that closed. In such cases, it is possible that data makes it to us
     %% and requires to be buffered to be served better.
-    FinalFun = case wait_for_body(Status, Req) of
+    FinalFun = case wait_for_body(Code, Req) of
         wait -> StreamFun;
         dont_wait -> fun stream_nothing/2
     end,
     Fun = fun(Socket, Transport) ->
         case FinalFun({Transport,Socket}, Client) of
             {ok, _Client2} -> ok;
-            {error, Reason} -> throw({stream_error, downstream, Reason});
             {error, Blame, Reason} -> throw({stream_error, Blame, Reason})
         end
     end,
@@ -338,18 +342,18 @@ relay_stream_body(Status, Headers, Size, StreamFun, Req, Client) ->
             {error, Blame, Error, Req2}
     end.
 
-relay_chunked(Status, Headers, Req, Client) ->
+relay_chunked(Code, Status, Headers, Req, Client) ->
     {Version, Req2} = cowboy_req:version(Req),
-    relay_chunked(Version, Status, Headers, Req2, Client).
+    relay_chunked(Version, Code, Status, Headers, Req2, Client).
 
-relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
+relay_chunked('HTTP/1.1', Code, Status, Headers, Req, Client) ->
     %% This is a special case. We stream pre-delimited chunks raw instead
     %% of using cowboy, which would have to recalculate and re-delimitate
     %% sizes all over after we parsed them first. We save time by just using
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
     {RawSocket, Req3} = vegur_utils:raw_cowboy_socket(Req2),
-    case wait_for_body(Status, Req) of
+    case wait_for_body(Code, Req) of
         dont_wait ->
             {ok, Req3, backend_close(Client)};
         wait ->
@@ -366,13 +370,13 @@ relay_chunked('HTTP/1.1', Status, Headers, Req, Client) ->
                     {error, Blame, Error, Req3}
             end
     end;
-relay_chunked('HTTP/1.0', Status, Headers, Req, Client) ->
+relay_chunked('HTTP/1.0', Code, Status, Headers, Req, Client) ->
     %% This case means that we're forwarding chunked encoding to an
     %% older client that doesn't support it. The way around this is to
     %% stream the data as-is, but use no `content-length' header *AND* a
     %% `connection: close' header to implicitly delimit the request
     %% as streaming unknown-size HTTP.
-    relay_stream_body(Status, delete_transfer_encoding_header(Headers),
+    relay_stream_body(Code, Status, delete_transfer_encoding_header(Headers),
                       undefined, fun stream_unchunked/2, Req, Client).
 
 stream_chunked({Transport,Sock}=Raw, Client) ->
@@ -514,12 +518,12 @@ stream_nothing(_Raw, Client) ->
 
 %% We should close the connection whenever we get an Expect: 100-Continue
 %% that got answered with a final status code.
-connection_type(Status, Req, Client) ->
+connection_type(Code, Req, Client) ->
     {Cont, _} = cowboy_req:meta(continue, Req, []),
     %% If we haven't received a 100 continue to forward after having
     %% received an expect AND this is a final status, then we should
     %% close the connection.
-    case Cont =:= continue andalso Status >= 200 of
+    case Cont =:= continue andalso Code >= 200 of
         true ->
             close;
         false ->
