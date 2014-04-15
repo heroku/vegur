@@ -154,10 +154,8 @@ forwarded_for(Config) ->
             throw(timeout)
     end,
 
-    meck:expect(vegur_stub, additional_headers, fun(Log, HandlerState) ->
-                                                        ct:pal("HandlerState ~p~n", [HandlerState]),
-                                                        meck:passthrough([Log, router_metrics])
-                                                end),
+    meck:expect(vegur_stub, additional_headers, 
+			   fun(Log, HandlerState) -> meck:passthrough([Log, {state, 0, [router_metrics]}]) end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req3} ->

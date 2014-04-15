@@ -14,7 +14,8 @@
          instance_name/0]).
 
 -record(state, {
-          connect_tries = 0 :: non_neg_integer()
+           connect_tries = 0 :: non_neg_integer()
+	      ,features = [] :: [atom()]
          }).
 
 
@@ -79,9 +80,9 @@ feature(_, State) ->
       Log :: vegur_req_log:request_log(),
       HeadersToAddOrReplace :: [{binary(), iolist()}],
       HandlerState :: vegur_interface:handler_state().
-additional_headers(Log, HandlerState) ->
-    case HandlerState of
-        router_metrics ->
+additional_headers(Log, HandlerState=#state{features=Features}) ->
+    case lists:member(router_metrics, Features) of
+		true ->
             ConnectDuration = vegur_req_log:connect_duration(Log),
             StartToProxy = vegur_req_log:start_to_proxy_duration(Log),
             Headers = [{<<"Heroku-Hermes-Instance-Name">>, instance_name()}
@@ -91,7 +92,6 @@ additional_headers(Log, HandlerState) ->
         _ ->
             {[], HandlerState}
     end.
-
 
 -spec error_page(ErrorReason, DomainGroup, Upstream, HandlerState) ->
                         {{HttpCode, ErrorHeaders, ErrorBody}, Upstream, HandlerState} when
