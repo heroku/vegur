@@ -154,6 +154,8 @@ forwarded_for(Config) ->
             throw(timeout)
     end,
 
+	%% Pass a tuple that represents the handler state to enable router_metrics.
+	%% We don't have access to the record definition in the tests so do it manually
     meck:expect(vegur_stub, additional_headers, 
 			   fun(Log, HandlerState) -> meck:passthrough([Log, {state, 0, [router_metrics]}]) end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
