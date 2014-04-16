@@ -8,6 +8,7 @@
          ,add_or_append_header/4
          ,add_if_missing_header/4
          ,add_or_replace_header/3
+         ,add_or_replace_headers/2
          ,delete_all_headers/2
          ,set_request_status/2
          ,get_request_status/1
@@ -70,7 +71,7 @@ add_or_append_header(Key, Val, Headers, Req) ->
       Headers :: [{iodata(), iodata()}]|[],
       Req :: cowboy_req:req().
 add_if_missing_header(Key, Val, Headers, Req) ->
-    {NewVal, Req2} = 
+    {NewVal, Req2} =
         case cowboy_req:header(Key, Req) of
             {undefined, Req1} ->
                 {Val, Req1};
@@ -86,6 +87,15 @@ add_if_missing_header(Key, Val, Headers, Req) ->
       Headers :: [{iodata(), iodata()}]|[].
 add_or_replace_header(Key, Value, Headers) ->
     lists:keystore(Key, 1, Headers, {Key, Value}).
+
+-spec add_or_replace_headers(AdditionalHeaders, Headers) ->
+                                    Headers when
+      Key :: iodata(),
+      Value :: iodata(),
+      AdditionalHeaders :: [{Key, Value}],
+      Headers :: [{iodata(), iodata()}]|[].
+add_or_replace_headers(AdditionalHeaders, Headers) ->
+    lists:keymerge(1, AdditionalHeaders, Headers).
 
 %% We need to traverse the entire list because a user could have
 %% injected more than one instance of the same header, and cowboy

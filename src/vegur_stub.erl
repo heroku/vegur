@@ -9,10 +9,13 @@
          checkin_service/6,
          service_backend/3,
          feature/2,
-         error_page/4]).
+         additional_headers/2,
+         error_page/4,
+         instance_name/0]).
 
 -record(state, {
-          connect_tries = 0 :: non_neg_integer()
+           connect_tries = 0 :: non_neg_integer()
+	      ,features = [] :: [atom()]
          }).
 
 
@@ -71,6 +74,24 @@ feature(peer_port, State) ->
     {disabled, State};
 feature(_, State) ->
     {disabled, State}.
+
+-spec additional_headers(Log, HandlerState) ->
+    {HeadersToAddOrReplace, HandlerState} when
+      Log :: vegur_req_log:request_log(),
+      HeadersToAddOrReplace :: [{binary(), iolist()}],
+      HandlerState :: vegur_interface:handler_state().
+additional_headers(Log, HandlerState=#state{features=Features}) ->
+    case lists:member(router_metrics, Features) of
+		true ->
+            ConnectDuration = vegur_req_log:connect_duration(Log),
+            StartToProxy = vegur_req_log:start_to_proxy_duration(Log),
+            Headers = [{<<"Heroku-Hermes-Instance-Name">>, instance_name()}
+                      ,{<<"Heroku-Connect-Time">>, list_to_binary(integer_to_list(ConnectDuration))}
+                      ,{<<"Heroku-Total-Route-Time">>, list_to_binary(integer_to_list(StartToProxy))}],
+            {Headers, HandlerState};
+        _ ->
+            {[], HandlerState}
+    end.
 
 -spec error_page(ErrorReason, DomainGroup, Upstream, HandlerState) ->
                         {{HttpCode, ErrorHeaders, ErrorBody}, Upstream, HandlerState} when
@@ -160,6 +181,9 @@ error_page(bad_request, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page(_, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState}.
+
+instance_name() ->
+    <<"vegur_stub">>.
 
 -spec service_backend(Service, Upstream, HandlerState) ->
                              {ServiceBackend, Upstream, HandlerState} when
