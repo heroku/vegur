@@ -19,7 +19,7 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_resp,
                 delete_hop_by_hop, response_cookie_limits,
                 response_header_line_limits, response_status_limits,
-                via
+                via, bad_status
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
@@ -740,6 +740,29 @@ via(Config) ->
     {match,_} = re:run(RecvServ, "^via: ?vegur", [global,multiline,caseless]),
     {match,_} = re:run(RecvClient, "^via: ?vegur", [global,multiline,caseless]).
 
+bad_status(Config) ->
+    %% An endpoint app may send custom HTTP Statuses as long as they are
+    %% represented by a 3-digit code, with custom text. The custom text
+    %% should be passed as-is.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_custom_status(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match,_} = re:run(RecvClient, "666 THE NUMBER OF THE BEAST", [global,multiline,caseless]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1294,6 +1317,14 @@ req_hops(Config) ->
 
 resp() ->
     "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 43\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+resp_custom_status() ->
+    "HTTP/1.1 666 THE NUMBER OF THE BEAST\r\n"
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
     "Content-Length: 43\r\n"

@@ -218,10 +218,14 @@ response(Client=#client{state=response_body}) ->
     response(set_stats(Client2));
 response(Client=#client{state=request}) ->
     case stream_status(Client) of
-        {ok, Status, _, Client2} ->
+        {ok, Status, StatusStr, Client2} ->
             case stream_headers(Client2) of
                 {ok, Headers, Client3} ->
-                    {ok, Status, Headers, set_stats(Client3)};
+                    {ok,
+                     Status,
+                     <<(integer_to_binary(Status))/binary, " ", StatusStr/binary>>,
+                     Headers,
+                     set_stats(Client3)};
                 {error, Reason} ->
                     {error, Reason}
             end;

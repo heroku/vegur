@@ -196,7 +196,7 @@ event_duration(Name, #log{events=Events}) ->
     end.
 
 -spec event(Name, Log) ->
-                   ms()|undefined when
+        erlang:timestamp()|undefined when
       Name :: event_type(),
       Log :: request_log().
 event(Name, Log) ->
