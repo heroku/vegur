@@ -531,7 +531,12 @@ connection_type(Code, Req, Client) ->
             %% content-length, in which case closing is mandatory
             case vegur_client:body_type(Client) of
                 stream_close ->
-                    close;
+                    case wait_for_body(Code, Req) of
+                        dont_wait ->
+                            cowboy_req:get(connection, Req);
+                        wait ->
+                            close
+                    end;
                 chunked ->
                     %% Chunked with an HTTP/1.0 client gets turned to a close
                     %% to allow proper data streaming.
