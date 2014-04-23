@@ -553,6 +553,11 @@ connection_type(Code, Req, Client) ->
             end
     end.
 
+%% @doc This function will return `dont_wait' if we know the transfer-length of
+%% the message will be 0 as per the RFC, in cases such as HEAD requests and
+%% specific status codes.
+%% `wait' will be returned in all other cases where the body length may
+%% be non-0 depending on the request/response.
 wait_for_body(204, Req) -> {dont_wait, Req};
 wait_for_body(304, Req) -> {dont_wait, Req};
 wait_for_body(_, Req) ->
