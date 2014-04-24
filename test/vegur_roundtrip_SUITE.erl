@@ -32,9 +32,9 @@ groups() -> [{continue, [], [
              {body_less, [], [
                 head_small_body_expect, head_large_body_expect,
                 head_no_body_expect, head_chunked_expect,
-                head_close_expect,
+                head_close_expect, head_close_expect_client,
                 status_204, status_304, status_chunked_204,
-                status_close_304
+                status_close_304, status_close_304_client
              ]}
             ].
 
@@ -1084,7 +1084,35 @@ head_close_expect(Config) ->
     {ok, _} = gen_tcp:recv(Server, 0, 1000),
     ok = gen_tcp:send(Server, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    %% We override this as is allowed for proxies, given the request isn't
+    %% one we need to wait for the body, but if the client specified it wanted
+    %% a keep-alive connection (or nothing)
+    nomatch = re:run(Recv, "^connection: close", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+head_close_expect_client(Config) ->
+    %% Same as above, but for larger bodies getting streamed
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_head_close(Config),
+    Resp = resp_headers(close),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    %% We do not override the connection: close if the client requested it
+    %% that way first.
     {match,_} = re:run(Recv, "^connection: close", [global,multiline,caseless]),
+    nomatch = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
 status_204(Config) ->
@@ -1130,6 +1158,7 @@ status_304(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
     {match,_} = re:run(Recv, "^content-length:", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     nomatch = re:run(Recv, "body", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
@@ -1152,7 +1181,9 @@ status_chunked_204(Config) ->
     {ok, _} = gen_tcp:recv(Server, 0, 1000),
     ok = gen_tcp:send(Server, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    ct:pal("Recv: ~p",[Recv]),
     {match,_} = re:run(Recv, "chunked", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
 status_close_304(Config) ->
@@ -1174,7 +1205,38 @@ status_close_304(Config) ->
     {ok, _} = gen_tcp:recv(Server, 0, 1000),
     ok = gen_tcp:send(Server, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    %% We're not waiting for the body, so we can skip on the connection:close
+    %% and override it with a connection: keepalive if the client specified it
+    %% (or nothing)
+    nomatch = re:run(Recv, "^connection: close", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
+    nomatch = re:run(Recv, "body", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+status_close_304_client(Config) ->
+    %% For a 304 response, we should not wait for a request body. We will not,
+    %% however, strip any headers that are not hop by hop.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_close(Config),
+    Resp = resp_304(close),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    %% We're not waiting for the body, so we can skip on the connection:close
+    %% and override it with a connection: keepalive unless the client asked
+    %% for it
     {match,_} = re:run(Recv, "^connection: close", [global,multiline,caseless]),
+    nomatch = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     nomatch = re:run(Recv, "body", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
@@ -1291,11 +1353,29 @@ req(Config) ->
     "\r\n"
     "12345".
 
+req_close(Config) ->
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Type: text/plain\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    "12345".
+
 req_head(Config) ->
     "HEAD / HTTP/1.1\r\n"
     "Host: "++domain(Config)++"\r\n"
     "Content-Length: 5\r\n"
     "Content-Type: text/plain\r\n"
+    "\r\n"
+    "12345".
+
+req_head_close(Config) ->
+    "HEAD / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Type: text/plain\r\n"
+    "Connection: close\r\n"
     "\r\n"
     "12345".
 

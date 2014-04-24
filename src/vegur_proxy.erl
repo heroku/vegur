@@ -254,21 +254,25 @@ upgrade(Headers, Req, BackendClient) ->
 relay(Code, Status, HeadersRaw, Req, Client) ->
     %% Dispatch data from vegur_client down into the cowboy connection, either
     %% in batch or directly.
-    Headers = case connection_type(Code, Req, Client) of
-        keepalive -> add_via(add_connection_keepalive_header(response_headers(HeadersRaw)));
-        close  -> add_via(add_connection_close_header(response_headers(HeadersRaw)))
+    {Headers, Req1} = case connection_type(Code, Req, Client) of
+        {keepalive, Req0} ->
+            {add_via(add_connection_keepalive_header(response_headers(HeadersRaw))),
+             Req0};
+        {close, Req0} ->
+            {add_via(add_connection_close_header(response_headers(HeadersRaw))),
+             Req0}
     end,
     case vegur_client:body_type(Client) of
         {content_size, N} when N =< ?UPSTREAM_BODY_BUFFER_LIMIT ->
-            relay_full_body(Code, Status, Headers, Req, Client);
+            relay_full_body(Code, Status, Headers, Req1, Client);
         {content_size, N} ->
-            relay_stream_body(Code, Status, Headers, N, fun stream_body/2, Req, Client);
+            relay_stream_body(Code, Status, Headers, N, fun stream_body/2, Req1, Client);
         stream_close -> % unknown content-lenght, stream until connection close
-            relay_stream_body(Code, Status, Headers, undefined, fun stream_close/2, Req, Client);
+            relay_stream_body(Code, Status, Headers, undefined, fun stream_close/2, Req1, Client);
         chunked ->
-            relay_chunked(Code, Status, Headers, Req, Client);
+            relay_chunked(Code, Status, Headers, Req1, Client);
         no_body ->
-            relay_no_body(Code, Status, Headers, Req, Client)
+            relay_no_body(Code, Status, Headers, Req1, Client)
     end.
 
 %% There is no body to relay
@@ -279,17 +283,17 @@ relay_no_body(_Code, Status, Headers, Req, Client) ->
 %% The entire body is known and we can pipe it through as is.
 relay_full_body(Code, Status, Headers, Req, Client) ->
     case wait_for_body(Code, Req) of
-        dont_wait ->
+        {dont_wait, Req1} ->
             {content_size, N} = vegur_client:body_type(Client),
-            relay_stream_body(Code, Status, Headers, N, fun stream_nothing/2, Req, Client);
-        wait ->
+            relay_stream_body(Code, Status, Headers, N, fun stream_nothing/2, Req1, Client);
+        {wait, Req1} ->
             case vegur_client:response_body(Client) of
                 {ok, Body, Client2} ->
-                    Req1 = respond(Status, Headers, Body, Req),
-                    {ok, Req1, backend_close(Client2)};
+                    Req2 = respond(Status, Headers, Body, Req1),
+                    {ok, Req2, backend_close(Client2)};
                 {error, Error} ->
                     backend_close(Client),
-                    {error, downstream, Error, Req}
+                    {error, downstream, Error, Req1}
             end
     end.
 
@@ -314,9 +318,9 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     %% data read from cowboy's client socket, necessary to detect connections
     %% that closed. In such cases, it is possible that data makes it to us
     %% and requires to be buffered to be served better.
-    FinalFun = case wait_for_body(Code, Req) of
-        wait -> StreamFun;
-        dont_wait -> fun stream_nothing/2
+    {FinalFun, Req1} = case wait_for_body(Code, Req) of
+        {wait, Req0} -> {StreamFun, Req0};
+        {dont_wait, Req0} -> {fun stream_nothing/2, Req0}
     end,
     Fun = fun(Socket, Transport) ->
         case FinalFun({Transport,Socket}, Client) of
@@ -325,8 +329,8 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
         end
     end,
     Req2 = case Size of
-        undefined -> cowboy_req:set_resp_body_fun(Fun, Req); % end on close
-        _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req)    % end on size
+        undefined -> cowboy_req:set_resp_body_fun(Fun, Req1); % end on close
+        _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req1)    % end on size
     end,
     buffer_init(),
     try cowboy_req:reply(Status, Headers, Req2) of
@@ -353,21 +357,21 @@ relay_chunked('HTTP/1.1', Code, Status, Headers, Req, Client) ->
     %% raw chunks.
     {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
     {RawSocket, Req3} = vegur_utils:raw_cowboy_socket(Req2),
-    case wait_for_body(Code, Req) of
-        dont_wait ->
-            {ok, Req3, backend_close(Client)};
-        wait ->
+    case wait_for_body(Code, Req3) of
+        {dont_wait, Req4} ->
+            {ok, Req4, backend_close(Client)};
+        {wait, Req4} ->
             buffer_init(),
             case stream_chunked(RawSocket, Client) of
                 {ok, Client2} ->
                     Buf = buffer_clear(),
                     {ok,
-                     vegur_utils:append_to_cowboy_buffer(Buf,Req3),
+                     vegur_utils:append_to_cowboy_buffer(Buf,Req4),
                      backend_close(Client2)};
                 {error, Blame, Error} -> % uh-oh, we died during the transfer
                     buffer_clear(),
                     backend_close(Client),
-                    {error, Blame, Error, Req3}
+                    {error, Blame, Error, Req4}
             end
     end;
 relay_chunked('HTTP/1.0', Code, Status, Headers, Req, Client) ->
@@ -525,31 +529,41 @@ connection_type(Code, Req, Client) ->
     %% close the connection.
     case Cont =:= continue andalso Code >= 200 of
         true ->
-            close;
+            {close, Req};
         false ->
             %% Honor the client's decision, except if the response has no
             %% content-length, in which case closing is mandatory
             case vegur_client:body_type(Client) of
                 stream_close ->
-                    close;
+                    case wait_for_body(Code, Req) of
+                        {dont_wait, Req2} ->
+                            {cowboy_req:get(connection, Req2), Req2};
+                        {wait, Req2} ->
+                            {close, Req2}
+                    end;
                 chunked ->
                     %% Chunked with an HTTP/1.0 client gets turned to a close
                     %% to allow proper data streaming.
                     case cowboy_req:version(Req) of
-                        {'HTTP/1.0', _} -> close;
-                        {'HTTP/1.1', _} -> cowboy_req:get(connection, Req)
+                        {'HTTP/1.0', Req2} -> {close, Req2};
+                        {'HTTP/1.1', Req2} -> {cowboy_req:get(connection, Req2), Req2}
                     end;
                 _ ->
-                    cowboy_req:get(connection, Req)
+                    {cowboy_req:get(connection, Req), Req}
             end
     end.
 
-wait_for_body(204, _Req) -> dont_wait;
-wait_for_body(304, _Req) -> dont_wait;
+%% @doc This function will return `dont_wait' if we know the transfer-length of
+%% the message will be 0 as per the RFC, in cases such as HEAD requests and
+%% specific status codes.
+%% `wait' will be returned in all other cases where the body length may
+%% be non-0 depending on the request/response.
+wait_for_body(204, Req) -> {dont_wait, Req};
+wait_for_body(304, Req) -> {dont_wait, Req};
 wait_for_body(_, Req) ->
     case cowboy_req:method(Req) of
-        {<<"HEAD">>, _} -> dont_wait;
-        _ -> wait
+        {<<"HEAD">>, Req1} -> {dont_wait, Req1};
+        {_, Req1} -> {wait, Req1}
     end.
 
 
