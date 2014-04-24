@@ -4,7 +4,7 @@
 -compile(export_all).
 
 all() -> [{group, continue}, {group, headers}, {group, http_1_0},
-          {group, chunked}, {group, body_less}].
+          {group, chunked}, {group, body_less}, {group, in_the_wild}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -35,6 +35,9 @@ groups() -> [{continue, [], [
                 head_close_expect,
                 status_204, status_304, status_chunked_204,
                 status_close_304
+             ]},
+             {in_the_wild, [], [
+                bad_response1
              ]}
             ].
 
@@ -1177,6 +1180,60 @@ status_close_304(Config) ->
     {match,_} = re:run(Recv, "^connection: close", [global,multiline,caseless]),
     nomatch = re:run(Recv, "body", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% CASES FOUND IN THE WILD %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+bad_response1(Config) ->
+    %% A bad response that resulted in a parse error but was probably
+    %% right.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    RespHeaders = <<"HTTP/1.1 200 OK\r\n"
+                    "Strict-Transport-Security: max-age=31536000\r\n"
+                    "X-Frame-Options: SAMEORIGIN\r\n"
+                    "X-XSS-Protection: 1; mode=block\r\n"
+                    "X-Content-Type-Options: nosniff\r\n"
+                    "X-UA-Compatible: chrome=1\r\n"
+                    "Last-Modified: Wed, 23 Apr 2014 23:15:19 GMT\r\n"
+                    "Content-Type: application/json; charset=utf-8\r\n"
+                    "Cache-Control: no-cache\r\n"
+                    "Vary: Accept-Encoding\r\n"
+                    "Content-Encoding: gzip\r\n"
+                    "X-Request-Id: 15b7c8bd-4ad8-447a-8289-bf1241370abe\r\n"
+                    "X-Runtime: 0.165261\r\n"
+                    "Connection: close\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n">>,
+    Chunks = <<"a\r\n"
+               ".....IXS..\r\n"
+               "3bc\r\n"
+               "..[w.8....._.%p|.l.H.\\....&...G.d[..F..$..}.,...n..rx.3.......UK.g.(...%..t..i..8h.;..8.Q.\r[...\\..&.2)Y..p7.P...)..m..E5d..C.T....:...\n..fg.9.\n-q2Ey.T.TL.V.r..B.....E1..u...1....3..?..\t.....Q.LqDQ..BQ....*....$...<.b..Z.u.sD9.,...\n9.TN..%%o....\n...$VoTye.o;PL....P.........pA......Y.M.lY.I.o.o...0g.Q3Z...A......\t..\n.Z...st%0...x.\n...E......k..U..cy.@:-,..'...N........>..,...Zg..... M...^.r...9V\"..%f..}.....s.....Q..c..B..Fc.E4>...........#\"V.......T...o.66...f\t...=..d!.E..\t...H.Z.a7....|..}1eQ.k..\t...A...R.........jY..$...~.2u.`,...X.x:.k........M.....q.e..!X........_:e.#...X-....K5.=....b..\r..4H.$*..y..:.....\ru.97n.G......t..s...~.....=.....r..]x7../i..e.Wu..~Y.A...n...2.io.a.....\r...Q|.d...........'...<....5M.u.^...S...b.8..0\\%+..8).;...Gq49..).........a.,c.~..%[...\t'77.k.:)V.KG}...}...._\\...{.y-h|....y.l.U.(Ry....o.......v..F..6.m..COPt....As.[.:.7,3.8...x.ecA.9..3x$M..s./...\ns@/.....`..f.h.:..C(......;..pH3.C...o5............m.N...M.......\r\n"
+               "a\r\n"
+               "...)..M...\r\n"
+               "0\r\n\r\n">>,
+    Resp = <<RespHeaders/binary, Chunks/binary>>,
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    Recv = recv_until_timeout(Client),
+    %% We're not waiting for the body, so we can skip on the connection:close
+    %% and override it with a connection: keepalive unless the client asked
+    %% for it
+    ct:pal("Recv:~n~p~n~n~s",[Recv,Recv]),
+    {match,_} = re:run(Recv, "200 OK", [global,multiline,caseless]),
+    {_,_} = binary:match(iolist_to_binary(Recv), Chunks),
+    wait_for_closed(Server, 500).
+
 
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
