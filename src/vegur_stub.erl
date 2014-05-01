@@ -179,6 +179,8 @@ error_page(empty_host, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page(bad_request, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
+error_page(bad_request_header, _DomainGroup, Upstream, HandlerState) ->
+    {{400, [], <<>>}, Upstream, HandlerState};
 error_page(_, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState}.
 

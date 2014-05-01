@@ -14,20 +14,20 @@ match_headers({ok,{ConnectionTokens, Req1}}, _, Env) ->
             %% The connection should be upgraded
             case cowboy_req:parse_header(<<"upgrade">>, Req1) of
                 {ok, undefined, Req2} ->
-                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request, Req2),
+                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request_header, Req2),
                     {error, HttpCode, Req3};
                 {ok, Upgrade, Req2} ->
                     handle_upgrade(Upgrade, Req2, Env);
                 {undefined, _, Req2} ->
-                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request, Req2),
+                    {HttpCode, Req3} = vegur_utils:handle_error(bad_request_header, Req2),
                     {error, HttpCode, Req3}; % 426?
                 _ ->
-                    {HttpCode, Req2} = vegur_utils:handle_error(bad_request, Req1),
+                    {HttpCode, Req2} = vegur_utils:handle_error(bad_request_header, Req1),
                     {error, HttpCode, Req2}
             end
     end;
 match_headers({error,_}, Req, _Env) ->
-    {HttpCode, Req1} = vegur_utils:handle_error(bad_request, Req),
+    {HttpCode, Req1} = vegur_utils:handle_error(bad_request_header, Req),
     {error, HttpCode, Req1}.
 
 % http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.42
