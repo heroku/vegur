@@ -34,7 +34,8 @@ groups() -> [{continue, [], [
                 head_no_body_expect, head_chunked_expect,
                 head_close_expect, head_close_expect_client,
                 status_204, status_304, status_chunked_204,
-                status_close_304, status_close_304_client
+                status_close_304, status_close_304_client,
+                bad_transfer_encoding
              ]}
             ].
 
@@ -1240,6 +1241,19 @@ status_close_304_client(Config) ->
     nomatch = re:run(Recv, "body", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
+bad_transfer_encoding(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ReqHeaders = invalid_transfer_encoding(Config),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, ReqHeaders),
+    %% No data to exchange because this failed
+    {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match, _} = re:run(Response, "400").
+
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
 %%%%%%%%%%%%%%%
@@ -1506,6 +1520,13 @@ resp_1_0() ->
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+invalid_transfer_encoding(Config) ->
+    "POST /invalid_transfer_encoding HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Transfer-Encoding: ,\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n".
 
 domain(Config) ->
     LPort = ?config(server_port, Config),

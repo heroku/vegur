@@ -29,8 +29,12 @@ execute(Req, Env) ->
     end.
 
 proxy(Req, State) ->
-    {BackendReq, Req1} = parse_request(Req),
-    send_to_backend(BackendReq, Req1, State).
+    case parse_request(Req) of
+        {BackendReq, Req1} ->
+            send_to_backend(BackendReq, Req1, State);
+        {error, Blame, Error} ->
+            {error, Blame, Error, Req}
+    end.
 
 send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
                 #state{backend_client=BackendClient}=State) ->
@@ -110,6 +114,14 @@ store_byte_counts(Req, Client) ->
 
 
 parse_request(Req) ->
+    case check_for_body(Req) of
+        {{error, Reason}, _Req} ->
+            {error, upstream, Reason};
+        {Body, Req1} ->
+            parse_request(Body, Req1)
+    end.
+
+parse_request(Body, Req) ->
     {Method, Req2} = cowboy_req:method(Req),
     {Path, Req3} = cowboy_req:path(Req2),
     {Host, Req4} = cowboy_req:host(Req3),
@@ -119,22 +131,8 @@ parse_request(Req) ->
         <<>> -> Path;
         _ -> <<Path/binary, "?", Qs/binary>>
     end,
-    %% We handle the request differently based on whether it's chunked,
-    %% has a known length, or if it has no body at all.
-    {Body, Req8} =
-        case cowboy_req:has_body(Req6) of
-            true ->
-                case cowboy_req:body_length(Req6) of
-                    {undefined, Req7} ->
-                        {{stream, chunked}, Req7};
-                    {Length, Req7} ->
-                        {{stream, Length}, Req7}
-                end;
-            false ->
-                {<<>>, Req6}
-        end,
-    {Headers2, Req9} = add_proxy_headers(Headers, Req8),
-    {{Method, Headers2, Body, FullPath, Host}, Req9}.
+    {Headers2, Req7} = add_proxy_headers(Headers, Req6),
+    {{Method, Headers2, Body, FullPath, Host}, Req7}.
 
 add_proxy_headers(Headers, Req) ->
     {Headers1, Req1} = add_request_id(Headers, Req),
@@ -223,4 +221,21 @@ handle_feature(Req, {Headers, PeerPort}) ->
         {disabled, HandlerState2} ->
             Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
             {Headers, Req2}
+    end.
+
+check_for_body(Req) ->
+    %% We handle the request differently based on whether it's chunked,
+    %% has a known length, or if it has no body at all.
+    case cowboy_req:has_body(Req) of
+        true ->
+            case cowboy_req:body_length(Req) of
+                {undefined, Req2} ->
+                    {{stream, chunked}, Req2};
+                {error, badarg} ->
+                    {{error, invalid_transfer_encoding}, Req};
+                {Length, Req2} ->
+                    {{stream, Length}, Req2}
+            end;
+        false ->
+            {<<>>, Req}
     end.
