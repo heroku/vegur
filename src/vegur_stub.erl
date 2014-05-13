@@ -167,6 +167,8 @@ error_page({downstream, status_length}, _DomainGroup, Upstream, HandlerState) ->
 error_page({upstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
     %% bad chunked encoding from client
     {{400, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, invalid_transfer_encoding}, _DomainGroup, Upstream, HandlerState) ->
+    {{400, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
     %% bad chunked encoding from server
     {{502, [], <<>>}, Upstream, HandlerState};
