@@ -114,29 +114,13 @@ store_byte_counts(Req, Client) ->
 
 
 parse_request(Req) ->
-   check_for_body(Req).
+    case check_for_body(Req) of
+        {{error, Reason}, _Req} ->
+            {error, upstream, Reason};
+        {Body, Req1} ->
+            parse_request(Body, Req1)
+    end.
 
-check_for_body(Req) ->
-    %% We handle the request differently based on whether it's chunked,
-    %% has a known length, or if it has no body at all.
-    {Body, Req1} =
-        case cowboy_req:has_body(Req) of
-            true ->
-                case cowboy_req:body_length(Req) of
-                    {undefined, Req2} ->
-                        {{stream, chunked}, Req2};
-                    {error, badarg} ->
-                        {{error, invalid_transfer_encoding}, Req};
-                    {Length, Req2} ->
-                        {{stream, Length}, Req2}
-                end;
-            false ->
-                {<<>>, Req}
-        end,
-    parse_request(Body, Req1).
-
-parse_request({error, Reason}, _Req) ->
-    {error, upstream, Reason};
 parse_request(Body, Req) ->
     {Method, Req2} = cowboy_req:method(Req),
     {Path, Req3} = cowboy_req:path(Req2),
@@ -237,4 +221,21 @@ handle_feature(Req, {Headers, PeerPort}) ->
         {disabled, HandlerState2} ->
             Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
             {Headers, Req2}
+    end.
+
+check_for_body(Req) ->
+    %% We handle the request differently based on whether it's chunked,
+    %% has a known length, or if it has no body at all.
+    case cowboy_req:has_body(Req) of
+        true ->
+            case cowboy_req:body_length(Req) of
+                {undefined, Req2} ->
+                    {{stream, chunked}, Req2};
+                {error, badarg} ->
+                    {{error, invalid_transfer_encoding}, Req};
+                {Length, Req2} ->
+                    {{stream, Length}, Req2}
+            end;
+        false ->
+            {<<>>, Req}
     end.
