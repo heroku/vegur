@@ -18,7 +18,7 @@ execute(Req, Env) ->
             {error, HttpCode, Req1};
         {error, _} ->
             %% Bad request, invalid header value
-            {HttpCode, Req1} = vegur_utils:handle_error(bad_request, Req),
+            {HttpCode, Req1} = vegur_utils:handle_error(bad_request_header, Req),
             {error, HttpCode, Req1}
     end.
 
