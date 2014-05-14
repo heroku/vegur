@@ -256,10 +256,10 @@ relay(Code, Status, HeadersRaw, Req, Client) ->
     %% in batch or directly.
     {Headers, Req1} = case connection_type(Code, Req, Client) of
         {keepalive, Req0} ->
-            {add_via(add_connection_keepalive_header(response_headers(HeadersRaw))),
+            {add_connection_keepalive_header(response_headers(HeadersRaw)),
              Req0};
         {close, Req0} ->
-            {add_via(add_connection_close_header(response_headers(HeadersRaw))),
+            {add_connection_close_header(response_headers(HeadersRaw)),
              Req0}
     end,
     case vegur_client:body_type(Client) of
@@ -595,7 +595,8 @@ upgrade_response_headers(Headers) ->
                 end,
                 Headers,
                 [fun delete_hop_by_hop/1,
-                 fun add_connection_upgrade_header/1
+                 fun add_connection_upgrade_header/1,
+                 fun add_via/1
                 ]).
 
 %% Strip Hop-by-hop headers on response
@@ -604,7 +605,8 @@ response_headers(Headers) ->
                         F(H)
                 end,
                 Headers,
-                [fun delete_hop_by_hop/1
+                [fun delete_hop_by_hop/1,
+                 fun add_via/1
                 ]).
 
 delete_host_header(Hdrs) ->
@@ -646,8 +648,9 @@ add_connection_upgrade_header(Hdrs) ->
         false -> [{<<"connection">>, <<"Upgrade">>} | Hdrs]
     end.
 
-add_via(Hdrs) ->
-    [{<<"via">>, <<"vegur">>} | Hdrs].
+add_via(Headers) ->
+    Via = vegur_utils:get_via_value(),
+    vegur_utils:add_or_append_header(<<"via">>, Via, Headers).
 
 
 %% When sending data in passive mode, it is usually impossible to be notified

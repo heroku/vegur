@@ -5,6 +5,7 @@
 -export([get_interface_module/1
          ,set_handler_state/2
          ,parse_header/2
+         ,add_or_append_header/3
          ,add_or_append_header/4
          ,add_if_missing_header/4
          ,add_or_replace_header/3
@@ -20,7 +21,8 @@
         ]).
 
 -export([config/1
-         ,config/2]).
+         ,config/2
+         ,get_via_value/0]).
 
 -spec get_interface_module(Req) ->
                                   {Module, HandlerState, Req}
@@ -49,6 +51,27 @@ parse_header(Key, Req) ->
         {error, badarg} -> {error, badarg}
     end.
 
+
+%% @doc adds a given header when not present, otherwise appends the header
+%% value to the end of the header list, and uses the HTTP's comma-separated
+%% header values to keep everything present. For exmaple, appending
+%% 'via: 1.1 vegur' to an existing 'via: 1.1 example' would yield
+%% 'via: 1.1 example, 1.1 vegur'
+-spec add_or_append_header(Key, Value, Headers) -> Headers when
+      Key :: iodata(),
+      Value :: iodata(),
+      Headers :: [{iodata(), iodata()}]|[].
+add_or_append_header(Key, Val, Headers) ->
+    case lists:keyfind(Key, 1, Headers) of
+        false ->
+            Headers ++ [{Key, Val}];
+        {_Key, Current} ->
+            lists:keyreplace(Key, 1, Headers, {Key, [Current, ", ", Val]})
+    end.
+
+%% @doc Similar to add_or_append_header/3, but takes a `Req' object to
+%% allow the reading of the current header value to be done through
+%% Cowboy's cache.
 -spec add_or_append_header(Key, Value, Headers, Req) ->
                                   {Headers, Req} when
       Key :: iodata(),
@@ -202,3 +225,8 @@ config(Key) ->
         undefined -> erlang:error({missing_config, Key});
         {ok, Val} -> Val
     end.
+
+-spec get_via_value() -> binary().
+get_via_value() ->
+    <<"1.1 ", (config(instance_name))/binary>>.
+

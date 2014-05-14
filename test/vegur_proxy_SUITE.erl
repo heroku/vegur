@@ -190,7 +190,7 @@ via(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {<<"vegur">>, _} = cowboy_req:header(<<"via">>, Req)
+            {<<"1.1 vegur">>, _} = cowboy_req:header(<<"via">>, Req)
     after 5000 ->
             throw(timeout)
     end,
@@ -198,7 +198,7 @@ via(Config) ->
                                                           {"via", "happyproxy"}]}, [], []),
     receive
         {req, Req1} ->
-            {<<"happyproxy, vegur">>, _} = cowboy_req:header(<<"via">>, Req1)
+            {<<"happyproxy, 1.1 vegur">>, _} = cowboy_req:header(<<"via">>, Req1)
     after 5000 ->
             throw(timeout)
     end,
@@ -271,7 +271,7 @@ request_statistics(Config) ->
             receive
                 {stats, {successful, Upstream, _State}} ->
                     {118, _} = vegur_req:bytes_recv(Upstream),
-                    {282, _} = vegur_req:bytes_sent(Upstream),
+                    {286, _} = vegur_req:bytes_sent(Upstream),
                     {RT, _} = vegur_req:route_duration(Upstream),
                     {CT, _} = vegur_req:connect_duration(Upstream),
                     {TT, _} = vegur_req:total_duration(Upstream),

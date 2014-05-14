@@ -19,7 +19,7 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_resp,
                 delete_hop_by_hop, response_cookie_limits,
                 response_header_line_limits, response_status_limits,
-                via, bad_status
+                via, via_chain, bad_status
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
@@ -738,8 +738,31 @@ via(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
-    {match,_} = re:run(RecvServ, "^via: ?vegur", [global,multiline,caseless]),
-    {match,_} = re:run(RecvClient, "^via: ?vegur", [global,multiline,caseless]).
+    {match,_} = re:run(RecvServ, "^via: ?1.1 vegur", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^via: ?1.1 vegur", [global,multiline,caseless]).
+
+via_chain(Config) ->
+    %% A Proxy should advertise its presence with the 'via'
+    %% header both to the client and server.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_via("1.1 proxy", Config),
+    Resp = resp_via("1.1 proxy"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match,_} = re:run(RecvServ, "^via: ?1.1 proxy, 1.1 vegur", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^via: ?1.1 proxy, 1.1 vegur", [global,multiline,caseless]).
 
 bad_status(Config) ->
     %% An endpoint app may send custom HTTP Statuses as long as they are
@@ -1367,6 +1390,15 @@ req(Config) ->
     "\r\n"
     "12345".
 
+req_via(Val, Config) ->
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Type: text/plain\r\n"
+    "via: "++Val++"\r\n"
+    "\r\n"
+    "12345".
+
 req_close(Config) ->
     "POST / HTTP/1.1\r\n"
     "Host: "++domain(Config)++"\r\n"
@@ -1414,6 +1446,15 @@ resp() ->
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
     "Content-Length: 43\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+resp_via(Val) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 43\r\n"
+    "Via: "++Val++"\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
 
