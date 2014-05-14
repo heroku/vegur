@@ -114,11 +114,12 @@ store_byte_counts(Req, Client) ->
 
 
 parse_request(Req) ->
-    case check_for_body(Req) of
-        {{error, Reason}, _Req} ->
-            {error, upstream, Reason};
+    try check_for_body(Req) of
         {Body, Req1} ->
             parse_request(Body, Req1)
+    catch
+        error:{_, {error, badarg}} ->
+            {error, upstream, invalid_body_length}
     end.
 
 parse_request(Body, Req) ->
@@ -231,8 +232,6 @@ check_for_body(Req) ->
             case cowboy_req:body_length(Req) of
                 {undefined, Req2} ->
                     {{stream, chunked}, Req2};
-                {error, badarg} ->
-                    {{error, invalid_transfer_encoding}, Req};
                 {Length, Req2} ->
                     {{stream, Length}, Req2}
             end;
