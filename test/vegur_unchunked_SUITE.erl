@@ -41,7 +41,6 @@ short_msg(_) ->
     {more, Rest3} = vegur_unchunked:next_chunk(<<"d en">>, Rest2),
     {chunk, _, <<"">>} = vegur_unchunked:next_chunk(<<"coded\r\n">>, Rest3),
     {more, Rest4} = vegur_unchunked:next_chunk(<<"00">>),
-    {done, _, <<"">>} = vegur_unchunked:next_chunk(<<"\r\n">>, Rest4),
     {done, _, <<"">>} = vegur_unchunked:next_chunk(<<"\r\n\r\n">>, Rest4).
 
 html(_) ->
@@ -50,11 +49,12 @@ html(_) ->
     "<h1>go!</h1>\r\n"
     "1b\r\n"
     "<h1>first chunk loaded</h1>\r\n"
+    "0\r\n" % 0-length chunk
     "2a\r\n"
     "<h1>second chunk loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n">>,
+    "0\r\n\r\n">>,
     {done, Buf, <<>>} = vegur_unchunked:all_chunks(String),
     <<"<h1>go!</h1>"
       "<h1>first chunk loaded</h1>"
@@ -75,7 +75,7 @@ stream(_) ->
     Str5 = <<" loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n">>,
+    "0\r\n\r\n">>,
     %% remaining length is 12 given we haven't started parsing the message below
     {more, 12, Buf1, Cont1} = vegur_unchunked:stream_chunk(Str1),
     {chunk, Buf2, Rest1} = vegur_unchunked:stream_chunk(Str2, Cont1),

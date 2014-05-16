@@ -99,8 +99,8 @@ chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
             case Rest of
                 <<"\r\n", Remainder/binary>> -> % body-ending CLRF
                     {done, [Buf, <<"\r\n\r\n">>], Remainder};
-                _ -> % we tolerate that
-                    {done, [Buf, <<"\r\n">>], Rest}
+                _ -> % 0-length chunk
+                    {chunk, [Buf, <<"\r\n">>], Rest}
             end;
         undefined ->
             {error, {bad_chunk, no_length}};
