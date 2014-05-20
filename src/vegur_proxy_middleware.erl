@@ -204,11 +204,8 @@ add_forwarded(Headers, Req) ->
     {Headers4, Req3}.
 
 add_via(Headers, Req) ->
-    vegur_utils:add_or_append_header(<<"via">>, get_via_value(), Headers, Req).
-
--spec get_via_value() -> binary().
-get_via_value() ->
-    vegur_utils:config(instance_name).
+    Via = vegur_utils:get_via_value(),
+    vegur_utils:add_or_append_header(<<"via">>, Via, Headers, Req).
 
 handle_feature(Req, {Headers, PeerPort}) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
