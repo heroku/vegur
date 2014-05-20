@@ -228,5 +228,5 @@ config(Key) ->
 
 -spec get_via_value() -> binary().
 get_via_value() ->
-    <<"1.1 ", (config(instance_name))/binary>>.
+    <<"1.1 vegur">>.
 
