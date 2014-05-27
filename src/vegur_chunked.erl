@@ -150,7 +150,8 @@ ext_name(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
 ext_name(<<"\n", Rest/binary>>, #state{buffer=Buf,
                                        status=ext_cr}=State) ->
     %% Got \n when last read byte was \r, consider the ext name
-    data(Rest, State#state{buffer=[Buf, <<"\r\n">>]});
+    data(Rest, State#state{buffer=[Buf, <<"\r\n">>],
+                           status=undefined});
 ext_name(<<>>, State) ->
     {more, {fun ext_name/2, State}};
 ext_name(<<"=", Rest/binary>>, State) ->
@@ -169,7 +170,8 @@ ext_val(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
 ext_val(<<"\n", Rest/binary>>, #state{buffer=Buf,
                                       status=ext_cr}=State) ->
     %% Got \n when last read byte was \r, consider the ext value read
-    data(Rest, State#state{buffer=[Buf, <<"\r\n">>]});
+    data(Rest, State#state{buffer=[Buf, <<"\r\n">>],
+                           status=undefined});
 ext_val(<<";", Rest/binary>>, State) ->
     extension(Rest, State);
 ext_val(<<>>, State) ->
