@@ -43,7 +43,7 @@ short_msg(_) ->
     {more, Rest3} = vegur_chunked:next_chunk(<<"d en">>, Rest2),
     {chunk, _, <<"">>} = vegur_chunked:next_chunk(<<"coded\r\n">>, Rest3),
     {more, Rest4} = vegur_chunked:next_chunk(<<"00">>),
-    {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n\r\n">>, Rest4).
+    {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n">>, Rest4).
 
 html(_) ->
     String = <<""
@@ -51,12 +51,11 @@ html(_) ->
     "<h1>go!</h1>\r\n"
     "1b\r\n"
     "<h1>first chunk loaded</h1>\r\n"
-    "0\r\n" % 0-length chunk
     "2a\r\n"
     "<h1>second chunk loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n\r\n">>,
+    "0\r\n">>,
     {done, Buf, <<>>} = vegur_chunked:all_chunks(String),
     String = iolist_to_binary(Buf).
 
@@ -74,7 +73,7 @@ stream(_) ->
     Str5 = <<" loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n\r\n">>,
+    "0\r\n">>,
     %% remaining length is 12 given we haven't started parsing the message below
     {more, 12, Buf1, Cont1} = vegur_chunked:stream_chunk(Str1),
     {chunk, Buf2, Rest1} = vegur_chunked:stream_chunk(Str2, Cont1),
@@ -102,7 +101,7 @@ trailers(_) ->
     "Sat, 20 Mar 2004 21:12:00 GMT\r\n"
     "13\r\n"
     ".</p></body></html>\r\n"
-    "0\r\n\r\n"
+    "0\r\n"
     "Expires: Sat, 27 Mar 2004 21:12:00 GMT\r\n">>,
     {done, Buf, <<>>} = vegur_chunked:all_chunks(String, <<"Expires">>),
     String = iolist_to_binary(Buf).

@@ -49,12 +49,11 @@ html(_) ->
     "<h1>go!</h1>\r\n"
     "1b\r\n"
     "<h1>first chunk loaded</h1>\r\n"
-    "0\r\n" % 0-length chunk
     "2a\r\n"
     "<h1>second chunk loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n\r\n">>,
+    "0\r\n">>,
     {done, Buf, <<>>} = vegur_unchunked:all_chunks(String),
     <<"<h1>go!</h1>"
       "<h1>first chunk loaded</h1>"
@@ -75,7 +74,7 @@ stream(_) ->
     Str5 = <<" loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n\r\n">>,
+    "0\r\n">>,
     %% remaining length is 12 given we haven't started parsing the message below
     {more, 12, Buf1, Cont1} = vegur_unchunked:stream_chunk(Str1),
     {chunk, Buf2, Rest1} = vegur_unchunked:stream_chunk(Str2, Cont1),
