@@ -94,23 +94,11 @@ all_chunks(Bin, Acc) ->
 %% by one -- the lenght of the field isn't valid until we hit a CRLF or an
 %% extension (;) -- without a need to do a lookahead or keep state in the
 %% event someone sends hilariously long lengths across packet boundaries.
-chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
-    case Len of
-        0 ->
-            case Rest of
-                <<"\r\n", Remainder/binary>> -> % body-ending CLRF
-                    {done, [Buf, <<"\r\n\r\n">>], Remainder};
-                _ -> % 0-length chunk
-                    {done, [Buf, <<"\r\n">>], Rest}
-            end;
-        undefined ->
-            {error, {bad_chunk, no_length}};
-        Len ->
-            data(Rest, S#state{buffer = [Buf, <<"\r\n">>]})
-    end;
-chunk_size(<<"\n", _/binary>> = Bin, #state{sub_state=chunk_size_cr}=State) ->
+chunk_size(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
+    handle_chunk(Rest, S#state{buffer=[Buf, <<"\r\n">>]});
+chunk_size(<<"\n", Rest/binary>>, #state{buffer=Buf, sub_state=chunk_size_cr}=State) ->
     %% Got \n when last read byte was \r, consider the size read and continue
-    chunk_size(<<"\r", Bin/binary>>, State#state{sub_state=undefined});
+    handle_chunk(Rest, State#state{buffer=[Buf, <<"\n">>], sub_state=undefined});
 chunk_size(<<N, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when N >= $0, N =< $9 ->
     NewLen = case Len of
         undefined -> N-$0;
@@ -134,7 +122,7 @@ chunk_size(<<";", Rest/binary>>, S=#state{length=Len}) ->
     end;
 chunk_size(<<>>, State) ->
     {more, {fun chunk_size/2, State}};
-chunk_size(<<"\r">>, #state{buffer=Buf}=State) ->
+chunk_size(<<"\r">>, #state{buffer=Buf, sub_state=undefined}=State) ->
     %% Got CR as the final byte in some input with length 0, this
     %% could mean that there is a \n waiting to be read which would
     %% make this valid. Mark sub_state, and ask for more.
@@ -150,7 +138,7 @@ ext_name(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
 ext_name(<<"\n", Rest/binary>>, #state{buffer=Buf,
                                        sub_state=ext_cr}=State) ->
     %% Got \n when last read byte was \r, consider the ext name
-    data(Rest, State#state{buffer=[Buf, <<"\r\n">>],
+    data(Rest, State#state{buffer=[Buf, <<"\n">>],
                            sub_state=undefined});
 ext_name(<<>>, State) ->
     {more, {fun ext_name/2, State}};
@@ -170,7 +158,7 @@ ext_val(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
 ext_val(<<"\n", Rest/binary>>, #state{buffer=Buf,
                                       sub_state=ext_cr}=State) ->
     %% Got \n when last read byte was \r, consider the ext value read
-    data(Rest, State#state{buffer=[Buf, <<"\r\n">>],
+    data(Rest, State#state{buffer=[Buf, <<"\n">>],
                            sub_state=undefined});
 ext_val(<<";", Rest/binary>>, State) ->
     extension(Rest, State);
@@ -178,7 +166,7 @@ ext_val(<<>>, State) ->
     {more, {fun ext_val/2, State}};
 ext_val(<<"\"", Rest/binary>>, State) ->
     quoted_string(Rest, State);
-ext_val(<<"\r">>, #state{buffer=Buf}=State) ->
+ext_val(<<"\r">>, #state{buffer=Buf, sub_state=undefined}=State) ->
     {more, {fun ext_val/2, State#state{buffer=[Buf, <<"\r">>],
                                        sub_state=ext_cr}}};
 ext_val(<<_, Rest/binary>>, State) ->
@@ -218,14 +206,28 @@ data(<<"\n", Rest/binary>>, #state{length=0, buffer=Buf,
                                    sub_state=data_cr}) ->
     %% Got \n when last read byte was \r, consider the chunk read
     {chunk, [Buf, <<"\n">>], Rest};
-data(<<"\r">> = B, #state{length=0, buffer=Buf}=State) ->
+data(<<"\r">>, #state{length=0, buffer=Buf, sub_state=undefined}=State) ->
     %% Got CR as the final byte in some input with length 0, this
     %% could mean that there is a \n waiting to be read which would
     %% make this valid. Mark sub_state, and ask for more.
-    {more, {fun data/2, State#state{buffer=[Buf, B],
+    {more, {fun data/2, State#state{buffer=[Buf, <<"\r">>],
                                     sub_state=data_cr}}};
 data(Bin, #state{length=0, buffer=Buf}) ->
     %% We have more data than the length would tell us.
     %% Bad chunk.
     {error, {bad_chunk, {0, [Buf,Bin]}}}.
 
+handle_chunk(Bin, #state{length=Len, buffer=Buf} = State) ->
+    case Len of
+        0 ->
+            case Bin of
+                <<"\r\n", Remainder/binary>> -> % body-ending CLRF
+                    {done, [Buf, <<"\r\n">>], Remainder};
+                _ -> % 0-length chunk
+                    {done, Buf, Bin}
+            end;
+        undefined ->
+            {error, {bad_chunk, no_length}};
+        Len ->
+            data(Bin, State)
+    end.

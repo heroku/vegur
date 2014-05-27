@@ -90,23 +90,11 @@ all_chunks(Bin, Acc) ->
 %% by one -- the lenght of the field isn't valid until we hit a CRLF or an
 %% extension (;) -- without a need to do a lookahead or keep state in the
 %% event someone sends hilariously long lengths across packet boundaries.
-chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
-    case Len of
-        0 ->
-            case Rest of
-                <<"\r\n", Remainder/binary>> -> % body-ending CLRF
-                    {done, Buf, Remainder};
-                _ -> % 0-length chunk, skip-ahead
-                    {done, Buf, Rest}
-            end;
-        undefined ->
-            {error, {bad_chunk, no_length}};
-        Len ->
-            data(Rest, S)
-    end;
-chunk_size(<<"\n", _/binary>> = Bin, #state{sub_state=chunk_size_cr}=State) ->
+chunk_size(<<"\r\n", Rest/binary>>, State) ->
+    handle_chunk(Rest, State);
+chunk_size(<<"\n", Rest/binary>>, #state{sub_state=chunk_size_cr}=State) ->
     %% Got \n when last read byte was \r, consider the size read and continue
-    chunk_size(<<"\r", Bin/binary>>, State#state{sub_state=undefined});
+    handle_chunk(Rest, State#state{sub_state=undefined});
 chunk_size(<<N, Rest/binary>>, S=#state{length=Len}) when N >= $0, N =< $9 ->
     NewLen = case Len of
         undefined -> N-$0;
@@ -130,7 +118,7 @@ chunk_size(<<";", Rest/binary>>, S=#state{length=Len}) ->
     end;
 chunk_size(<<>>, State) ->
     {more, {fun chunk_size/2, State}};
-chunk_size(<<"\r">>, State) ->
+chunk_size(<<"\r">>, #state{sub_state=undefined}=State) ->
     %% Got CR as the final byte in some input with length 0, this
     %% could mean that there is a \n waiting to be read which would
     %% make this valid. Mark sub_state, and ask for more.
@@ -149,7 +137,7 @@ ext_name(<<>>, State) ->
     {more, {fun ext_name/2, State}};
 ext_name(<<"=", Rest/binary>>, State) ->
     ext_val(Rest, State);
-ext_name(<<"\r">>, State) ->
+ext_name(<<"\r">>, #state{sub_state=undefined}=State) ->
     %% Got CR as the final byte in some input with length 0, this
     %% could mean that there is a \n waiting to be read which would
     %% make this valid. Mark sub_state, and ask for more.
@@ -207,11 +195,23 @@ data(<<"\n", Rest/binary>>, #state{length=0, buffer=Buf,
                                    sub_state=data_cr}) ->
     %% Got \n when last read byte was \r, consider the chunk read
     {chunk, [Buf], Rest};
-data(<<"\r">>, #state{length=0}=State) ->
+data(<<"\r">>, #state{length=0, sub_state=undefined}=State) ->
     %% Got CR as the final byte in some input with length 0, this
     %% could mean that there is a \n waiting to be read which would
     %% make this valid. Mark sub_state, and ask for more.
     {more, {fun data/2, State#state{sub_state=data_cr}}}.
 
-
-
+handle_chunk(Bin, #state{length=Len, buffer=Buf}=S) ->
+    case Len of
+        0 ->
+            case Bin of
+                <<"\r\n", Remainder/binary>> -> % body-ending CLRF
+                    {done, Buf, Remainder};
+                _ -> % 0-length chunk, skip-ahead
+                    {done, Buf, Bin}
+            end;
+        undefined ->
+            {error, {bad_chunk, no_length}};
+        Len ->
+            data(Bin, S)
+    end.
