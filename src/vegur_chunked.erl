@@ -36,7 +36,8 @@
          all_chunks/1]).
 -record(state, {buffer = [] :: iodata(),
                 length :: non_neg_integer(),
-                trailers = undefined}).
+                trailers = undefined,
+                status = undefined :: chunk_size_cr|data_cr|ext_cr}).
 
 %% Parses a binary stream to get the next chunk in it.
 next_chunk(Bin) -> next_chunk(Bin, undefined).
@@ -107,12 +108,15 @@ chunk_size(<<"\r\n", Rest/binary>>, S=#state{length=Len, buffer=Buf}) ->
         Len ->
             data(Rest, S#state{buffer = [Buf, <<"\r\n">>]})
     end;
+chunk_size(<<"\n", _/binary>> = Bin, #state{status=chunk_size_cr}=State) ->
+    %% Got \n when last read byte was \r, consider the size read and continue
+    chunk_size(<<"\r", Bin/binary>>, State#state{status=undefined});
 chunk_size(<<N, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when N >= $0, N =< $9 ->
     NewLen = case Len of
         undefined -> N-$0;
         Len -> Len*16 + N-$0
     end,
-    chunk_size(Rest, S#state{length=NewLen, buffer = [Buf, N]});
+    chunk_size(Rest, S#state{length=NewLen, buffer=[Buf, N]});
 chunk_size(<<H, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when H >= $A, H =< $F;
                                                                       H >= $a, H =< $f ->
     N = if H >= $a, H =< $f -> H - $a + 10;
@@ -130,6 +134,12 @@ chunk_size(<<";", Rest/binary>>, S=#state{length=Len}) ->
     end;
 chunk_size(<<>>, State) ->
     {more, {fun chunk_size/2, State}};
+chunk_size(<<"\r">>, #state{buffer=Buf}=State) ->
+    %% Got CR as the final byte in some input with length 0, this
+    %% could mean that there is a \n waiting to be read which would
+    %% make this valid. Mark status, and ask for more.
+    {more, {fun chunk_size/2, State#state{buffer=[Buf, <<"\r">>],
+                                          status=chunk_size_cr}}};
 chunk_size(<<BadChar, _/binary>>, _State) ->
     {error, {bad_chunk, {length_char, <<BadChar>>}}}.
 
@@ -137,21 +147,38 @@ extension(Bin, State) -> ext_name(Bin, State).
 
 ext_name(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
     data(Rest, S#state{buffer=[Buf, <<"\r\n">>]});
+ext_name(<<"\n", Rest/binary>>, #state{buffer=Buf,
+                                       status=ext_cr}=State) ->
+    %% Got \n when last read byte was \r, consider the ext name
+    data(Rest, State#state{buffer=[Buf, <<"\r\n">>]});
 ext_name(<<>>, State) ->
     {more, {fun ext_name/2, State}};
 ext_name(<<"=", Rest/binary>>, State) ->
     ext_val(Rest, State);
+ext_name(<<"\r">>, #state{buffer=Buf}=State) ->
+    %% Got CR as the final byte in some input with length 0, this
+    %% could mean that there is a \n waiting to be read which would
+    %% make this valid. Mark status, and ask for more.
+    {more, {fun ext_name/2, State#state{buffer=[Buf, <<"\r">>],
+                                        status=ext_cr}}};
 ext_name(<<_, Rest/binary>>, State) ->
     ext_name(Rest, State).
 
 ext_val(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
     data(Rest, S#state{buffer=[Buf, <<"\r\n">>]});
+ext_val(<<"\n", Rest/binary>>, #state{buffer=Buf,
+                                      status=ext_cr}=State) ->
+    %% Got \n when last read byte was \r, consider the ext value read
+    data(Rest, State#state{buffer=[Buf, <<"\r\n">>]});
 ext_val(<<";", Rest/binary>>, State) ->
     extension(Rest, State);
 ext_val(<<>>, State) ->
     {more, {fun ext_val/2, State}};
 ext_val(<<"\"", Rest/binary>>, State) ->
     quoted_string(Rest, State);
+ext_val(<<"\r">>, #state{buffer=Buf}=State) ->
+    {more, {fun ext_val/2, State#state{buffer=[Buf, <<"\r">>],
+                                       status=ext_cr}}};
 ext_val(<<_, Rest/binary>>, State) ->
     ext_val(Rest, State).
 
@@ -185,6 +212,16 @@ data(Bin, S=#state{length=Len, buffer=Buf}) when Len > 0 ->
             {more, {fun data/2, S#state{length = Len-byte_size(Bin),
                                         buffer=[Buf,Bin]}}}
     end;
+data(<<"\n", Rest/binary>>, #state{length=0, buffer=Buf,
+                                   status=data_cr}) ->
+    %% Got \n when last read byte was \r, consider the chunk read
+    {chunk, [Buf, <<"\n">>], Rest};
+data(<<"\r">> = B, #state{length=0, buffer=Buf}=State) ->
+    %% Got CR as the final byte in some input with length 0, this
+    %% could mean that there is a \n waiting to be read which would
+    %% make this valid. Mark status, and ask for more.
+    {more, {fun data/2, State#state{buffer=[Buf, B],
+                                    status=data_cr}}};
 data(Bin, #state{length=0, buffer=Buf}) ->
     %% We have more data than the length would tell us.
     %% Bad chunk.
