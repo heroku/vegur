@@ -98,7 +98,7 @@ chunk_size(<<"\r\n", Rest/binary>>, S=#state{buffer=Buf}) ->
     handle_chunk(Rest, S#state{buffer=[Buf, <<"\r\n">>]});
 chunk_size(<<"\n", Rest/binary>>, #state{buffer=Buf, sub_state=chunk_size_cr}=State) ->
     %% Got \n when last read byte was \r, consider the size read and continue
-    handle_chunk(Rest, State#state{buffer=[Buf, <<"\n">>], sub_state=undefined});
+    handle_chunk(Rest, State#state{buffer=[Buf, <<"\n">>]});
 chunk_size(<<N, Rest/binary>>, S=#state{length=Len, buffer=Buf}) when N >= $0, N =< $9 ->
     NewLen = case Len of
         undefined -> N-$0;
@@ -229,5 +229,5 @@ handle_chunk(Bin, #state{length=Len, buffer=Buf} = State) ->
         undefined ->
             {error, {bad_chunk, no_length}};
         Len ->
-            data(Bin, State)
+            data(Bin, State#state{sub_state=undefined})
     end.
