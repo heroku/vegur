@@ -21,9 +21,9 @@ bad_length(_) ->
     "01\n\r\n" %% fail here, CRLF missing for length
     "00">>,
     {error, _, {bad_chunk, {length_char, <<"\n">>}}} = vegur_chunked:all_unchunks(String),
-    {chunk, _, Rest0} = vegur_unchunked:next_chunk(String), % 05 CRLF this CRLF
-    {chunk, _, Rest1} = vegur_unchunked:next_chunk(Rest0), % 07 CRLF string CRLF
-    {chunk, _, Rest2} = vegur_unchunked:next_chunk(Rest1), % 12 is chunked ... CRLF
+    {chunk, _, Rest0} = vegur_chunked:next_unchunk(String), % 05 CRLF this CRLF
+    {chunk, _, Rest1} = vegur_chunked:next_unchunk(Rest0), % 07 CRLF string CRLF
+    {chunk, _, Rest2} = vegur_chunked:next_unchunk(Rest1), % 12 is chunked ... CRLF
     {error, {bad_chunk, {length_char, <<"\n">>}}} = vegur_chunked:next_unchunk(Rest2). % 01\n CRLF
 
 short_msg(_) ->
