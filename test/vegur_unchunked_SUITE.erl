@@ -20,11 +20,11 @@ bad_length(_) ->
     "is chunked encoded\r\n"
     "01\n\r\n" %% fail here, CRLF missing for length
     "00">>,
-    {error, _, {bad_chunk, {length_char, <<"\n">>}}} = vegur_unchunked:all_chunks(String),
+    {error, _, {bad_chunk, {length_char, <<"\n">>}}} = vegur_chunked:all_unchunks(String),
     {chunk, _, Rest0} = vegur_unchunked:next_chunk(String), % 05 CRLF this CRLF
     {chunk, _, Rest1} = vegur_unchunked:next_chunk(Rest0), % 07 CRLF string CRLF
     {chunk, _, Rest2} = vegur_unchunked:next_chunk(Rest1), % 12 is chunked ... CRLF
-    {error, {bad_chunk, {length_char, <<"\n">>}}} = vegur_unchunked:next_chunk(Rest2). % 01\n CRLF
+    {error, {bad_chunk, {length_char, <<"\n">>}}} = vegur_chunked:next_unchunk(Rest2). % 01\n CRLF
 
 short_msg(_) ->
     String = <<""
@@ -34,14 +34,14 @@ short_msg(_) ->
     "string \r\n"
     "12\r\n"
     "is chunke">>,
-    {error, _, incomplete} = vegur_unchunked:all_chunks(String),
-    {chunk, _, Rest0} = vegur_unchunked:next_chunk(String), % 05 CRLF this CRLF
-    {chunk, _, Rest1} = vegur_unchunked:next_chunk(Rest0), % 07 CRLF string CRLF
-    {more, Rest2} = vegur_unchunked:next_chunk(Rest1), % 12 is chunked ... CRLF
-    {more, Rest3} = vegur_unchunked:next_chunk(<<"d en">>, Rest2),
-    {chunk, _, <<"">>} = vegur_unchunked:next_chunk(<<"coded\r\n">>, Rest3),
-    {more, Rest4} = vegur_unchunked:next_chunk(<<"00">>),
-    {done, _, <<"">>} = vegur_unchunked:next_chunk(<<"\r\n\r\n">>, Rest4).
+    {error, _, incomplete} = vegur_chunked:all_unchunks(String),
+    {chunk, _, Rest0} = vegur_chunked:next_unchunk(String), % 05 CRLF this CRLF
+    {chunk, _, Rest1} = vegur_chunked:next_unchunk(Rest0), % 07 CRLF string CRLF
+    {more, Rest2} = vegur_chunked:next_unchunk(Rest1), % 12 is chunked ... CRLF
+    {more, Rest3} = vegur_chunked:next_unchunk(<<"d en">>, Rest2),
+    {chunk, _, <<"">>} = vegur_chunked:next_unchunk(<<"coded\r\n">>, Rest3),
+    {more, Rest4} = vegur_chunked:next_unchunk(<<"00">>),
+    {done, _, <<"">>} = vegur_chunked:next_unchunk(<<"\r\n\r\n">>, Rest4).
 
 html(_) ->
     String = <<""
@@ -54,7 +54,7 @@ html(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    {done, Buf, <<>>} = vegur_unchunked:all_chunks(String),
+    {done, Buf, <<>>} = vegur_chunked:all_unchunks(String),
     <<"<h1>go!</h1>"
       "<h1>first chunk loaded</h1>"
       "<h1>second chunk loaded and displayed</h1>"
@@ -76,17 +76,17 @@ stream(_) ->
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
     %% remaining length is 12 given we haven't started parsing the message below
-    {more, 12, Buf1, Cont1} = vegur_unchunked:stream_chunk(Str1),
-    {chunk, Buf2, Rest1} = vegur_unchunked:stream_chunk(Str2, Cont1),
-    {more, _, Buf3, Cont2} = vegur_unchunked:stream_chunk(Rest1),
-    {chunk, Buf4, Rest2} = vegur_unchunked:stream_chunk(Str3, Cont2),
+    {more, 12, Buf1, Cont1} = vegur_chunked:stream_unchunk(Str1),
+    {chunk, Buf2, Rest1} = vegur_chunked:stream_unchunk(Str2, Cont1),
+    {more, _, Buf3, Cont2} = vegur_chunked:stream_unchunk(Rest1),
+    {chunk, Buf4, Rest2} = vegur_chunked:stream_unchunk(Str3, Cont2),
     %% here because we end on a chunk directly, there is no estimated length
     %% possible and we get 'undefined'
-    {more, undefined, Buf5, Cont3} = vegur_unchunked:stream_chunk(Rest2),
-    {more, _, Buf6, Cont4} = vegur_unchunked:stream_chunk(Str4, Cont3),
-    {chunk, Buf7, Rest3} = vegur_unchunked:stream_chunk(Str5, Cont4),
-    {chunk, Buf8, Rest4} = vegur_unchunked:stream_chunk(Rest3, undefined), % that works too
-    {done, Buf9, <<>>} = vegur_unchunked:stream_chunk(Rest4),
+    {more, undefined, Buf5, Cont3} = vegur_chunked:stream_unchunk(Rest2),
+    {more, _, Buf6, Cont4} = vegur_chunked:stream_unchunk(Str4, Cont3),
+    {chunk, Buf7, Rest3} = vegur_chunked:stream_unchunk(Str5, Cont4),
+    {chunk, Buf8, Rest4} = vegur_chunked:stream_unchunk(Rest3, undefined), % that works too
+    {done, Buf9, <<>>} = vegur_chunked:stream_unchunk(Rest4),
     true = iolist_to_binary([Buf1, Buf2, Buf3, Buf4, Buf5, Buf6, Buf7, Buf8, Buf9])
        =:= <<"<h1>go!</h1>"
              "<h1>first chunk loaded</h1>"
@@ -117,7 +117,7 @@ zero_crlf_end(_) ->
     "c\r\n"
     "<h1>go!</h1>\r\n"
     "0\r\n\r\n">>,
-    {done, Buf, <<>>} = vegur_unchunked:all_chunks(String),
+    {done, Buf, <<>>} = vegur_chunked:all_unchunks(String),
     <<"<h1>go!</h1>">> = iolist_to_binary(Buf).
 
 parse_chunked(<<>>, _State) ->
@@ -127,7 +127,7 @@ parse_chunked(<<B:1/binary, Rest/binary>>, State) ->
 
 
 parse(What, Rest, State) ->
-    case vegur_unchunked:stream_chunk(What, State) of
+    case vegur_chunked:stream_unchunk(What, State) of
         {done, _, _} ->
             parse_chunked(Rest, undefined);
         {error, _Reason} = Res ->
