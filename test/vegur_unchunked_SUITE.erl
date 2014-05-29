@@ -2,7 +2,7 @@
 -include_lib("common_test/include/ct.hrl").
 -compile(export_all).
 
-all() -> [bad_length, html, short_msg, stream, boundary_chunk].
+all() -> [bad_length, html, short_msg, stream, boundary_chunk, zero_crlf_end].
 
 init_per_testcase(_, Config) ->
     Config.
@@ -94,7 +94,7 @@ stream(_) ->
              "<h1>third chunk loaded and displayed</h1>">>.
 
 boundary_chunk(_) ->
-    Chunks = <<""
+    Chunks1 = <<""
     "c\r\n"
     "<h1>go!</h1>\r\n"
     "1b\r\n"
@@ -104,7 +104,21 @@ boundary_chunk(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    done = parse_chunked(Chunks, undefined).
+    done = parse_chunked(Chunks1, undefined),
+    Chunks2 = <<""
+   "c\r\n"
+   "<h1>go!</h1>\r\n"
+    "0\r\n\r\n">>,
+    done = parse_chunked(Chunks2, undefined).
+    
+
+zero_crlf_end(_) ->
+    String = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "0\r\n\r\n">>,
+    {done, Buf, <<>>} = vegur_unchunked:all_chunks(String),
+    <<"<h1>go!</h1>">> = iolist_to_binary(Buf).
 
 parse_chunked(<<>>, _State) ->
     done;
@@ -115,7 +129,7 @@ parse_chunked(<<B:1/binary, Rest/binary>>, State) ->
 parse(What, Rest, State) ->
     case vegur_unchunked:stream_chunk(What, State) of
         {done, _, _} ->
-            parse_chunked(Rest, State);
+            parse_chunked(Rest, undefined);
         {error, _Reason} = Res ->
             Res;
         {chunk, _Chunk, MoreBuffer} ->
