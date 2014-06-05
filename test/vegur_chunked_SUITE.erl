@@ -149,11 +149,10 @@ zero_chunk_in_middle(_) ->
 
 bad_next_chunk(_) ->
     String = <<""
-    "c\r\n"
-    "<h1>go!</h1>\r\n\n"
+    "c\r\r\n"
+    "<h1>go!</h1>\r\n"
     "0\r\n">>,
-    {error, Buf, {bad_chunk,{length_char,<<"\n">>}}} = vegur_chunked:all_chunks(String),
-    <<"c\r\n<h1>go!</h1>\r\n">> = iolist_to_binary(Buf).
+    {error, [], {bad_chunk, {length_char, <<"\r">>}}} = vegur_chunked:all_chunks(String).
 
 parse_chunked(<<>>, _State) ->
     done;
