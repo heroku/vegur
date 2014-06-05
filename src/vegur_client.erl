@@ -214,8 +214,12 @@ parse_peer(Peer, Transport) ->
     end.
 
 response(Client=#client{state=response_body}) ->
-    {done, Client2} = skip_body(Client),
-    response(set_stats(Client2));
+    case skip_body(Client) of
+        {done, Client2} ->
+            response(set_stats(Client2));
+        {error, Reason} ->
+            {error, Reason}
+    end;
 response(Client=#client{state=request}) ->
     case stream_status(Client) of
         {ok, Status, StatusStr, Client2} ->
