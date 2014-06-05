@@ -3,7 +3,7 @@
 -compile(export_all).
 
 all() -> [bad_length, html, short_msg, stream, trailers, zero_crlf_end, boundary_chunk,
-          zero_chunk_in_middle
+          zero_chunk_in_middle, bad_next_chunk
          ].
 
 init_per_testcase(trailers, _) ->
@@ -146,6 +146,14 @@ zero_chunk_in_middle(_) ->
     {done, Buf, Rest} = vegur_chunked:all_chunks(<<B1/binary, B2/binary>>),
     B1 = iolist_to_binary(Buf),
     B2 = iolist_to_binary(Rest).
+
+bad_next_chunk(_) ->
+    String = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n\n"
+    "0\r\n">>,
+    {error, Buf, {bad_chunk,{length_char,<<"\n">>}}} = vegur_chunked:all_chunks(String),
+    <<"c\r\n<h1>go!</h1>\r\n">> = iolist_to_binary(Buf).
 
 parse_chunked(<<>>, _State) ->
     done;
