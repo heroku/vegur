@@ -2,7 +2,8 @@
 -include_lib("common_test/include/ct.hrl").
 -compile(export_all).
 
-all() -> [bad_length, html, short_msg, stream, trailers, boundary_chunk, zero_crlf_end
+all() -> [bad_length, html, short_msg, stream, trailers, zero_crlf_end, boundary_chunk,
+          zero_chunk_in_middle
          ].
 
 init_per_testcase(trailers, _) ->
@@ -134,11 +135,22 @@ zero_crlf_end(_) ->
     {done, Buf, <<>>} = vegur_chunked:all_chunks(String),
     String = iolist_to_binary(Buf).
 
+zero_chunk_in_middle(_) ->
+    B1 = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "0\r\n">>,
+    B2 = <<"c\r\n"
+    "<h1>go!</h1>\r\n"
+    "\r\n">>,
+    {done, Buf, Rest} = vegur_chunked:all_chunks(<<B1/binary, B2/binary>>),
+    B1 = iolist_to_binary(Buf),
+    B2 = iolist_to_binary(Rest).
+
 parse_chunked(<<>>, _State) ->
     done;
 parse_chunked(<<B:1/binary, Rest/binary>>, State) ->
     parse(B, Rest, State).
-
 
 parse(What, Rest, State) ->
     case vegur_chunked:stream_chunk(What, State) of
