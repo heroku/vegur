@@ -72,7 +72,7 @@
           state = wait :: wait | request | response | response_body | raw,
           opts = [] :: [any()],
           socket = undefined :: undefined | inet:socket(),
-          transport = undefined :: module(),
+          transport = undefined :: module() | tuple(), % tuple for tuple calls
           connect_timeout = timer:seconds(vegur_utils:config(downstream_connect_timeout)) :: timeout(),
           read_timeout = timer:seconds(vegur_utils:config(downstream_timeout)) :: timeout(),
           buffer = <<>> :: binary(),
@@ -83,9 +83,10 @@
           bytes_recv :: non_neg_integer() | undefined %% Bytes recv from downstream
 }).
 
--opaque client() :: #client{}.
+-type client() :: #client{}.
 -export_type([client/0]).
 
+-spec init([any()]) -> {ok, client()}.
 init(Opts) ->
     {ok, #client{opts=Opts}}.
 

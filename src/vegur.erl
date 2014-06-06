@@ -87,6 +87,12 @@ set_config(Key, Val) ->
     application:set_env(vegur, Key, Val).
 
 %% Internal
+-spec start(Type, Ref, Port, Interface, Config) -> {ok, pid()} | {error, badarg} when
+    Type :: http | proxy,
+    Ref :: atom(),
+    Port :: inet:port_number(),
+    Interface :: module(),
+    Config :: proplists:proplists().
 start(Type, Ref, Port, Interface, Config) ->
     {Acceptors, Config1} = get_default(acceptors, Config, vegur_utils:config(acceptors)),
     {MaxConnections, Config2} = get_default(max_connections, Config1, vegur_utils:config(max_connections)),
@@ -107,6 +113,14 @@ start(Type, Ref, Port, Interface, Config) ->
     ok = set_config(request_id_max_size, RequestIdMaxSize),
     start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config7).
 
+-spec start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config) ->
+      {ok, pid()} | {error, badarg} when
+    Type :: http | proxy,
+    Ref :: atom(),
+    Port :: inet:port_number(),
+    Acceptors :: pos_integer(),
+    MaxConnections :: pos_integer(),
+    Config :: proplists:proplists().
 start_listener(http, Ref, Port, Acceptors, MaxConnections, Config) ->
     cowboy:start_http(Ref, Acceptors,
                       [{port, Port},
