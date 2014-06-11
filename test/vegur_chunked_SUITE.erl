@@ -2,7 +2,9 @@
 -include_lib("common_test/include/ct.hrl").
 -compile(export_all).
 
-all() -> [bad_length, html, short_msg, stream, trailers].
+all() -> [bad_length, html, short_msg, stream, trailers, zero_crlf_end, boundary_chunk,
+          zero_chunk_in_middle, bad_next_chunk
+         ].
 
 init_per_testcase(trailers, _) ->
     {skip, "Trailers not supported"};
@@ -43,7 +45,7 @@ short_msg(_) ->
     {more, Rest3} = vegur_chunked:next_chunk(<<"d en">>, Rest2),
     {chunk, _, <<"">>} = vegur_chunked:next_chunk(<<"coded\r\n">>, Rest3),
     {more, Rest4} = vegur_chunked:next_chunk(<<"00">>),
-    {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n\r\n">>, Rest4).
+    {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n">>, Rest4).
 
 html(_) ->
     String = <<""
@@ -51,12 +53,11 @@ html(_) ->
     "<h1>go!</h1>\r\n"
     "1b\r\n"
     "<h1>first chunk loaded</h1>\r\n"
-    "0\r\n" % 0-length chunk
     "2a\r\n"
     "<h1>second chunk loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n\r\n">>,
+    "0\r\n">>,
     {done, Buf, <<>>} = vegur_chunked:all_chunks(String),
     String = iolist_to_binary(Buf).
 
@@ -74,7 +75,7 @@ stream(_) ->
     Str5 = <<" loaded and displayed</h1>\r\n"
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
-    "0\r\n\r\n">>,
+    "0\r\n">>,
     %% remaining length is 12 given we haven't started parsing the message below
     {more, 12, Buf1, Cont1} = vegur_chunked:stream_chunk(Str1),
     {chunk, Buf2, Rest1} = vegur_chunked:stream_chunk(Str2, Cont1),
@@ -102,7 +103,70 @@ trailers(_) ->
     "Sat, 20 Mar 2004 21:12:00 GMT\r\n"
     "13\r\n"
     ".</p></body></html>\r\n"
-    "0\r\n\r\n"
+    "0\r\n"
     "Expires: Sat, 27 Mar 2004 21:12:00 GMT\r\n">>,
     {done, Buf, <<>>} = vegur_chunked:all_chunks(String, <<"Expires">>),
     String = iolist_to_binary(Buf).
+
+boundary_chunk(_) ->
+    Chunks1 = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "1b\r\n"
+    "<h1>first chunk loaded</h1>\r\n"
+    "2a\r\n"
+    "<h1>second chunk loaded and displayed</h1>\r\n"
+    "29\r\n"
+    "<h1>third chunk loaded and displayed</h1>\r\n"
+    "0\r\n">>,
+    done = parse_chunked(Chunks1, undefined),
+    Chunks2 = <<""
+   "c\r\n"
+   "<h1>go!</h1>\r\n"
+    "0\r\n\r\n">>,
+    done = parse_chunked(Chunks2, undefined).
+    
+
+zero_crlf_end(_) ->
+    String = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "0\r\n\r\n">>,
+    {done, Buf, <<>>} = vegur_chunked:all_chunks(String),
+    String = iolist_to_binary(Buf).
+
+zero_chunk_in_middle(_) ->
+    B1 = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "0\r\n">>,
+    B2 = <<"c\r\n"
+    "<h1>go!</h1>\r\n"
+    "\r\n">>,
+    {done, Buf, Rest} = vegur_chunked:all_chunks(<<B1/binary, B2/binary>>),
+    B1 = iolist_to_binary(Buf),
+    B2 = iolist_to_binary(Rest).
+
+bad_next_chunk(_) ->
+    String = <<""
+    "c\r\r\n"
+    "<h1>go!</h1>\r\n"
+    "0\r\n">>,
+    {error, [], {bad_chunk, {length_char, <<"\r">>}}} = vegur_chunked:all_chunks(String).
+
+parse_chunked(<<>>, _State) ->
+    done;
+parse_chunked(<<B:1/binary, Rest/binary>>, State) ->
+    parse(B, Rest, State).
+
+parse(What, Rest, State) ->
+    case vegur_chunked:stream_chunk(What, State) of
+        {done, _, _} ->
+            parse_chunked(Rest, undefined);
+        {error, _Reason} = Res ->
+            Res;
+        {chunk, _Chunk, MoreBuffer} ->
+            parse_chunked(<<Rest/binary, MoreBuffer/binary>>, undefined);
+        {more, _, _, State1} ->
+            parse_chunked(Rest, State1)
+    end.

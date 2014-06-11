@@ -291,21 +291,21 @@ next_chunk(Client=#client{buffer=Buffer}, Cont) ->
             {error, Reason}
     end.
 
-stream_chunk({Client, Cont}) -> stream_chunk(Client, vegur_chunked, Cont);
-stream_chunk(Client) -> stream_chunk(Client, vegur_chunked, undefined).
+stream_chunk({Client, Cont}) -> stream_chunk(Client, stream_chunk, Cont);
+stream_chunk(Client) -> stream_chunk(Client, stream_chunk, undefined).
 
-stream_unchunk({Client, Cont}) -> stream_chunk(Client, vegur_unchunked, Cont);
-stream_unchunk(Client) -> stream_chunk(Client, vegur_unchunked, undefined).
+stream_unchunk({Client, Cont}) -> stream_chunk(Client, stream_unchunk, Cont);
+stream_unchunk(Client) -> stream_chunk(Client, stream_unchunk, undefined).
 
-stream_chunk(Client=#client{buffer=Buffer}, ChunkMod, Cont) ->
+stream_chunk(Client=#client{buffer=Buffer}, StreamFun, Cont) ->
     case iolist_size(Buffer) of
         0 ->
             case recv(Client) of
-                {ok, Data} -> stream_chunk(Client#client{buffer=Data}, ChunkMod, Cont);
+                {ok, Data} -> stream_chunk(Client#client{buffer=Data}, StreamFun, Cont);
                 {error, Reason} -> {error, Reason}
             end;
         _ ->
-            case ChunkMod:stream_chunk(Buffer, Cont) of
+            case vegur_chunked:StreamFun(Buffer, Cont) of
                 {done, Buf, Rest} ->
                     {done, Buf, set_stats(Client#client{buffer=Rest,
                                                         response_body=undefined})};
