@@ -39,8 +39,8 @@
 -record(state, {buffer = [] :: iodata(),
                 length :: non_neg_integer()|undefined,
                 trailers = undefined,
-                sub_state = undefined :: chunk_size|chunk_size_cr|ext|
-                                         ext_cr|data_cr|final_crlf,
+                sub_state = undefined :: undefined|chunk_size|chunk_size_cr|ext|
+                                         ext_cr|data_cr|final_crlf|data,
                 type = chunked :: chunked|unchunked}).
 
 %% Parses a binary stream to get the next chunk in it.
