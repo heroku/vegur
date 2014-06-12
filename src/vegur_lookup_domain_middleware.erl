@@ -47,7 +47,7 @@ handle_redirect(_Reason, _DomainGroup, RedirectTo, Req, _Env) ->
     {HeaderValue, Req3} = cowboy_req:header(<<"x-forwarded-proto">>, Req2),
     Proto = get_proto(HeaderValue),
     FullLocation = [Proto, <<"://">>, RedirectTo, Path, Qs2],
-    {ok, Req4} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req3),
+    {ok, Req4} = cowboy_req:reply(301, [{<<"location">>, <<"location">>, FullLocation}], Req3),
     {halt, 301, Req4}.
 
 % Internal

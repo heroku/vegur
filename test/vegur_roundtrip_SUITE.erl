@@ -19,7 +19,7 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_resp,
                 delete_hop_by_hop, response_cookie_limits,
                 response_header_line_limits, response_status_limits,
-                via, via_chain, bad_status
+                via, via_chain, bad_status, preserve_case
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
@@ -623,6 +623,8 @@ delete_hop_by_hop(Config) ->
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
     %% All hop by hop headers but proxy-authentication are gone
+    ct:pal("SRV:~p~n",[RecvServ]),
+    ct:pal("CLI:~p~n",[RecvClient]),
     nomatch = re:run(RecvServ, "^te:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^trailer:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^keep-alive:", [global,multiline,caseless]),
@@ -786,6 +788,42 @@ bad_status(Config) ->
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
     {match,_} = re:run(RecvClient, "666 THE NUMBER OF THE BEAST", [global,multiline,caseless]).
+
+
+preserve_case(Config) ->
+    %% An endpoint app may send custom HTTP Statuses as long as they are
+    %% represented by a 3-digit code, with custom text. The custom text
+    %% should be passed as-is.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_altcase(Config),
+    Resp = resp_altcase(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking, all headers keep their case
+    ct:pal("SRV: ~p",[RecvServ]),
+    ct:pal("CLI: ~p",[RecvClient]),
+    nomatch = re:run(RecvServ, "^cONtENT-lEnGTH:", [global,multiline]),
+    {match,_} = re:run(RecvServ, "^Content-Length:", [global,multiline]), % we rewrite this one
+    {match,_} = re:run(RecvServ, "^ConTent-TyPe:", [global,multiline]),
+    {match,_} = re:run(RecvServ, "^Connection:", [global,multiline]), % hop-by-hop
+    {match,_} = re:run(RecvServ, "^proxy-AuthentiCation:", [global,multiline]),
+    {match,_} = re:run(RecvServ, "^CuStOm-HeAdEr:", [global,multiline]),
+    {match,_} = re:run(RecvClient, "^cONtENT-lEnGTH:", [global,multiline]), % we don't rewrite but may depending on resp?
+    {match,_} = re:run(RecvClient, "^cONtENT-tYpE:", [global,multiline]),
+    {match,_} = re:run(RecvClient, "^Connection:", [global,multiline]), % hop-by-hop
+    {match,_} = re:run(RecvClient, "^proXy-Authentication:", [global,multiline]),
+    {match,_} = re:run(RecvClient, "^cUsToM-hEaDeR:", [global,multiline]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
@@ -1441,6 +1479,18 @@ req_hops(Config) ->
     "\r\n"
     "12345".
 
+req_altcase(Config) ->
+    "POST / HTTP/1.1\r\n"
+    "HosT: "++domain(Config)++"\r\n"
+    "ConTent-LeNgth: 5\r\n"
+    "ConTent-TyPe: text/plain\r\n"
+    %% some hop by hop headers
+    "ConneCtion: keep-alive\r\n"
+    "proxy-AuthentiCation: 0\r\n"
+    "CuStOm-HeAdEr: 0\r\n"
+    "\r\n"
+    "12345".
+
 resp() ->
     "HTTP/1.1 200 OK\r\n"
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
@@ -1500,6 +1550,21 @@ resp_hops() ->
     "keep-alive: timeout=213\r\n"
     "prOxy-Authorization: whatever\r\n"
     "proxy-AuthentiCation: 0\r\n"
+    "Server: cowboy\r\n"
+    "\r\n"
+    "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+
+resp_altcase() ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "cONtENT-tYpE: text/plain\r\n"
+    "cONtENT-lEnGTH: 43\r\n"
+    %% some hop by hop headers
+    "ConnEction: keep-alive\r\n"
+    "keEp-alive: timeout=213\r\n"
+    "proXy-Authentication: 0\r\n"
+    "ServEr: cowboy\r\n"
+    "cUsToM-hEaDeR: 0\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
 
@@ -1577,3 +1642,4 @@ check_stub_error(Pattern) ->
     Local = [Args || {_, {vegur_stub, error_page, Args}, _Ret} <- meck:history(vegur_stub)],
     ct:pal("Local: ~p~n", [Local]),
     Pattern = hd(lists:last(Local)).
+

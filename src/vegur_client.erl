@@ -165,19 +165,19 @@ request(Method, URL, Headers, Body, Client=#client{
 request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     VersionBin = atom_to_binary(Version, latin1),
     %% @todo do keepalive too, allow override...
-    Headers2 = [{<<"Host">>, FullHost} | Headers],
+    Headers2 = [{<<"host">>, <<"Host">>, FullHost} | Headers],
     ContentLength = case Body of
         {stream, 0} -> [];
         {stream, chunked} -> [];
-        {stream, Length} -> [{<<"Content-Length">>, integer_to_list(Length)}];
-        Body -> [{<<"Content-Length">>, integer_to_list(iolist_size(Body))}]
+        {stream, Length} -> [{<<"content-length">>, <<"Content-Length">>, integer_to_list(Length)}];
+        Body -> [{<<"content-length">>, <<"Content-Length">>, integer_to_list(iolist_size(Body))}]
     end,
     HeadersData = headers_to_iolist(Headers2++ContentLength),
     [Method, <<" ">>, Path, <<" ">>, VersionBin, <<"\r\n">>,
      HeadersData, <<"\r\n">>].
 
 headers_to_iolist(Headers) ->
-    [[Name, <<": ">>, Value, <<"\r\n">>] || {Name, Value} <- Headers].
+    [[Name, <<": ">>, Value, <<"\r\n">>] || {_Key, Name, Value} <- Headers].
 
 request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     [request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path),
@@ -410,8 +410,8 @@ stream_headers(Client, Acc) ->
 
 stream_headers(Client, Acc, MaxLine) ->
     case stream_header(Client, MaxLine) of
-        {ok, Name, Value, Client2} ->
-            stream_headers(Client2, [{Name, Value}|Acc], MaxLine);
+        {ok, Key, Name, Value, Client2} ->
+            stream_headers(Client2, [{Key, Name, Value}|Acc], MaxLine);
         {done, Client2} ->
             {ok, Acc, Client2};
         {error, Reason} ->
@@ -483,7 +483,7 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                 skip ->
                     stream_header(Client#client{buffer=Rest}, MaxLine);
                 Client2=#client{} ->
-                    {ok, Name2, Value, Client2#client{buffer=Rest}};
+                    {ok, Name2, Name, Value, Client2#client{buffer=Rest}};
                 {error, Reason} ->
                     {error, Reason}
             end;

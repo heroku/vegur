@@ -126,7 +126,7 @@ parse_request(Body, Req) ->
     {Path, Req3} = cowboy_req:path(Req2),
     {Host, Req4} = cowboy_req:host(Req3),
     {Qs, Req5} = cowboy_req:qs(Req4),
-    {Headers, Req6} = cowboy_req:headers(Req5),
+    {Headers, Req6} = cowboy_req:keyed_headers(Req5),
     FullPath = case Qs of
         <<>> -> Path;
         _ -> <<Path/binary, "?", Qs/binary>>
@@ -148,18 +148,24 @@ add_interface_headers(Headers, Req) ->
     {InterfaceModule, HandlerState, Req2} = vegur_utils:get_interface_module(Req1),
     {InterfaceHeaders, HandlerState1} = InterfaceModule:additional_headers(Log, HandlerState),
     Req3 = vegur_utils:set_handler_state(HandlerState1, Req2),
-    {vegur_utils:add_or_replace_headers(InterfaceHeaders, Headers), Req3}.
+    InterfaceKeyedHeaders = [{cowboy_bstr:to_lower(Name), Name, Val}
+                             || {Name,Val} <- InterfaceHeaders],
+    {vegur_utils:add_or_replace_headers(InterfaceKeyedHeaders, Headers), Req3}.
 
 add_start_time(Headers, Req) ->
     {Time, Req1} = vegur_req:start_time(Req),
-    {vegur_utils:add_or_replace_header(vegur_utils:config(start_time_header),
+    HeaderKey = HeaderName = vegur_utils:config(start_time_header),
+    {vegur_utils:add_or_replace_header(HeaderKey,
+                                       HeaderName,
                                        integer_to_list(timer:now_diff(Time, {0,0,0}) div 1000),
                                        Headers),
      Req1}.
 
 add_connect_time(Headers, Req) ->
     {Time, Req1} = vegur_request_log:get_log_value(connect_time, Req),
-    {vegur_utils:add_or_replace_header(vegur_utils:config(connect_time_header),
+    HeaderKey = HeaderName = vegur_utils:config(connect_time_header),
+    {vegur_utils:add_or_replace_header(HeaderKey,
+                                       HeaderName,
                                        integer_to_list(Time), Headers),
      Req1}.
 
@@ -171,12 +177,14 @@ add_total_route_time(Headers, Req) ->
             {Time1, Req2} ->
                 {integer_to_list(Time1), Req2}
         end,
-    {vegur_utils:add_or_replace_header(vegur_utils:config(route_time_header),
+    HeaderKey = HeaderName = vegur_utils:config(route_time_header),
+    {vegur_utils:add_or_replace_header(HeaderKey, HeaderName,
                                        Time, Headers), Req1}.
 
 add_request_id(Headers, Req) ->
     {RequestId, Req1} = cowboy_req:meta(request_id, Req),
-    {vegur_utils:add_or_replace_header(vegur_utils:config(request_id_name), RequestId, Headers),
+    HeaderKey = HeaderName = vegur_utils:config(request_id_name),
+    {vegur_utils:add_or_replace_header(HeaderKey, HeaderName, RequestId, Headers),
      Req1}.
 
 add_forwarded(Headers, Req) ->
@@ -187,25 +195,33 @@ add_forwarded(Headers, Req) ->
                                {Headers, Req1}
                        end,
 
-    {Headers2, Req3} = vegur_utils:add_or_append_header(<<"x-forwarded-for">>, inet:ntoa(PeerAddress), Headers1, Req2),
+    {Headers2, Req3} = vegur_utils:add_or_append_header(
+        <<"x-forwarded-for">>, <<"X-Forwarded-For">>,
+        inet:ntoa(PeerAddress), Headers1, Req2),
 
     Headers3 =
         case DestPort of
             80 ->
-                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"http">>, Headers2);
+                vegur_utils:add_or_replace_header(
+                    <<"x-forwarded-proto">>, <<"X-Forwarded-Proto">>,
+                    <<"http">>, Headers2);
             443 ->
-                vegur_utils:add_or_replace_header(<<"x-forwarded-proto">>, <<"https">>, Headers2);
+                vegur_utils:add_or_replace_header(
+                    <<"x-forwarded-proto">>, <<"X-Forwarded-Proto">>,
+                    <<"https">>, Headers2);
             _ ->
                 Headers2
         end,
 
-    Headers4 = vegur_utils:add_or_replace_header(<<"x-forwarded-port">>, integer_to_list(DestPort), Headers3),
+    Headers4 = vegur_utils:add_or_replace_header(
+        <<"x-forwarded-port">>, <<"X-Forwarded-Port">>,
+        integer_to_list(DestPort), Headers3),
 
     {Headers4, Req3}.
 
 add_via(Headers, Req) ->
     Via = vegur_utils:get_via_value(),
-    vegur_utils:add_or_append_header(<<"via">>, Via, Headers, Req).
+    vegur_utils:add_or_append_header(<<"via">>, <<"via">>, Via, Headers, Req).
 
 handle_feature(Req, {Headers, PeerPort}) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
@@ -213,6 +229,7 @@ handle_feature(Req, {Headers, PeerPort}) ->
         {enabled, HandlerState2} ->
             Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
             {vegur_utils:add_or_replace_header(<<"x-forwarded-peer-port">>,
+                                               <<"x-forwarded-peer-port">>,
                                               integer_to_list(PeerPort),
                                                Headers), Req2};
         {disabled, HandlerState2} ->

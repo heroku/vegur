@@ -623,34 +623,34 @@ delete_transfer_encoding_header(Hdrs) ->
 %% it through, "Transfer-Encoding" because we restrict to 'chunked' and pass
 %% it through.
 delete_hop_by_hop([]) -> [];
-delete_hop_by_hop([{<<"connection">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"te">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"keep-alive">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"proxy-authorization">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"trailer">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"connection">>, _, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"te">>, _, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"keep-alive">>, _, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"proxy-authorization">>, _, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
+delete_hop_by_hop([{<<"trailer">>, _, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([Hdr|Hdrs]) -> [Hdr | delete_hop_by_hop(Hdrs)].
 
 add_connection_close_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
-        false -> [{<<"connection">>, <<"close">>} | Hdrs]
+        false -> [{<<"connection">>, <<"Connection">>, <<"close">>} | Hdrs]
     end.
 
 add_connection_keepalive_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
-        false -> [{<<"connection">>, <<"keep-alive">>} | Hdrs]
+        false -> [{<<"connection">>, <<"Connection">>, <<"keep-alive">>} | Hdrs]
     end.
 
 add_connection_upgrade_header(Hdrs) ->
     case lists:keymember(<<"connection">>, 1, Hdrs) of
         true -> Hdrs;
-        false -> [{<<"connection">>, <<"Upgrade">>} | Hdrs]
+        false -> [{<<"connection">>, <<"Connection">>, <<"Upgrade">>} | Hdrs]
     end.
 
 add_via(Headers) ->
     Via = vegur_utils:get_via_value(),
-    vegur_utils:add_or_append_header(<<"via">>, Via, Headers).
+    vegur_utils:add_or_append_header(<<"via">>, <<"Via">>, Via, Headers).
 
 
 %% When sending data in passive mode, it is usually impossible to be notified
