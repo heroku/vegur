@@ -221,7 +221,7 @@ add_forwarded(Headers, Req) ->
 
 add_via(Headers, Req) ->
     Via = vegur_utils:get_via_value(),
-    vegur_utils:add_or_append_header(<<"via">>, <<"via">>, Via, Headers, Req).
+    vegur_utils:add_or_append_header(<<"via">>, <<"Via">>, Via, Headers, Req).
 
 handle_feature(Req, {Headers, PeerPort}) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
@@ -229,7 +229,7 @@ handle_feature(Req, {Headers, PeerPort}) ->
         {enabled, HandlerState2} ->
             Req2 = vegur_utils:set_handler_state(HandlerState2, Req1),
             {vegur_utils:add_or_replace_header(<<"x-forwarded-peer-port">>,
-                                               <<"x-forwarded-peer-port">>,
+                                               <<"X-Forwarded-Peer-Port">>,
                                               integer_to_list(PeerPort),
                                                Headers), Req2};
         {disabled, HandlerState2} ->
