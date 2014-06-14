@@ -18,6 +18,7 @@
          ,raw_cowboy_socket/1
          ,raw_cowboy_sockbuf/1
          ,append_to_cowboy_buffer/2
+         ,conndrain/0
         ]).
 
 -export([config/1
@@ -230,3 +231,11 @@ config(Key) ->
 get_via_value() ->
     <<"1.1 vegur">>.
 
+-spec conndrain() -> draining|normal.
+conndrain() ->
+    case vegur_utils:config(conndrain) of
+        true ->
+            draining;
+        false ->
+            normal
+    end.

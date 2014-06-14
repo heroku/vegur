@@ -18,6 +18,7 @@
          ,stop_proxy/0
          ,stop_http/1
          ,stop_proxy/1
+         ,drain_connections/1
         ]).
 
 -export([default_middlewares/0]).
@@ -70,6 +71,10 @@ stop_http(Ref) ->
 -spec stop_proxy(atom()) -> ok.
 stop_proxy(Ref) ->
     ranch:stop_listener(Ref).
+
+-spec drain_connections(boolean()) -> ok.
+drain_connections(Boolean) ->
+    set_config(conndrain, Boolean).
 
 -spec default_middlewares() -> [middleware()].
 default_middlewares() ->

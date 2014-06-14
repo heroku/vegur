@@ -7,7 +7,7 @@
          ,send_body/7
          ,read_backend_response/2
          ,upgrade/3
-         ,relay/5]).
+         ,relay/6]).
 
 -type error_blame() :: 'undefined' % either/unknown
                      | 'upstream' % client
@@ -241,25 +241,30 @@ upgrade(Headers, Req, BackendClient) ->
             {done, Req3, backend_close(BackendClient1)}
     end.
 
--spec relay(Code, Status, Headers, Req, Client) ->
+-spec relay(Code, Status, Headers, ConndrainStatus, Req, Client) ->
                    {ok, Req, Client} |
                    {error, Blame, Error, Req} when
       Code :: pos_integer(),
       Status :: binary(),
       Headers :: [{binary(), binary()}]|[],
+      ConndrainStatus :: draining|normal,
       Req :: cowboy_req:req(),
       Client :: vegur_client:client(),
       Error :: any(),
       Blame :: error_blame().
-relay(Code, Status, HeadersRaw, Req, Client) ->
+relay(Code, Status, HeadersRaw, ConndrainStatus, Req, Client) ->
     %% Dispatch data from vegur_client down into the cowboy connection, either
     %% in batch or directly.
-    {Headers, Req1} = case connection_type(Code, Req, Client) of
-        {keepalive, Req0} ->
-            {add_connection_keepalive_header(response_headers(HeadersRaw)),
+    Headers1 = response_headers(HeadersRaw),
+    {Headers, Req1} = case {connection_type(Code, Req, Client), ConndrainStatus} of
+        {{keepalive, Req0}, normal} ->
+            {add_connection_keepalive_header(Headers1),
              Req0};
-        {close, Req0} ->
-            {add_connection_close_header(response_headers(HeadersRaw)),
+        {{close, Req0}, normal} ->
+            {add_connection_close_header(Headers1),
+             Req0};
+        {{_, Req0}, draining} ->
+            {add_connection_close_header(Headers1),
              Req0}
     end,
     case vegur_client:body_type(Client) of

@@ -88,7 +88,8 @@ upgrade_request(Code, Status, Headers, Req, State) ->
 
 http_request(Code, Status, Headers, Req,
              #state{backend_client=BackendClient}=State) ->
-    case vegur_proxy:relay(Code, Status, Headers, Req, BackendClient) of
+    case vegur_proxy:relay(Code, Status, Headers, vegur_utils:conndrain(),
+                           Req, BackendClient) of
         {ok, Req1, BackendClient1} ->
             {ok, Code, Status, Req1, State#state{backend_client=BackendClient1}};
         {error, Blame, Error, Req1} ->

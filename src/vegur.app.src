@@ -22,5 +22,6 @@
           ,{max_client_status_length, 8192} % bytes
           ,{max_client_header_length, 524288} % bytes (512k)
           ,{max_client_cookie_length, 8192} % bytes
+          ,{conndrain, false}
          ]}
  ]}.
