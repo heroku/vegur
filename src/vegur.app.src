@@ -2,6 +2,7 @@
  [
    {description, "vegur"}
   ,{vsn, "0.14.0"}
+  ,{registered, []}
   ,{applications,
     [kernel
      ,stdlib
