@@ -6,8 +6,11 @@
   ,{applications,
     [kernel
      ,stdlib
+     ,ranch_proxy_protocol
      ,cowboy
      ,midjan
+     ,erequest_id
+     ,uuid     
     ]}
   ,{env, [{acceptors, 1024}
           ,{max_connections, 100000}
