@@ -815,15 +815,15 @@ preserve_case(Config) ->
     ct:pal("CLI: ~p",[RecvClient]),
     nomatch = re:run(RecvServ, "^cONtENT-lEnGTH:", [global,multiline]),
     {match,_} = re:run(RecvServ, "^Content-Length:", [global,multiline]), % we rewrite this one
-    {match,_} = re:run(RecvServ, "^ConTent-TyPe:", [global,multiline]),
+    {match,_} = re:run(RecvServ, "^Content-Type:", [global,multiline]),
     {match,_} = re:run(RecvServ, "^Connection:", [global,multiline]), % hop-by-hop
-    {match,_} = re:run(RecvServ, "^proxy-AuthentiCation:", [global,multiline]),
-    {match,_} = re:run(RecvServ, "^CuStOm-HeAdEr:", [global,multiline]),
-    {match,_} = re:run(RecvClient, "^cONtENT-lEnGTH:", [global,multiline]), % we don't rewrite but may depending on resp?
-    {match,_} = re:run(RecvClient, "^cONtENT-tYpE:", [global,multiline]),
+    {match,_} = re:run(RecvServ, "^Proxy-Authentication:", [global,multiline]),
+    {match,_} = re:run(RecvServ, "^Custom-Header:", [global,multiline]),
+    {match,_} = re:run(RecvClient, "^Content-Length:", [global,multiline]), % we don't rewrite but may depending on resp?
+    {match,_} = re:run(RecvClient, "^Content-Type:", [global,multiline]),
     {match,_} = re:run(RecvClient, "^Connection:", [global,multiline]), % hop-by-hop
-    {match,_} = re:run(RecvClient, "^proXy-Authentication:", [global,multiline]),
-    {match,_} = re:run(RecvClient, "^cUsToM-hEaDeR:", [global,multiline]).
+    {match,_} = re:run(RecvClient, "^Proxy-Authentication:", [global,multiline]),
+    {match,_} = re:run(RecvClient, "^Custom-Header:", [global,multiline]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
