@@ -177,7 +177,7 @@ request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path) ->
      HeadersData, <<"\r\n">>].
 
 headers_to_iolist(Headers) ->
-    [[Name, <<": ">>, Value, <<"\r\n">>] || {Name, Value} <- Headers].
+    [[cowboy_bstr:capitalize_token(Name), <<": ">>, Value, <<"\r\n">>] || {Name, Value} <- Headers].
 
 request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     [request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path),
