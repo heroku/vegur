@@ -47,7 +47,7 @@ handle_terminate(Req) ->
 
 -spec done(Code, Headers, Body, Req) -> Req when
       Code :: cowboy:http_status(),
-      Headers :: [{iolist(), iolist()}]|[],
+      Headers :: [{iolist(), iolist(), iolist()}]|[],
       Body :: binary(),
       Req :: cowboy_req:req().
 done(_, _, _, Req) ->
