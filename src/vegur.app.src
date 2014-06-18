@@ -1,7 +1,7 @@
 {application, vegur,
  [
    {description, "vegur"}
-  ,{vsn, "0.15.1"}
+  ,{vsn, "semver"}
   ,{registered, []}
   ,{applications,
     [kernel
