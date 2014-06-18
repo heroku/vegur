@@ -1,12 +1,16 @@
 {application, vegur,
  [
    {description, "vegur"}
-  ,{vsn, "0.15.0"}
+  ,{vsn, "0.15.1"}
   ,{registered, []}
   ,{applications,
     [kernel
      ,stdlib
+     ,ranch_proxy_protocol
      ,cowboy
+     ,midjan
+     ,erequest_id
+     ,uuid     
     ]}
   ,{env, [{acceptors, 1024}
           ,{max_connections, 100000}
