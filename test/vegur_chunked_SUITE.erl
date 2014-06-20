@@ -125,7 +125,7 @@ boundary_chunk(_) ->
    "<h1>go!</h1>\r\n"
     "0\r\n\r\n">>,
     done = parse_chunked(Chunks2, undefined).
-    
+
 
 zero_crlf_end(_) ->
     String = <<""
@@ -162,7 +162,7 @@ parse_chunked(<<B:1/binary, Rest/binary>>, State) ->
 parse(What, Rest, State) ->
     case vegur_chunked:stream_chunk(What, State) of
         {done, _, _} ->
-            parse_chunked(Rest, undefined);
+            done;
         {error, _Reason} = Res ->
             Res;
         {chunk, _Chunk, MoreBuffer} ->
