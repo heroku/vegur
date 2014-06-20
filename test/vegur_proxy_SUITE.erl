@@ -263,7 +263,7 @@ service_try_again(Config) ->
 
 request_statistics(Config) ->
     Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/?abc=d",
     mock_terminate(self()),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
@@ -271,10 +271,11 @@ request_statistics(Config) ->
             receive
                 {stats, {successful, Upstream, _State}} ->
                     {118, _} = vegur_req:bytes_recv(Upstream),
-                    {286, _} = vegur_req:bytes_sent(Upstream),
+                    {292, _} = vegur_req:bytes_sent(Upstream),
                     {RT, _} = vegur_req:route_duration(Upstream),
                     {CT, _} = vegur_req:connect_duration(Upstream),
                     {TT, _} = vegur_req:total_duration(Upstream),
+                    {<<"/?abc=d">>, _} = vegur_req:raw_path(Upstream),
                     [true, true, true] = lists:map(fun(X) -> is_integer(X) end, [RT, CT, TT])
             after 5000 ->
                     throw(timeout)
