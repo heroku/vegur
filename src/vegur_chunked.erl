@@ -169,11 +169,16 @@ ext_val(<<_, Rest/binary>>, S=#state{}) ->
 
 ext_quoted_string(<<>>, S=#state{}) ->
     {more, {fun ext_quoted_string/2, S}};
-ext_quoted_string(<<"\\\"", Rest/binary>>, S=#state{}) ->
-    ext_quoted_string(Rest, S);
+ext_quoted_string(<<"\\", Rest/binary>>, S=#state{}) ->
+    ext_quoted_string_esc(Rest, S);
 ext_quoted_string(<<"\"", Rest/binary>>, S=#state{}) ->
     ext_val(Rest, S);
 ext_quoted_string(<<_, Rest/binary>>, S=#state{}) ->
+    ext_quoted_string(Rest, S).
+
+ext_quoted_string_esc(<<>>, S=#state{}) ->
+    {more, {fun ext_quoted_string_esc/2, S}};
+ext_quoted_string_esc(<<_, Rest/binary>>, S=#state{}) ->
     ext_quoted_string(Rest, S).
 
 chunk_data(<<>>, S=#state{}) ->
