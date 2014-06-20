@@ -72,6 +72,8 @@ stream_chunk(Bin, {Fun, State=#state{}}) ->
         {done, Buf, Rest} -> {done, Buf, Rest};
         {error, Reason} -> {error, Reason};
         {chunk, Buf, Rest} -> {chunk, Buf, Rest};
+        {maybe_done, {NewFun,S=#state{buffer=Buf}}} ->
+            {maybe_done, Buf, {NewFun,S#state{buffer = <<>>}}};
         {more, {NewFun, S=#state{buffer=Buf, length=Len}}} ->
             {more, Len, Buf, {NewFun,S#state{buffer = <<>>}}}
     end.
@@ -85,8 +87,9 @@ all_chunks(Bin) -> all_chunks(Bin, fun next_chunk/1, []).
 all_chunks(Bin, F, Acc) ->
     try F(Bin) of
         {done, Buf, Rest} -> {done, [Acc, Buf], Rest};
+        {maybe_done, {_,#state{buffer=Buf}}} -> {done, [Acc, Buf], <<>>};
         {error, Reason} -> {error, Acc, Reason};
-        {more, _State} -> ct:pal("State:~p",[_State]), {error, Acc, incomplete};
+        {more, _State} -> {error, Acc, incomplete};
         {chunk, Buf, Rest} -> all_chunks(Rest, F, [Acc, Buf])
     catch
         error:function_clause -> {error, Acc, {bad_chunk, Bin}}
@@ -190,11 +193,18 @@ chunk_data_cr(<<"\n", Rest/binary>>, S=#state{length=0}) ->
 chunk_data_cr(Bin, #state{buffer=Buf, length=Len}) ->
     {error, {bad_chunk, {Len, [Buf,Bin]}}}.
 
-last_chunk(<<>>, #state{buffer=Buf}) ->
+last_chunk(<<>>, S=#state{}) ->
     %% Consider this done, due to possibly having only a bad CRLF
     %% after the length, but not after the final chunk.
     %{more, {fun last_chunk/2, S}};
-    {done, Buf, <<>>};
+    %% This one adds no correction to the CRLF behavior and allows
+    %% to return partial last chunks. The downside is that it misses
+    %% the occasional CRLF that was split on a packet boundary
+    %{done, Buf, <<>>};
+    %% Solution: add a new return state: {maybe_done, Buf, {Fun, State}}
+    %% This one allows to go make sure that nothing is left on the buffer or
+    %% connection while maintaining data integrity.
+    {maybe_done, {fun finalize/2, S}};
 last_chunk(<<"\r", Rest/binary>>, S=#state{length=0}) ->
     last_chunk_cr(Rest, maybe_buffer(<<"\r">>, S));
 last_chunk(Bin, #state{length=0, buffer=Buf}) ->
@@ -216,6 +226,22 @@ last_chunk_cr(Bin, #state{length=0, buffer=Buf}) ->
     %% Sorry, trailer!
     {error, {bad_chunk, {0, [Buf,Bin]}}}.
 
+finalize(undefined, #state{buffer=Buf}) ->
+    {done, Buf, <<>>};
+finalize(<<"\r",Rest/binary>>, S=#state{}) ->
+    finalize_cr(Rest, maybe_buffer(<<"\r">>, S));
+finalize(OtherData, #state{buffer=Buf}) ->
+    %% That data may belong to anything, even other requests. Take
+    %% no chances.
+    {done, Buf, OtherData}.
+
+finalize_cr(<<>>, S=#state{}) ->
+    {more, {fun finalize_cr/2, S}};
+finalize_cr(<<"\n", Rest/binary>>, S=#state{}) ->
+    #state{buffer=Buf} = maybe_buffer(<<"\n">>, S),
+    {done, Buf, Rest};
+finalize_cr(Bin, #state{length=0, buffer=Buf}) ->
+    {error, {bad_chunk, {0, [Buf,Bin]}}}.
 
 maybe_buffer(_Data, S=#state{type=unchunked}) -> S;
 maybe_buffer(Data, S=#state{buffer=Buf}) ->

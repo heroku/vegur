@@ -45,7 +45,10 @@ short_msg(_) ->
     {more, Rest3} = vegur_chunked:next_chunk(<<"d en">>, Rest2),
     {chunk, _, <<"">>} = vegur_chunked:next_chunk(<<"coded\r\n">>, Rest3),
     {more, Rest4} = vegur_chunked:next_chunk(<<"00">>),
-    {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n">>, Rest4).
+    {maybe_done, Rest5} = vegur_chunked:next_chunk(<<"\r\n">>, Rest4),
+    {done, _, <<"">>} = vegur_chunked:next_chunk(undefined, Rest5),
+    {done, _, <<"garbage">>} = vegur_chunked:next_chunk(<<"garbage">>, Rest5),
+    {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n\r\n">>, Rest4).
 
 html(_) ->
     String = <<""
@@ -87,7 +90,8 @@ stream(_) ->
     {more, _, Buf6, Cont4} = vegur_chunked:stream_chunk(Str4, Cont3),
     {chunk, Buf7, Rest3} = vegur_chunked:stream_chunk(Str5, Cont4),
     {chunk, Buf8, Rest4} = vegur_chunked:stream_chunk(Rest3, undefined), % that works too
-    {done, Buf9, <<>>} = vegur_chunked:stream_chunk(Rest4),
+    {maybe_done, Buf9, Cont5} = vegur_chunked:stream_chunk(Rest4),
+    {done, <<>>, <<>>} = vegur_chunked:stream_chunk(undefined, Cont5),
     true = iolist_to_binary([Buf1, Buf2, Buf3, Buf4, Buf5, Buf6, Buf7, Buf8, Buf9])
        =:= iolist_to_binary([Str1, Str2, Str3, Str4, Str5]).
 
@@ -119,12 +123,12 @@ boundary_chunk(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    done = parse_chunked(Chunks1, undefined),
+    {done, Chunks1} = parse_chunked(Chunks1, undefined),
     Chunks2 = <<""
    "c\r\n"
    "<h1>go!</h1>\r\n"
     "0\r\n\r\n">>,
-    done = parse_chunked(Chunks2, undefined).
+    {done, Chunks2} = parse_chunked(Chunks2, undefined).
 
 
 zero_crlf_end(_) ->
@@ -154,19 +158,27 @@ bad_next_chunk(_) ->
     "0\r\n">>,
     {error, [], {bad_chunk, {length_char, <<"\r">>}}} = vegur_chunked:all_chunks(String).
 
-parse_chunked(<<>>, _State) ->
-    done;
-parse_chunked(<<B:1/binary, Rest/binary>>, State) ->
-    parse(B, Rest, State).
+parse_chunked(Buf, State) -> parse_chunked(Buf, State, <<>>).
 
-parse(What, Rest, State) ->
+parse_chunked(<<>>, State, Acc) ->
+    parse(<<>>, <<>>, State, Acc);
+parse_chunked(<<B:1/binary, Rest/binary>>, State, Acc) ->
+    parse(B, Rest, State, Acc).
+
+parse(What, Rest, State, Acc) ->
     case vegur_chunked:stream_chunk(What, State) of
-        {done, _, _} ->
-            done;
+        {done, Res, _Remainder} ->
+            Bin = iolist_to_binary(Res),
+            {done, <<Acc/binary, Bin/binary>>};
+        {maybe_done, Res, State1} ->
+            Bin = iolist_to_binary(Res),
+            parse_chunked(Rest, State1, <<Acc/binary, Bin/binary>>);
         {error, _Reason} = Res ->
             Res;
-        {chunk, _Chunk, MoreBuffer} ->
-            parse_chunked(<<Rest/binary, MoreBuffer/binary>>, undefined);
-        {more, _, _, State1} ->
-            parse_chunked(Rest, State1)
+        {chunk, Chunk, MoreBuffer} ->
+            Bin = iolist_to_binary(Chunk),
+            parse_chunked(<<Rest/binary, MoreBuffer/binary>>, undefined, <<Acc/binary, Bin/binary>>);
+        {more, _Len, Buf, State1} ->
+            Bin = iolist_to_binary(Buf),
+            parse_chunked(Rest, State1, <<Acc/binary, Bin/binary>>)
     end.
