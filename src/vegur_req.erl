@@ -24,6 +24,7 @@
          ,bytes_sent/1
          ,method/1
          ,path/1
+         ,raw_path/1
          ,header/2
          ,response_code/1
         ]).
@@ -123,6 +124,18 @@ method(Req) ->
       Req :: cowboy_req:req().
 path(Req) ->
     cowboy_req:path(Req).
+
+-spec raw_path(Req) -> {RawPath, Req} when
+    RawPath :: binary(),
+    Req :: cowboy_req:req().
+raw_path(Req) ->
+    {Path, Req1} = cowboy_req:path(Req),
+    {Qs, Req2} = cowboy_req:qs(Req1),
+    RawPath = case Qs of
+        <<>> -> Path;
+        _ -> <<Path/binary, "?", Qs/binary>>
+    end,
+    {RawPath, Req2}.
 
 -spec header(Key, Req) -> {Value|undefined, Req} when
       Key :: binary(),
