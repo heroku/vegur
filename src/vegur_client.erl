@@ -288,6 +288,15 @@ next_chunk(Client=#client{buffer=Buffer}, Cont) ->
                 {ok, Data} -> next_chunk(Client#client{buffer=Data}, State);
                 {error, Reason} -> {error, Reason}
             end;
+        {maybe_done, State} ->
+            case recv(Client#client{read_timeout=0}) of
+                {ok, Data} ->
+                    next_chunk(Client#client{buffer=Data}, State);
+                {error, timeout} ->
+                    next_chunk(Client#client{buffer= <<>>}, State);
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -310,6 +319,17 @@ stream_chunk(Client=#client{buffer=Buffer}, StreamFun, Cont) ->
                 {done, Buf, Rest} ->
                     {done, Buf, set_stats(Client#client{buffer=Rest,
                                                         response_body=undefined})};
+                {maybe_done, Buf, State} ->
+                    %% Wait a short amount of time, worst case we rush it through.
+                    case recv(Client#client{read_timeout=0}) of
+                        {ok, Data} ->
+                            {more, 0, Buf, {Client#client{buffer=Data}, State}};
+                        {error, timeout} ->
+                            {done, Buf, set_stats(Client#client{buffer = <<>>,
+                                                                response_body=undefined})};
+                        {error, Reason} ->
+                            {error, Reason}
+                    end;
                 {chunk, Buf, Rest} ->
                     {ok, Buf, Client#client{buffer=Rest}};
                 {more, Len, Buf, State} ->
