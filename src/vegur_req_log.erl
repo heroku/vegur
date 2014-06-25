@@ -26,6 +26,7 @@
         ,event_duration/2
         ,event/2
         ,event/3
+        ,merge/1
         ]).
 
 
@@ -224,6 +225,44 @@ event_find(Name, [Tag={_,Name,_}|Rest], Acc) ->
         [_] -> [Tag | Acc]
     end;
 event_find(Name, [_|Rest], Acc) -> event_find(Name, Rest, Acc).
+
+-spec merge([request_log(), ...]) -> request_log().
+merge([Log]) -> Log;
+merge([Log1,Log2|Logs]) ->
+    merge([merge(Log1,Log2)|Logs]).
+
+merge(#log{start=Start1, events=Ev1}, #log{start=Start2, events=Ev2}) ->
+    Events = events_merge(queue:to_list(Ev1), queue:to_list(Ev2), queue:new()),
+    #log{start=min(Start1,Start2), events=Events}.
+
+
+events_merge([], [], Queue) ->
+    Queue;
+events_merge([], [B|Bs], Queue) ->
+    events_merge([], Bs, queue:in(B, Queue));
+events_merge([A|As], [], Queue) ->
+    events_merge(As, [], queue:in(A, Queue));
+events_merge([A={TimeA, _, _}|RestA], [B={TimeB, _, _}|RestB], Queue) ->
+    if A =:= B         -> events_merge(RestA, RestB, queue:in(A, Queue))
+     ; TimeA < TimeB   -> events_merge(RestA, [B|RestB], queue:in(A, Queue))
+     ; TimeA > TimeB   -> events_merge([A|RestA], RestB, queue:in(B, Queue))
+     %% Both timestamps are equal, sort in fancy ways. That's due to the fact
+     %% Multiple queues and events may, given we use os:timestamp(), end up
+     %% running on cores or at times where CPUs appear to go back in time when
+     %% it comes to µs. Try to fix up some event merges that are obvious.
+     ; TimeA =:= TimeB ->
+        case {A,B} of
+            {{_,Type,pre},{_,Type,post}} ->
+                events_merge(RestA, [B|RestB], queue:in(A, Queue));
+            {{_,Type,post},{_,Type,pre}} ->
+                events_merge([A|RestA], RestB, queue:in(B, Queue));
+            _ when A < B ->
+                events_merge(RestA, [B|RestB], queue:in(A, Queue));
+            _ when A > B ->
+                events_merge([A|RestA], RestB, queue:in(B, Queue))
+        end
+    end.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Private functions %%%
