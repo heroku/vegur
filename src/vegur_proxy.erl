@@ -324,8 +324,17 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     end,
     Fun = fun(Socket, Transport) ->
         case FinalFun({Transport,Socket}, Client) of
-            {ok, _Client2} -> ok;
-            {error, Blame, Reason} -> throw({stream_error, Blame, Reason})
+            {ok, Client2} ->
+                %% This throwing practice makes it so that we can get our data
+                %% back out from cowboy's partial response delivery mechaism.
+                %% The downside is that we then lose the result of the updated
+                %% `Req' object in cowboy_req. On the other hand, the cowboy_req
+                %% mechanism updates the `Req' object only through the
+                %% OnResponse hook, which we do not use in vegur, so this should
+                %% be entirely safe.
+                throw({ok, Client2});
+            {error, Blame, Reason} ->
+                throw({stream_error, Blame, Reason})
         end
     end,
     Req2 = case Size of
@@ -340,6 +349,10 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
              vegur_utils:append_to_cowboy_buffer(Buf,Req3),
              backend_close(Client)}
     catch
+        {ok, Client2} ->
+            Buf = buffer_clear(),
+            {ok, vegur_utils:append_to_cowboy_buffer(Buf,Req2),
+            backend_close(Client2)};
         {stream_error, Blame, Error} ->
             buffer_clear(),
             backend_close(Client),

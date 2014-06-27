@@ -4,7 +4,7 @@
 -compile(export_all).
 
 all() -> [{group, continue}, {group, headers}, {group, http_1_0},
-          {group, chunked}, {group, body_less}].
+          {group, chunked}, {group, body_less}, {group, large_body}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -36,6 +36,9 @@ groups() -> [{continue, [], [
                 status_204, status_304, status_chunked_204,
                 status_close_304, status_close_304_client,
                 bad_transfer_encoding
+             ]},
+             {large_body, [], [
+                large_body_stream, large_body_close
              ]}
             ].
 
@@ -1374,6 +1377,54 @@ bad_transfer_encoding(Config) ->
     %% Final response checking
     {match, _} = re:run(Response, "400").
 
+%%%%%%%%%%%%%%%%%%
+%%% LARGE BODY %%%
+%%%%%%%%%%%%%%%%%%
+large_body_stream(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_large(Config, 8000),
+    Resp = resp_large(8000),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_timeout(Client),
+    ct:pal("RecvServ: ~p", [RecvServ]),
+    ?assert(iolist_size(RecvServ) > 8000),
+    ?assert(iolist_size(RecvClient) > 8000),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+large_body_close(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_large_close(Config, 8000),
+    Resp = resp_large(8000),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_close(Client),
+    ct:pal("RecvServ: ~p", [RecvServ]),
+    ?assert(iolist_size(RecvServ) > 8000),
+    ?assert(iolist_size(RecvClient) > 8000),
+    wait_for_closed(Server, 500).
+
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
 %%%%%%%%%%%%%%%
@@ -1550,6 +1601,23 @@ req_altcase(Config) ->
     "\r\n"
     "12345".
 
+req_large(Config, Size) ->
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: "++integer_to_list(Size)++"\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n" ++
+    lists:duplicate(Size, $a).
+
+req_large_close(Config, Size) ->
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: "++integer_to_list(Size)++"\r\n"
+    "Content-Type: text/plain\r\n"
+    "Connection: close\r\n"
+    "\r\n" ++
+    lists:duplicate(Size, $a).
+
 resp() ->
     "HTTP/1.1 200 OK\r\n"
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
@@ -1595,6 +1663,14 @@ resp_headers(Size) when is_list(Size) ->
     "Content-Type: text/plain\r\n"
     "Content-Length: "++Size++"\r\n"
     "\r\n".
+
+resp_large(Size) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: "++integer_to_list(Size)++"\r\n"
+    "\r\n"++
+    lists:duplicate(Size, $a).
 
 resp_hops() ->
     "HTTP/1.1 200 OK\r\n"
