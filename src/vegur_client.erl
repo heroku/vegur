@@ -66,6 +66,7 @@
 
 -export([set_stats/1]).
 -export([byte_counts/1]).
+-export([log/1]).
 
 
 -record(client, {
@@ -79,8 +80,13 @@
           connection = keepalive :: keepalive | close,
           version = 'HTTP/1.1' :: cowboy:http_version(),
           response_body = undefined :: chunked | undefined | non_neg_integer(),
-          bytes_sent :: non_neg_integer() | undefined, %% Bytes sent downstream
-          bytes_recv :: non_neg_integer() | undefined %% Bytes recv from downstream
+          bytes_sent :: non_neg_integer() | undefined, % Bytes sent downstream
+          bytes_recv :: non_neg_integer() | undefined, % Bytes recv from downstream
+          first_packet_recv :: undefined | erlang:timestamp(),
+          last_packet_recv :: undefined | erlang:timestamp(),
+          first_packet_sent :: undefined | erlang:timestamp(),
+          last_packet_sent :: undefined | erlang:timestamp(),
+          log :: vegur_req_log:request_log()
 }).
 
 -type client() :: #client{}.
@@ -88,7 +94,7 @@
 
 -spec init([any()]) -> {ok, client()}.
 init(Opts) ->
-    {ok, #client{opts=Opts}}.
+    {ok, #client{opts=Opts, log=vegur_req_log:new(os:timestamp())}}.
 
 state(#client{state=State}) ->
     State.
@@ -100,10 +106,11 @@ transport(#client{transport=Transport, socket=Socket}) ->
 
 close(#client{socket=undefined}=Client) ->
     Client;
-close(#client{transport=Transport, socket=Socket}=Client) ->
+close(#client{transport=Transport, socket=Socket, log=Log}=Client) ->
     NewClient=set_stats(Client),
     Transport:close(Socket),
-    NewClient#client{socket=undefined};
+    NewClient#client{socket=undefined,
+                     log=vegur_req_log:stamp(client_close, Log)};
 close({Client=#client{}, _Continuation}) ->
     %% Used as a wrapper for streamed connections
     close(Client).
@@ -115,7 +122,7 @@ connect(Transport, Host, Port, Client)
         when is_binary(Host) ->
     connect(Transport, binary_to_list(Host), Port, Client);
 connect(Transport, Host, Port,
-        Client=#client{state=wait, opts=Opts, connect_timeout=Timeout})
+        Client=#client{state=wait, opts=Opts, connect_timeout=Timeout, log=Log})
         when is_atom(Transport),
             (is_list(Host) orelse is_tuple(Host)),
             is_integer(Port) ->
@@ -123,7 +130,8 @@ connect(Transport, Host, Port,
         {ok, Socket} ->
             {ok, Client#client{state=request,
                                socket=Socket,
-                               transport=Transport}};
+                               transport=Transport,
+                               log=vegur_req_log:stamp(client_connect, Log)}};
         {error, _} = Err -> Err
     catch
         error:Reason -> {error, Reason}
@@ -136,7 +144,7 @@ raw_request(Data, Client=#client{
         state=request, socket=Socket, transport=Transport}) ->
     case Transport:send(Socket, Data) of
         ok ->
-            {ok, set_stats(Client)};
+            {ok, set_stats(stamp_sent(Client))};
         {error, _} = Err ->
             Err
     end.
@@ -285,7 +293,7 @@ next_chunk(Client=#client{buffer=Buffer}, Cont) ->
             {ok, Buf, Client#client{buffer=Rest}};
         {more, State} ->
             case recv(Client) of
-                {ok, Data} -> next_chunk(Client#client{buffer=Data}, State);
+                {ok, Data} -> next_chunk(stamp_recv(Client#client{buffer=Data}), State);
                 {error, Reason} -> {error, Reason}
             end;
         {maybe_done, State} ->
@@ -311,8 +319,12 @@ stream_chunk(Client=#client{buffer=Buffer}, StreamFun, Cont) ->
     case iolist_size(Buffer) of
         0 ->
             case recv(Client) of
-                {ok, Data} -> stream_chunk(Client#client{buffer=Data}, StreamFun, Cont);
-                {error, Reason} -> {error, Reason}
+                {ok, Data} ->
+                    stream_chunk(stamp_recv(Client#client{buffer=Data}),
+                                 StreamFun,
+                                 Cont);
+                {error, Reason} ->
+                    {error, Reason}
             end;
         _ ->
             case vegur_chunked:StreamFun(Buffer, Cont) of
@@ -323,7 +335,8 @@ stream_chunk(Client=#client{buffer=Buffer}, StreamFun, Cont) ->
                     %% Wait a short amount of time, worst case we rush it through.
                     case recv(Client#client{read_timeout=0}) of
                         {ok, Data} ->
-                            {more, 0, Buf, {Client#client{buffer=Data}, State}};
+                            {more, 0, Buf, {stamp_recv(Client#client{buffer=Data}),
+                                            State}};
                         {error, timeout} ->
                             {done, Buf, set_stats(Client#client{buffer = <<>>,
                                                                 response_body=undefined})};
@@ -360,7 +373,9 @@ stream_close(Client=#client{buffer=Buffer, response_body=undefined, bytes_recv=B
         0 ->
             case recv(Client) of
                 {ok, Body} ->
-                    {ok, Body, Client#client{bytes_recv=BytesRecv+iolist_size(Body)}};
+                    {ok, Body, stamp_recv(Client#client{
+                        bytes_recv=BytesRecv+iolist_size(Body)
+                     })};
                 {error, closed} ->
                     {done, Client};
                 {error, Reason} ->
@@ -385,7 +400,7 @@ stream_status(Client=#client{state=State, buffer=Buffer})
                     case recv(Client) of
                         {ok, Data} ->
                             Buffer2 = << Buffer/binary, Data/binary >>,
-                            stream_status(Client#client{buffer=Buffer2});
+                            stream_status(stamp_recv(Client#client{buffer=Buffer2}));
                         {error, Reason} ->
                             {error, Reason}
                     end;
@@ -398,7 +413,7 @@ stream_status(Client=#client{state=State, buffer=Buffer})
                     case recv(Client) of
                         {ok, Data} ->
                             Buffer2 = << Buffer/binary, Data/binary >>,
-                            stream_status(Client#client{buffer=Buffer2});
+                            stream_status(stamp_recv(Client#client{buffer=Buffer2}));
                         {error, Reason} ->
                             {error, Reason}
                     end
@@ -515,7 +530,7 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                     case recv(Client) of
                         {ok, Data} ->
                             Buffer2 = << Buffer/binary, Data/binary >>,
-                            stream_header(Client#client{buffer=Buffer2}, MaxLine);
+                            stream_header(stamp_recv(Client#client{buffer=Buffer2}), MaxLine);
                         {error, Reason} ->
                             {error, Reason}
                     end
@@ -532,11 +547,12 @@ stream_body(Client=#client{state=response_body, buffer=Buffer,
             case recv(Client) of
                 {ok, Body} when byte_size(Body) =< Length ->
                     Length2 = Length - byte_size(Body),
-                    {ok, Body, Client#client{response_body=Length2}};
+                    {ok, Body, stamp_recv(Client#client{response_body=Length2})};
                 {ok, Data} ->
                     << Body:Length/binary, Rest/binary >> = Data,
-                    {ok, Body, Client#client{buffer=Rest,
-                        response_body=undefined}};
+                    {ok, Body, stamp_recv(Client#client{buffer=Rest,
+                        response_body=undefined
+                     })};
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -557,7 +573,7 @@ buffer_data(0, Timeout, Client=#client{socket=Socket, transport=Transport,
                                        buffer= <<>>}) ->
     case Transport:recv(Socket, 0, Timeout) of
         {ok, Data} ->
-            {ok, Client#client{buffer=Data}};
+            {ok, stamp_recv(Client#client{buffer=Data})};
         {error, Reason} ->
             {error, Reason}
     end;
@@ -569,7 +585,9 @@ buffer_data(Length, Timeout, Client=#client{socket=Socket, transport=Transport,
         N when N > 0 ->
             case Transport:recv(Socket, N, Timeout) of
                 {ok, Data} ->
-                    {ok, Client#client{buffer= <<Buffer/binary, Data/binary>>}};
+                    {ok, stamp_recv(Client#client{
+                        buffer= <<Buffer/binary, Data/binary>>
+                     })};
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -618,4 +636,31 @@ get_stats(Socket, DefaultSent, DefaultRecv) when is_port(Socket) ->
         {ok, [{recv_oct, RecvTotal},
               {send_oct, SentTotal}]} ->
             {SentTotal, RecvTotal}
+    end.
+
+log(#client{first_packet_recv=RecvFirst, last_packet_recv=RecvLast,
+            first_packet_sent=SentFirst, last_packet_sent=SentLast,
+            log=Log}) ->
+    Log2 = lists:foldl(fun({undefined, _}, TmpLog) -> TmpLog;
+                          ({Time,Name}, TmpLog) -> vegur_req_log:stamp(Name, Time, TmpLog)
+                       end,
+                       vegur_req_log:new(os:timestamp()),
+                       lists:sort([{RecvFirst, client_first_packet_recv},
+                                   {RecvLast, client_last_packet_recv},
+                                   {SentFirst, client_first_packet_sent},
+                                   {SentLast, client_last_packet_sent}])),
+    vegur_req_log:merge([Log, Log2]).
+
+stamp_sent(Client=#client{first_packet_sent=First}) ->
+    Now = os:timestamp(),
+    case First of
+        undefined -> Client#client{first_packet_sent=Now, last_packet_sent=Now};
+        _ -> Client#client{last_packet_sent=Now}
+    end.
+
+stamp_recv(Client=#client{first_packet_recv=First}) ->
+    Now = os:timestamp(),
+    case First of
+        undefined -> Client#client{first_packet_recv=Now, last_packet_recv=Now};
+        _ -> Client#client{last_packet_recv=Now}
     end.

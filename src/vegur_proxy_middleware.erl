@@ -19,12 +19,12 @@ execute(Req, Env) ->
         {{ok, Code, _Status, Req4, #state{backend_client=Client1}}, Log2} ->
             Req5 = store_byte_counts(Req4, Client1),
             Req6 = cowboy_req:set_meta(status, successful, Req5),
-            Req7 = cowboy_req:set_meta(logging, Log2, Req6),
+            Req7 = cowboy_req:set_meta(logging, merge_logs(Log2, Client1), Req6),
             {halt, Code, Req7};
         {{error, Blame, Reason, Req4}, Log2} ->
             {HttpCode, Req5} = vegur_utils:handle_error({Blame, Reason}, Req4),
             Req6 = store_byte_counts(Req5, Client),
-            Req7 = cowboy_req:set_meta(logging, Log2, Req6),
+            Req7 = cowboy_req:set_meta(logging, merge_logs(Log2, Client), Req6),
             {error, HttpCode, Req7}
     end.
 
@@ -82,7 +82,7 @@ upgrade_request(101, Status, Headers, Req, #state{backend_client=BackendClient}=
     {Result, Req1, BackendClient1} = vegur_proxy:upgrade(Headers, Req, BackendClient),
     case Result of
         timeout ->
-            {error, undefined, timeout, store_byte_counts(Req, BackendClient1)};
+            {error, undefined, timeout, store_byte_counts(Req1, BackendClient1)};
         done ->
             {ok, 101, Status, Req1, State#state{backend_client=BackendClient1}}
     end;
@@ -115,6 +115,8 @@ store_byte_counts(Req, Client) ->
     Req4 = cowboy_req:set_meta(bytes_sent, Sent, Req3),
     cowboy_req:set_meta(bytes_recv, Recv, Req4).
 
+merge_logs(Log, Client) ->
+    vegur_req_log:merge([Log, vegur_client:log(Client)]).
 
 parse_request(Req) ->
     case check_for_body(Req) of
