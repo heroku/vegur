@@ -18,6 +18,9 @@
          ,connect_duration/1
          ,service_duration/1
          ,total_duration/1
+         ,send_headers_duration/1
+         ,request_proxy_duration/1
+         ,response_proxy_duration/1
          ,pre_connect/1
          ,pre_proxy/1
          ,bytes_recv/1
@@ -100,6 +103,24 @@ service_duration(Req) ->
       Req :: cowboy_req:req().
 total_duration(Req) ->
     timestamp_diff(accepted, responded, Req).
+
+-spec send_headers_duration(Req) -> {TotalTime|undefined, Req} when
+      TotalTime :: non_neg_integer(),
+      Req :: cowboy_req:req().
+send_headers_duration(Req) ->
+    timestamp_diff(headers_formatted, headers_sent, Req).
+
+-spec request_proxy_duration(Req) -> {TotalTime|undefined, Req} when
+      TotalTime :: non_neg_integer(),
+      Req :: cowboy_req:req().
+request_proxy_duration(Req) ->
+    timestamp_diff(headers_sent, client_last_packet_sent, Req).
+
+-spec response_proxy_duration(Req) -> {TotalTime|undefined, Req} when
+      TotalTime :: non_neg_integer(),
+      Req :: cowboy_req:req().
+response_proxy_duration(Req) ->
+    timestamp_diff(client_first_packet_recv, client_last_packet_recv, Req).
 
 -spec bytes_recv(Req) -> {BytesRecv|undefined, Req} when
       BytesRecv :: non_neg_integer(),

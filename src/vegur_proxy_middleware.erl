@@ -19,12 +19,12 @@ execute(Req, Env) ->
         {{ok, Code, _Status, Req4, #state{backend_client=Client1}}, Log2} ->
             Req5 = store_byte_counts(Req4, Client1),
             Req6 = cowboy_req:set_meta(status, successful, Req5),
-            Req7 = cowboy_req:set_meta(logging, merge_logs(Log2, Client1), Req6),
+            {_, Req7} = merge_logs(Log2, Req6, Client1),
             {halt, Code, Req7};
         {{error, Blame, Reason, Req4}, Log2} ->
             {HttpCode, Req5} = vegur_utils:handle_error({Blame, Reason}, Req4),
             Req6 = store_byte_counts(Req5, Client),
-            Req7 = cowboy_req:set_meta(logging, merge_logs(Log2, Client), Req6),
+            {_, Req7} = merge_logs(Log2, Req6, Client),
             {error, HttpCode, Req7}
     end.
 
@@ -45,7 +45,10 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
             Req3 = cowboy_req:set_meta(logging, Log1, Req2),
             send_body_to_backend(Request, Req3, State#state{backend_client=BackendClient1});
         {ok, Code, Status, RespHeaders, BackendClient1} -> % request ended without body sent
-            handle_backend_response(Code, Status, RespHeaders, Req,
+            {Log, Req1} = cowboy_req:meta(logging, Req),
+            Log1 = vegur_req_log:stamp(headers_sent, Log),
+            Req2 = cowboy_req:set_meta(logging, Log1, Req1),
+            handle_backend_response(Code, Status, RespHeaders, Req2,
                                     State#state{backend_client=BackendClient1});
         {error, Blame, Error} ->
             {error, Blame, Error, Req}
@@ -115,8 +118,16 @@ store_byte_counts(Req, Client) ->
     Req4 = cowboy_req:set_meta(bytes_sent, Sent, Req3),
     cowboy_req:set_meta(bytes_recv, Recv, Req4).
 
-merge_logs(Log, Client) ->
-    vegur_req_log:merge([Log, vegur_client:log(Client)]).
+%% We need to merge the logs obtained in the request with those tracked
+%% internally in the req object, and those tracked in the client.
+%% There is a tricky bit here where because vegur_req_log is called
+%% outside of the proxying functions, it's possible its contents will
+%% be different to what is called inside of it, so we need to do a 3-way
+%% merge.
+merge_logs(Log, Req, Client) ->
+    {ReqLog, Req2} = cowboy_req:meta(logging, Req),
+    Merged = vegur_req_log:merge([Log, ReqLog, vegur_client:log(Client)]),
+    {Merged, cowboy_req:set_meta(logging, Merged, Req2)}.
 
 parse_request(Req) ->
     case check_for_body(Req) of
