@@ -351,7 +351,7 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     catch
         {ok, Client2} ->
             Buf = buffer_clear(),
-            {ok, vegur_utils:append_to_cowboy_buffer(Buf,Req2),
+            {ok, vegur_utils:mark_as_done(vegur_utils:append_to_cowboy_buffer(Buf,Req2)),
             backend_close(Client2)};
         {stream_error, Blame, Error} ->
             buffer_clear(),
