@@ -270,13 +270,18 @@ request_statistics(Config) ->
         {req, _Req} ->
             receive
                 {stats, {successful, Upstream, _State}} ->
+                    ct:pal("Upstream: ~p~n",[Upstream]),
                     {118, _} = vegur_req:bytes_recv(Upstream),
                     {292, _} = vegur_req:bytes_sent(Upstream),
                     {RT, _} = vegur_req:route_duration(Upstream),
                     {CT, _} = vegur_req:connect_duration(Upstream),
                     {TT, _} = vegur_req:total_duration(Upstream),
+                    {SH, _} = vegur_req:send_headers_duration(Upstream),
+                    {QP, _} = vegur_req:request_proxy_duration(Upstream),
+                    {RP, _} = vegur_req:response_proxy_duration(Upstream),
                     {<<"/?abc=d">>, _} = vegur_req:raw_path(Upstream),
-                    [true, true, true] = lists:map(fun(X) -> is_integer(X) end, [RT, CT, TT])
+                    true = lists:all(fun(X) -> is_integer(X) end,
+                                     [RT, CT, TT, SH, QP, RP])
             after 5000 ->
                     throw(timeout)
             end

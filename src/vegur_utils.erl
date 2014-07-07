@@ -18,6 +18,7 @@
          ,raw_cowboy_socket/1
          ,raw_cowboy_sockbuf/1
          ,append_to_cowboy_buffer/2
+         ,mark_as_done/1
         ]).
 
 -export([config/1
@@ -212,6 +213,9 @@ append_to_cowboy_buffer(Buffer, Req) ->
     [CowBuffer] = cowboy_req:get([buffer], Req),
     cowboy_req:set([{buffer, iolist_to_binary([CowBuffer, Buffer])}], Req).
 
+-spec mark_as_done(Req) -> Req when Req :: cowboy_req:req().
+mark_as_done(Req) ->
+     cowboy_req:set([{resp_state, done}], Req).
 
 % Config helpers
 config(Key, Default) ->

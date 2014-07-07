@@ -58,13 +58,13 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
                                                        Url,
                                                        Path),
     case vegur_client:raw_request(IoHeaders, Client) of
-        {ok, _} ->
+        {ok, Client2} ->
             {Cont, Req1} = cowboy_req:meta(continue, Req, []),
             case Cont of
                 continue ->
-                    negotiate_continue(Body, Req1, Client);
+                    negotiate_continue(Body, Req1, Client2);
                 _ ->
-                    {done, Req1, Client}
+                    {done, Req1, Client2}
             end;
         {error, Err} ->
             {error, downstream, Err}
@@ -82,7 +82,7 @@ send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
             stream_request(Req2, BackendClient);
         Body ->
             case vegur_client:raw_request(Body, BackendClient) of
-                {ok, _} -> {done, Req, BackendClient};
+                {ok, BackendClient2} -> {done, Req, BackendClient2};
                 {error, Err} -> {error, downstream, Err}
             end
     end.
@@ -324,8 +324,17 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     end,
     Fun = fun(Socket, Transport) ->
         case FinalFun({Transport,Socket}, Client) of
-            {ok, _Client2} -> ok;
-            {error, Blame, Reason} -> throw({stream_error, Blame, Reason})
+            {ok, Client2} ->
+                %% This throwing practice makes it so that we can get our data
+                %% back out from cowboy's partial response delivery mechaism.
+                %% The downside is that we then lose the result of the updated
+                %% `Req' object in cowboy_req. On the other hand, the cowboy_req
+                %% mechanism updates the `Req' object only through the
+                %% OnResponse hook, which we do not use in vegur, so this should
+                %% be entirely safe.
+                throw({ok, Client2});
+            {error, Blame, Reason} ->
+                throw({stream_error, Blame, Reason})
         end
     end,
     Req2 = case Size of
@@ -340,6 +349,10 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
              vegur_utils:append_to_cowboy_buffer(Buf,Req3),
              backend_close(Client)}
     catch
+        {ok, Client2} ->
+            Buf = buffer_clear(),
+            {ok, vegur_utils:mark_as_done(vegur_utils:append_to_cowboy_buffer(Buf,Req2)),
+            backend_close(Client2)};
         {stream_error, Blame, Error} ->
             buffer_clear(),
             backend_close(Client),
@@ -438,10 +451,10 @@ stream_request(Req, Client) ->
 
 stream_request(Buffer, Req, Client) ->
     case vegur_client:raw_request(Buffer, Client) of
-        {ok, _} ->
+        {ok, Client2} ->
             case cowboy_req:stream_body(Req) of
-                {done, Req2} -> {done, Req2, Client};
-                {ok, Data, Req2} -> stream_request(Data, Req2, Client);
+                {done, Req2} -> {done, Req2, Client2};
+                {ok, Data, Req2} -> stream_request(Data, Req2, Client2);
                 {error, Err} -> {error, upstream, Err}
             end;
         {error, Err} ->
