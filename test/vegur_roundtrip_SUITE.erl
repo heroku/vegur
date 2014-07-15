@@ -38,7 +38,7 @@ groups() -> [{continue, [], [
                 bad_transfer_encoding
              ]},
              {large_body, [], [
-                large_body_stream, large_body_close
+                large_body_stream, large_body_close, large_body_close_delimited
              ]}
             ].
 
@@ -1213,7 +1213,8 @@ head_close_expect(Config) ->
     %% a keep-alive connection (or nothing)
     nomatch = re:run(Recv, "^connection: close", [global,multiline,caseless]),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
-    wait_for_closed(Server, 500).
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
 
 head_close_expect_client(Config) ->
     %% Same as above, but for larger bodies getting streamed
@@ -1237,7 +1238,8 @@ head_close_expect_client(Config) ->
     %% that way first.
     {match,_} = re:run(Recv, "^connection: close", [global,multiline,caseless]),
     nomatch = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
-    wait_for_closed(Server, 500).
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
 
 status_204(Config) ->
     %% For a 204 response, we should not wait for a request body. We will not,
@@ -1424,6 +1426,28 @@ large_body_close(Config) ->
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000),
     wait_for_closed(Server, 500).
+
+large_body_close_delimited(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_large(Config, 8000),
+    Resp = resp_large_close_delimited(8000),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    gen_tcp:close(Server),
+    RecvClient = recv_until_close(Client),
+    ct:pal("RecvServ: ~p", [RecvServ]),
+    ?assert(iolist_size(RecvServ) > 8000),
+    ?assert(iolist_size(RecvClient) > 8000).
 
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
@@ -1669,6 +1693,13 @@ resp_large(Size) ->
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
     "Content-Length: "++integer_to_list(Size)++"\r\n"
+    "\r\n"++
+    lists:duplicate(Size, $a).
+
+resp_large_close_delimited(Size) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
     "\r\n"++
     lists:duplicate(Size, $a).
 
