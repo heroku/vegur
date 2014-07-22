@@ -34,7 +34,8 @@
                   {request_id_header, binary()}|
                   {connect_time_header, binary()}|
                   {route_time_header, binary()}|
-                  {request_id_max_size, non_neg_integer()}.
+                  {request_id_max_size, non_neg_integer()}|
+                  {downstream_connect_timeout, ms()}.
 
 
 -spec start_http(PortNumber, Interface, Options) ->
