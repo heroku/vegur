@@ -105,13 +105,16 @@ start(Type, Ref, Port, Interface, Config) ->
                                              vegur_utils:config(route_time_header)),
     {RequestIdMaxSize, Config7} = get_default(request_id_max_size, Config6,
                                               vegur_utils:config(request_id_max_size)),
+    {DownstreamConnectTimeout, Config8} = get_default(downstream_connect_timeout, Config7,
+                                                      vegur_utils:config(downstream_connect_timeout)),
     ok = set_config(middleware_stack, Middlewares),
     ok = set_config(interface_module, Interface),
     ok = set_config(request_id_name, RequestIdName),
     ok = set_config(connect_time_header, ConnectTime),
     ok = set_config(route_time_header, RouteTimeHeader),
     ok = set_config(request_id_max_size, RequestIdMaxSize),
-    start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config7).
+    ok = set_config(downstream_connect_timeout, DownstreamConnectTimeout),
+    start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config8).
 
 -spec start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config) ->
       {ok, pid()} | {error, badarg} when
