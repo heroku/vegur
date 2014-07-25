@@ -80,7 +80,7 @@ missing_reason_phrase_resp(Socket, Transport) ->
 
 missing_reason_phrase(Config) ->
     dyno_req(?config(dyno_port, Config),
-             421, <<"421 Unknown">>).
+             421, <<"421 ">>).
 
 deliberate_reason_phrase_resp(Socket, Transport) ->
     Transport:send(Socket,

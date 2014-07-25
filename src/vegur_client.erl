@@ -68,7 +68,7 @@
 -export([byte_counts/1]).
 -export([log/1]).
 
--define(REASON_MISSING, <<"Unknown">>). %% "EBADDEVELOPER"
+-define(REASON_MISSING, <<"">>). %% "EBADDEVELOPER"
 
 -record(client, {
           state = wait :: wait | request | response | response_body | raw,
