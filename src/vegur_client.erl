@@ -68,6 +68,7 @@
 -export([byte_counts/1]).
 -export([log/1]).
 
+-define(REASON_MISSING, <<"">>). %% "EBADDEVELOPER"
 
 -record(client, {
           state = wait :: wait | request | response | response_body | raw,
@@ -427,6 +428,10 @@ parse_version(Client, << "HTTP/1.0 ", Rest/binary >>) ->
 parse_version(_, _) ->
     {error, invalid_status}.
 
+parse_status(Client, << S3, S2, S1 >>, Version)
+  when S3 >= $0, S3 =< $9, S2 >= $0, S2 =< $9, S1 >= $0, S1 =< $9 ->
+    Status = (S3 - $0) * 100 + (S2 - $0) * 10 + S1 - $0,
+    {ok, Status, ?REASON_MISSING, Client#client{version=Version}};
 parse_status(Client, << S3, S2, S1, " ", StatusStr/binary >>, Version)
         when S3 >= $0, S3 =< $9, S2 >= $0, S2 =< $9, S1 >= $0, S1 =< $9 ->
     Status = (S3 - $0) * 100 + (S2 - $0) * 10 + S1 - $0,
@@ -448,7 +453,7 @@ stream_headers(Client, Acc, MaxLine) ->
         {ok, Name, Value, Client2} ->
             stream_headers(Client2, [{Name, Value}|Acc], MaxLine);
         {done, Client2} ->
-            {ok, Acc, Client2};
+            {ok, lists:reverse(Acc), Client2};
         {error, Reason} ->
             {error, Reason}
     end.
