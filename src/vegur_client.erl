@@ -453,7 +453,7 @@ stream_headers(Client, Acc, MaxLine) ->
         {ok, Name, Value, Client2} ->
             stream_headers(Client2, [{Name, Value}|Acc], MaxLine);
         {done, Client2} ->
-            {ok, Acc, Client2};
+            {ok, lists:reverse(Acc), Client2};
         {error, Reason} ->
             {error, Reason}
     end.
