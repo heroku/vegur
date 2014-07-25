@@ -16,9 +16,17 @@
 %% a single atom.
 
 all() ->
-    [missing_reason_phrase
-    ,deliberate_reason_phrase
-    ,blank_reason_phrase
+    [{group, reason_phrases}
+    ,{group, header_ordering}
+    ].
+
+groups() ->
+    [{reason_phrases, [],
+      [missing_reason_phrase
+      ,deliberate_reason_phrase
+      ,blank_reason_phrase]}
+    ,{header_ordering, [],
+      [order_preservation]}
     ].
 
 %%%%%%%%%%%%%%%%%%%%%%
@@ -60,10 +68,20 @@ init_per_testcase(blank_reason_phrase, Config) ->
                          ?MODULE,
                          [{handler, fun blank_reason_phrase_resp/2}]),
     [{dyno_port, Port} | Config];
+init_per_testcase(Case = order_preservation, Config) ->
+    Rules = cowboy_router:compile([{'_',
+                                    [{'_', header_ordering_handler, []}]}]),
+    cowboy:start_http(Case, 10,
+                      [{port, Port = 9990}],
+                      [{env, [{dispatch, Rules}]}]),
+    [{dyno_port, Port} | Config];
 init_per_testcase(_CaseName, Config) ->
     Config.
 
 %% Runs after the test case. Runs in the same process.
+end_per_testcase(Case = order_preservation, Config) ->
+    cowboy:stop_listener(Case),
+    Config;
 end_per_testcase(CaseName, Config) ->
     ranch:stop_listener(CaseName),
     Config.
@@ -112,6 +130,22 @@ dyno_req(Port, Code, Status) ->
                                          <<"/">>),
     {ok, C3} = vegur_client:raw_request(Req, C2),
     {ok, Code, Status, _, C4} = vegur_client:response(C3),
+    vegur_client:close(C4),
+    ok.
+
+order_preservation(Config) ->
+    {ok, C1} = vegur_client:init([]),
+    {ok, C2} = vegur_client:connect(ranch_tcp, {127,0,0,1},
+                                    ?config(dyno_port, Config), C1),
+    Req = vegur_client:request_to_iolist(<<"GET">>, [], <<>>,
+                                         'HTTP/1.1', <<"test.dyno">>,
+                                         <<"/">>),
+    {ok, C3} = vegur_client:raw_request(Req, C2),
+    {ok, 200, _, Headers, C4} = vegur_client:response(C3),
+    [{<<"test-header">>, <<"1">>},
+     {<<"test-header">>, <<"2">>},
+     {<<"test-header">>, <<"3">>}] =
+        [{K, V} || {K = <<"test-header">>, V} <- Headers],
     vegur_client:close(C4),
     ok.
 
