@@ -19,7 +19,7 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_resp,
                 delete_hop_by_hop, response_cookie_limits,
                 response_header_line_limits, response_status_limits,
-                via, via_chain, bad_status, preserve_case
+                via, via_chain, bad_status, preserve_case, header_order
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
@@ -827,6 +827,35 @@ preserve_case(Config) ->
     {match,_} = re:run(RecvClient, "^Connection:", [global,multiline]), % hop-by-hop
     {match,_} = re:run(RecvClient, "^Proxy-Authentication:", [global,multiline]),
     {match,_} = re:run(RecvClient, "^Custom-Header:", [global,multiline]).
+
+header_order(Config) ->
+    %% An endpoint app may send custom HTTP Statuses as long as they are
+    %% represented by a 3-digit code, with custom text. The custom text
+    %% should be passed as-is.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_header_order(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Final response checking
+    {match, [{S1, _}]} = re:run(RecvClient, "test-header: 1",
+                                [multiline, caseless]),
+    {match, [{S2, _}]} = re:run(RecvClient, "test-header: 2",
+                                [multiline, caseless]),
+    {match, [{S3, _}]} = re:run(RecvClient, "test-header: 3",
+                                [multiline, caseless]),
+    true = S1 < S2 andalso S2 < S3.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
@@ -1798,6 +1827,15 @@ invalid_transfer_encoding(Config) ->
     "Host: "++domain(Config)++"\r\n"
     "Transfer-Encoding: ,\r\n"
     "Content-Type: text/plain\r\n"
+    "\r\n".
+
+resp_header_order() ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Length: 0\r\n"
+    "test-header: 1\r\n"
+    "test-header: 2\r\n"
+    "test-header: 3\r\n"
     "\r\n".
 
 domain(Config) ->
