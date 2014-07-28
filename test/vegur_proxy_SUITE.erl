@@ -21,6 +21,8 @@ groups() ->
                                 ,route_time_header
                                 ,host
                                 ,query_string
+                                ,content_length
+                                ,no_content_length
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
                                 ,request_statistics
@@ -328,6 +330,39 @@ query_string(Config) ->
             throw(timeout)
     end,
     Config.
+
+content_length(Config) ->
+    Port = ?config(vegur_port, Config),
+    Body = <<"This is a test.">>,
+    Length = iolist_to_binary(integer_to_list(byte_size(Body))),
+    {ok, S} = gen_tcp:connect({127,0,0,1}, Port, []),
+    gen_tcp:send(S,[<<"GET / HTTP/1.1\r\n"
+                      "Content-Type: text/plain\r\n"
+                      "Host: localhost\r\n"
+                      "Content-Length: ", Length/binary, "\r\n"
+                      "\r\n",
+                      Body/binary>>]),
+    receive
+        {req, Req} ->
+            {Length, _} = cowboy_req:header(<<"content-length">>, Req)
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
+no_content_length(Config) ->
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    {ok, {{_, 204, _}, _, _}} =
+        httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, Req} ->
+            {undefined, _} = cowboy_req:header(<<"content-length">>, Req)
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
 
 %% Helpers
 start_dyno(Port, Opts) ->
