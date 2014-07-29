@@ -278,7 +278,7 @@ request_statistics(Config) ->
                     {RT, _} = vegur_req:route_duration(Upstream),
                     {CT, _} = vegur_req:connect_duration(Upstream),
                     {TT, _} = vegur_req:total_duration(Upstream),
-                    {SH, _} = vegur_req:send_headers_duration(Upstream),
+                    {SH, _} = vegur_req:send_headers_duration(Upstream),
                     {QP, _} = vegur_req:request_proxy_duration(Upstream),
                     {RP, _} = vegur_req:response_proxy_duration(Upstream),
                     {<<"/?abc=d">>, _} = vegur_req:raw_path(Upstream),
