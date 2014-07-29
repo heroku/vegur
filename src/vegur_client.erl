@@ -75,7 +75,7 @@
           opts = [] :: [any()],
           socket = undefined :: undefined | inet:socket(),
           transport = undefined :: module() | tuple(), % tuple for tuple calls
-          connect_timeout = timer:seconds(vegur_utils:config(downstream_connect_timeout)) :: timeout(),
+          connect_timeout = vegur_utils:config(downstream_connect_timeout) :: timeout(),
           read_timeout = timer:seconds(vegur_utils:config(downstream_timeout)) :: timeout(),
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
