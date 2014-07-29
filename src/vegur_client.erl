@@ -175,15 +175,21 @@ request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     VersionBin = atom_to_binary(Version, latin1),
     %% @todo do keepalive too, allow override...
     Headers2 = [{<<"Host">>, FullHost} | Headers],
-    ContentLength = case Body of
-        {stream, 0} -> [];
-        {stream, chunked} -> [];
-        {stream, Length} -> [{<<"Content-Length">>, integer_to_list(Length)}];
-        Body -> [{<<"Content-Length">>, integer_to_list(iolist_size(Body))}]
-    end,
+    ContentLength = content_length_header(Method, Body),
     HeadersData = headers_to_iolist(Headers2++ContentLength),
     [Method, <<" ">>, Path, <<" ">>, VersionBin, <<"\r\n">>,
      HeadersData, <<"\r\n">>].
+
+content_length_header(_, {stream, 0}) -> [];
+content_length_header(_, {stream, chunked}) -> [];
+content_length_header(_, {stream, Length}) when is_integer(Length) ->
+    [{<<"Content-Length">>, integer_to_list(Length)}];
+content_length_header(Method, <<>>)
+  when Method =:= <<"GET">>;
+       Method =:= <<"HEAD">> ->
+    [];
+content_length_header(_, Body) ->
+    [{<<"Content-Length">>, integer_to_list(iolist_size(Body))}].
 
 headers_to_iolist(Headers) ->
     [[cowboy_bstr:capitalize_token(Name), <<": ">>, Value, <<"\r\n">>] || {Name, Value} <- Headers].
