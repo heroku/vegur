@@ -80,6 +80,7 @@
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
           version = 'HTTP/1.1' :: cowboy:http_version(),
+          status = undefined :: 100..999,
           response_body = undefined :: chunked | undefined | non_neg_integer(),
           bytes_sent :: non_neg_integer() | undefined, % Bytes sent downstream
           bytes_recv :: non_neg_integer() | undefined, % Bytes recv from downstream
@@ -256,6 +257,8 @@ response(Client=#client{state=request}) ->
 body_type(#client{response_body=chunked}) -> chunked;
 body_type(#client{state=request, response_body=0}) -> no_body;
 body_type(#client{state=response_body, response_body=Length}) -> {content_size, Length};
+body_type(#client{state=request, status=204, response_body=undefined}) -> no_body;
+body_type(#client{state=request, status=304, response_body=undefined}) -> no_body;
 body_type(#client{state=request}) -> stream_close.
 
 version(#client{version=Version}) -> Version.
@@ -437,11 +440,13 @@ parse_version(_, _) ->
 parse_status(Client, << S3, S2, S1 >>, Version)
   when S3 >= $0, S3 =< $9, S2 >= $0, S2 =< $9, S1 >= $0, S1 =< $9 ->
     Status = (S3 - $0) * 100 + (S2 - $0) * 10 + S1 - $0,
-    {ok, Status, ?REASON_MISSING, Client#client{version=Version}};
+    {ok, Status, ?REASON_MISSING, Client#client{version=Version,
+                                                status=Status}};
 parse_status(Client, << S3, S2, S1, " ", StatusStr/binary >>, Version)
         when S3 >= $0, S3 =< $9, S2 >= $0, S2 =< $9, S1 >= $0, S1 =< $9 ->
     Status = (S3 - $0) * 100 + (S2 - $0) * 10 + S1 - $0,
-    {ok, Status, StatusStr, Client#client{version=Version}};
+    {ok, Status, StatusStr, Client#client{version=Version,
+                                          status=Status}};
 parse_status(_Client, _StatusStr, _Version_) ->
     {error, invalid_status}.
 
