@@ -35,7 +35,7 @@ groups() -> [{continue, [], [
                 head_close_expect, head_close_expect_client,
                 status_204, status_304, status_chunked_204,
                 status_close_304, status_close_304_client,
-                bad_transfer_encoding
+                bad_transfer_encoding, valid_status_204
              ]},
              {large_body, [], [
                 large_body_stream, large_body_close, large_body_close_delimited
@@ -1293,6 +1293,36 @@ status_204(Config) ->
     nomatch = re:run(Recv, "body", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
+valid_status_204(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp_204(valid),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "No Content", [global,multiline,caseless]),
+    Ref1 = make_ref(),
+    start_acceptor(Ref1, Config),
+    ok = gen_tcp:send(Client, Req),
+    timer:sleep(500),
+    Server1 = get_accepted(Ref1),
+    {ok, _} = gen_tcp:recv(Server1, 0, 1000),
+    ok = gen_tcp:send(Server1, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "No Content", [global,multiline,caseless]).
+
 status_304(Config) ->
     %% For a 304 response, we should not wait for a request body. We will not,
     %% however, strip any headers that are not hop by hop.
@@ -1788,6 +1818,10 @@ resp_204(chunked) ->
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
     "transfer-encoding: chuNked\r\n"
+        "\r\n";
+resp_204(valid) ->
+    "HTTP/1.1 204 No Content\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "\r\n".
 
 resp_204() ->
