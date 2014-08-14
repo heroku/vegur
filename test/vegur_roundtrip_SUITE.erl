@@ -1312,6 +1312,8 @@ valid_status_204(Config) ->
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     {match,_} = re:run(Recv, "No Content", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)),
     Ref1 = make_ref(),
     start_acceptor(Ref1, Config),
     ok = gen_tcp:send(Client, Req),
@@ -1321,7 +1323,9 @@ valid_status_204(Config) ->
     ok = gen_tcp:send(Server1, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
-    {match,_} = re:run(Recv, "No Content", [global,multiline,caseless]).
+    {match,_} = re:run(Recv, "No Content", [global,multiline,caseless]),
+    wait_for_closed(Server1, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
 
 valid_status_304(Config) ->
     IP = ?config(server_ip, Config),
@@ -1342,6 +1346,8 @@ valid_status_304(Config) ->
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     {match,_} = re:run(Recv, "Not Modified", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)),
     Ref1 = make_ref(),
     start_acceptor(Ref1, Config),
     ok = gen_tcp:send(Client, Req),
@@ -1351,7 +1357,9 @@ valid_status_304(Config) ->
     ok = gen_tcp:send(Server1, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
-    {match,_} = re:run(Recv, "Not Modified", [global,multiline,caseless]).
+    {match,_} = re:run(Recv, "Not Modified", [global,multiline,caseless]),
+    wait_for_closed(Server1, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
 
 status_304(Config) ->
     %% For a 304 response, we should not wait for a request body. We will not,
