@@ -35,7 +35,8 @@ groups() -> [{continue, [], [
                 head_close_expect, head_close_expect_client,
                 status_204, status_304, status_chunked_204,
                 status_close_304, status_close_304_client,
-                bad_transfer_encoding, valid_status_204, valid_status_304
+                bad_transfer_encoding, valid_status_204, valid_status_304,
+                valid_head
              ]},
              {large_body, [], [
                 large_body_stream, large_body_close, large_body_close_delimited
@@ -1361,6 +1362,40 @@ valid_status_304(Config) ->
     wait_for_closed(Server1, 500),
     ?assertError(not_closed, wait_for_closed(Client, 500)).
 
+valid_head(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_head(valid, Config),
+    Resp = resp(head_response, 10000),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "200 OK", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)),
+    Ref1 = make_ref(),
+    start_acceptor(Ref1, Config),
+    ok = gen_tcp:send(Client, Req),
+    timer:sleep(500),
+    Server1 = get_accepted(Ref1),
+    {ok, _} = gen_tcp:recv(Server1, 0, 1000),
+    ok = gen_tcp:send(Server1, Resp),
+    {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
+    {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(Recv, "200 OK", [global,multiline,caseless]),
+    wait_for_closed(Server1, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
 status_304(Config) ->
     %% For a 304 response, we should not wait for a request body. We will not,
     %% however, strip any headers that are not hop by hop.
@@ -1684,6 +1719,10 @@ req_head(Config) ->
     "Content-Type: text/plain\r\n"
     "\r\n"
     "12345".
+req_head(valid, Config) ->
+    "HEAD / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "\r\n".
 
 req_head_close(Config) ->
     "HEAD / HTTP/1.1\r\n"
@@ -1746,6 +1785,12 @@ resp() ->
     "Content-Length: 43\r\n"
     "\r\n"
     "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n".
+resp(head_response, ContentLength) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: "++integer_to_list(ContentLength)++"\r\n"
+    "\r\n".
 
 resp_via(Val) ->
     "HTTP/1.1 200 OK\r\n"
