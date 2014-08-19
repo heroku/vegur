@@ -69,12 +69,18 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
             {error, downstream, Err}
     end.
 
-send_body(_Method, _Header, Body, _Path, _Url, Req, BackendClient) ->
+send_body(_Method, Headers, Body, _Path, _Url, Req, BackendClient) ->
     case Body of
         {stream, BodyLen} ->
             {Fun, FunState} = case BodyLen of
-                chunked -> {fun decode_chunked/2, {undefined, 0}};
-                BodyLen -> {fun decode_raw/2, {0, BodyLen}}
+                chunked ->
+                    InitState = case has_trailers(Headers) of
+                        false -> undefined;
+                        true -> trailers
+                    end,
+                    {fun decode_chunked/2, {InitState, InitState, 0}};
+                BodyLen ->
+                    {fun decode_raw/2, {0, BodyLen}}
             end,
             {ok, Req2} = cowboy_req:init_stream(Fun, FunState, fun decode_identity/1, Req),
             %% use headers & body to stream correctly
@@ -470,7 +476,7 @@ decode_raw(Data, {Streamed, Total}) ->
 %% still giving us a general idea when a chunk begins and ends, and when the
 %% entire request is cleared. Can deal with partial chunks for cases where
 %% the user sends in multi-gigabyte chunks to mess with us.
-decode_chunked(Data, {Cont, Total}) ->
+decode_chunked(Data, {InitCont, Cont, Total}) ->
     case vegur_chunked:stream_chunk(Data, Cont) of
         {done, Buf, Rest} ->
             %% Entire request is over
@@ -479,10 +485,10 @@ decode_chunked(Data, {Cont, Total}) ->
             {error, Reason};
         {chunk, Buf, Rest} ->
             %% Chunk is done, but more to come
-            {ok, Buf, Rest, {undefined, Total+iolist_size(Buf)}};
+            {ok, Buf, Rest, {InitCont, InitCont, Total+iolist_size(Buf)}};
         {more, _Len, Buf, Cont2} ->
             %% Not yet done on the current chunk, but keep going.
-            {ok, Buf, <<>>, {Cont2, Total}};
+            {ok, Buf, <<>>, {InitCont, Cont2, Total}};
         {maybe_done, Buf, _Cont2} ->
             %% Treat it as done. Cowboy doesn't let us do fancier things like
             %% polling temporarily. Best effort.
@@ -632,7 +638,6 @@ delete_hop_by_hop([{<<"connection">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([{<<"te">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([{<<"keep-alive">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([{<<"proxy-authorization">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"trailer">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
 delete_hop_by_hop([Hdr|Hdrs]) -> [Hdr | delete_hop_by_hop(Hdrs)].
 
 add_connection_close_header(Hdrs) ->
@@ -657,6 +662,8 @@ add_via(Headers) ->
     Via = vegur_utils:get_via_value(),
     vegur_utils:add_or_append_header(<<"via">>, Via, Headers).
 
+has_trailers(Headers) ->
+    lists:keymember(<<"trailer">>, 1, Headers).
 
 %% When sending data in passive mode, it is usually impossible to be notified
 %% of connections being closed. For this to be done, we need to poll the socket

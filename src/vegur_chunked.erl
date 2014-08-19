@@ -31,7 +31,7 @@
          next_unchunk/1, next_unchunk/2,
          stream_chunk/1, stream_chunk/2,
          stream_unchunk/1, stream_unchunk/2,
-         all_chunks/1, all_unchunks/1]).
+         all_chunks/1, all_chunks/2, all_unchunks/1]).
 -record(state, {buffer = <<>> :: binary(),
                 length :: non_neg_integer()|undefined,
                 trailers = undefined,
@@ -48,7 +48,10 @@ next_chunk(Bin) -> next_chunk(Bin, undefined).
 
 next_chunk(Bin, undefined) ->
     chunk_size(Bin, #state{type=chunked});
-next_chunk(Bin, {Fun,State=#state{}}) -> Fun(Bin, State).
+next_chunk(Bin, trailers) ->
+    chunk_size(Bin, #state{type=chunked, trailers=true});
+next_chunk(Bin, {Fun,State=#state{}}) ->
+    Fun(Bin, State).
 
 %% Parses a binary stream to get chunk delimitation. The difference from
 %% next_chunk/1-2 is that this will not accumulate data, but simply return it
@@ -65,8 +68,10 @@ stream_unchunk(Bin, {_, #state{}}=S) -> stream_chunk(Bin, S).
 
 stream_chunk(Bin) -> stream_chunk(Bin, undefined).
 
-stream_chunk(Bin, undefined) -> stream_chunk(Bin, {fun chunk_size/2,
-                                                   #state{type=chunked}});
+stream_chunk(Bin, undefined) ->
+    stream_chunk(Bin, {fun chunk_size/2, #state{type=chunked}});
+stream_chunk(Bin, trailers) ->
+    stream_chunk(Bin, {fun chunk_size/2, #state{type=chunked, trailers=true}});
 stream_chunk(Bin, {Fun, State=#state{}}) ->
     case Fun(Bin, State) of
         {done, Buf, Rest} -> {done, Buf, Rest};
@@ -82,7 +87,9 @@ stream_chunk(Bin, {Fun, State=#state{}}) ->
 %% all there.
 all_unchunks(Bin) -> all_chunks(Bin, fun next_unchunk/1, []).
 
-all_chunks(Bin) -> all_chunks(Bin, fun next_chunk/1, []).
+all_chunks(Bin) -> all_chunks(Bin, undefined).
+
+all_chunks(Bin, Opt) -> all_chunks(Bin, fun(Arg) -> next_chunk(Arg, Opt) end, []).
 
 all_chunks(Bin, F, Acc) ->
     try F(Bin) of
@@ -95,18 +102,19 @@ all_chunks(Bin, F, Acc) ->
         error:function_clause -> {error, Acc, {bad_chunk, Bin}}
     end.
 
-%% Trailers use not supported yet.
 % next_chunk(Bin, Trailers) -> chunk_size(Bin, #state{trailers=Trailers}).
 
 %%           ,-----------------v
-%% chunk_size -> extension -> data
-%%                |    ^
-%%                V    |
-%%          ext_name -> ext_val
-%%                        | |
-%%                    quoted string
-%%
-
+%% chunk_size -> extension -> data -> last chunk -> CRLF
+%%                |    ^                 |     __    |
+%%                V    |                 |    |  |   |
+%%          ext_name -> ext_val          '-> trailer-'
+%%                        | |                 |  |
+%%                    quoted string         header_name
+%%                                            |  |
+%%                                          header_value
+%%                                            |  |
+%%                                         quoted string
 chunk_size(<<"">>, S=#state{}) ->
     {more, {fun chunk_size/2, S}};
 chunk_size(<<"\r", Rest/binary>>, S=#state{}) ->
@@ -209,16 +217,89 @@ last_chunk(<<>>, S=#state{}) ->
     %% Solution: add a new return state: {maybe_done, Buf, {Fun, State}}
     %% This one allows to go make sure that nothing is left on the buffer or
     %% connection while maintaining data integrity.
-    {maybe_done, {fun finalize/2, S}};
+    {maybe_done, {fun maybe_trailers/2, S}};
 last_chunk(<<"\r", Rest/binary>>, S=#state{length=0}) ->
     last_chunk_cr(Rest, maybe_buffer(<<"\r">>, S));
-last_chunk(Bin, #state{length=0, buffer=Buf}) ->
+last_chunk(Bin, S=#state{length=0, buffer=_Buf}) ->
     %% Here we are lenient on a last chunk to allow all kinds of
     %% dumb stuff to happen. Uncommenting the line makes for a
     %% strict parser. This one here tolerates 0-length chunks halfway
     %% through a stream and whatnot.
     %{error, {bad_chunk, {0, [Buf,Bin]}}}.
-    {done, Buf, Bin}.
+    %% Lax parser:
+    %{done, Buf, Bin}.
+    %% Move to trailers:
+    maybe_trailers(Bin, S).
+
+trailer(_, #state{type=unchunked}) ->
+    %% Trailers cannot be supported in unchunked mode
+    error(unchunked_trailer);
+trailer(<<>>, S=#state{type=chunked}) ->
+    %% Data missing, we may have more trailers, or more garbage on
+    %% the line.
+    {more, {fun trailer/2, S}};
+trailer(Bin, S=#state{type=chunked}) ->
+    header_name(Bin, S).
+
+header_name(<<>>, S=#state{}) ->
+    {more, {fun header_name/2, S}};
+header_name(<<":", Rest/binary>>, S=#state{}) ->
+    %% end of header, start the value
+    header_value(Rest, maybe_buffer(<<":">>, S));
+header_name(<<Char, Rest/binary>> = Bin, S=#state{buffer=Buf}) ->
+    case class(Char) of
+        token ->
+            header_name(Rest, maybe_buffer(<<Char>>, S));
+        _ ->
+            %% That's an invalid trailer and/or an improperly terminated
+            %% chunked session that also uses pipelining. Gods have mercy.
+            {error, {bad_chunk, {bad_trailer, [Buf, Bin]}}}
+    end.
+
+header_value(<<>>, S=#state{}) ->
+    {more, {fun header_value/2, S}};
+header_value(<<"\r", Rest/binary>>, S=#state{}) ->
+    header_value_cr(Rest, maybe_buffer(<<"\r">>, S));
+header_value(<<"\"", Rest/binary>>, S=#state{}) ->
+    header_value_quoted_string(Rest, maybe_buffer(<<"\"">>, S));
+header_value(<<Char, Rest/binary>>, S=#state{}) ->
+    header_value(Rest, maybe_buffer(<<Char>>, S)).
+
+header_value_cr(<<"">>, S=#state{}) ->
+    {more, {fun header_value_cr/2, S}};
+header_value_cr(<<"\n", Rest/binary>>, S=#state{}) ->
+    header_value_switch(Rest, maybe_buffer(<<"\n">>, S));
+header_value_cr(Bin, #state{buffer=Buf}) ->
+    {error, {bad_chunk, {bad_trailer, [Buf,Bin]}}}.
+
+header_value_switch(<<"">>, S=#state{}) ->
+    {more, {fun header_value_switch/2, S}};
+header_value_switch(<<" ", Rest/binary>>, S=#state{}) ->
+    %% Header folding
+    header_value(Rest, maybe_buffer(<<" ">>, S));
+header_value_switch(<<"\t", Rest/binary>>, S=#state{}) ->
+    %% Header folding
+    header_value(Rest, maybe_buffer(<<" ">>, S));
+header_value_switch(<<"\r", Rest/binary>>, S=#state{}) ->
+    %% Last header
+    finalize(<<"\r", Rest/binary>>, S);
+header_value_switch(Bin, S=#state{}) ->
+    %% Other trailer: default
+    trailer(Bin, S).
+
+header_value_quoted_string(<<>>, S=#state{}) ->
+    {more, {fun header_value_quoted_string/2, S}};
+header_value_quoted_string(<<"\\", Rest/binary>>, S=#state{}) ->
+    header_value_quoted_string_esc(Rest, maybe_buffer(<<"\\">>, S));
+header_value_quoted_string(<<"\"", Rest/binary>>, S=#state{}) ->
+    header_value(Rest, maybe_buffer(<<"\"">>, S));
+header_value_quoted_string(<<Char, Rest/binary>>, S=#state{}) ->
+    header_value_quoted_string(Rest, maybe_buffer(<<Char>>, S)).
+
+header_value_quoted_string_esc(<<>>, S=#state{}) ->
+    {more, {fun header_value_quoted_string_esc/2, S}};
+header_value_quoted_string_esc(<<Char, Rest/binary>>, S=#state{}) ->
+    header_value_quoted_string(Rest, maybe_buffer(<<Char>>, S)).
 
 last_chunk_cr(<<>>, S=#state{}) ->
     {more, {fun last_chunk_cr/2, S}};
@@ -231,13 +312,25 @@ last_chunk_cr(Bin, #state{length=0, buffer=Buf}) ->
     %% Sorry, trailer!
     {error, {bad_chunk, {0, [Buf,Bin]}}}.
 
+%% We're at the end of the stream, potentially, after
+%% a 0-length chunk.
+maybe_trailers(Data, S=#state{trailers=undefined}) ->
+    %% No trailers, skip;
+    finalize(Data, S);
+maybe_trailers(undefined, #state{buffer=Buf}) ->
+    %% Manually told us that no data was around, even with trailers.
+    {done, Buf, <<>>};
+maybe_trailers(OtherData, S=#state{trailers=true}) ->
+    trailer(OtherData, S).
+
+
 finalize(undefined, #state{buffer=Buf}) ->
     {done, Buf, <<>>};
 finalize(<<"\r",Rest/binary>>, S=#state{}) ->
     finalize_cr(Rest, maybe_buffer(<<"\r">>, S));
 finalize(OtherData, #state{buffer=Buf}) ->
     %% That data may belong to anything, even other requests. Take
-    %% no chances.
+    %% no chances. We should have already checked for trailers at this point.
     {done, Buf, OtherData}.
 
 finalize_cr(<<>>, S=#state{}) ->
@@ -252,3 +345,23 @@ maybe_buffer(_Data, S=#state{type=unchunked}) -> S;
 maybe_buffer(Data, S=#state{buffer=Buf}) ->
     S#state{buffer = <<Buf/binary, Data/binary>>}.
 
+class($\s) -> separator;
+class($\t) -> separator;
+class($\\) -> separator;
+class($() -> separator;
+class($)) -> separator;
+class($<) -> separator;
+class($>) -> separator;
+class($@) -> separator;
+class($,) -> separator;
+class($;) -> separator;
+class($:) -> separator;
+class($/) -> separator;
+class($[) -> separator;
+class($]) -> separator;
+class($?) -> separator;
+class($=) -> separator;
+class(${) -> separator;
+class($}) -> separator;
+class(C) when C >= 0, C =< 31; C =:= 127 -> control;
+class(_) -> token.
