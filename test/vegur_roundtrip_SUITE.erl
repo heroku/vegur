@@ -23,7 +23,7 @@ groups() -> [{continue, [], [
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
-                chunked_to_1_0
+                chunked_to_1_0, nohost_1_0
              ]},
              {chunked, [], [
                 passthrough, passthrough_short_crlf, passthrough_early_0length,
@@ -957,6 +957,30 @@ chunked_to_1_0(Config) ->
     %% Check final connection status
     wait_for_closed(Server, 500).
 
+nohost_1_0(Config) ->
+    %% Chunked content from a 1.1 server to a 1.0 client unchunks the content
+    %% and streams it as a request delimited by the end of the connection.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = [http_1_0_nohost(Config), req_body()],
+    Resp = resp(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, _} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    Recv = recv_until_close(Client),
+    ct:pal("Recv: ~p",[Recv]),
+    {match,_} = re:run(Recv, "200 OK", [global,multiline,caseless]),
+    %% Check final connection status
+    wait_for_closed(Server, 500).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% CHUNKED REQUESTS BEHAVIOUR %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1658,6 +1682,12 @@ upgrade_headers(Config) ->
 http_1_0_headers(Config) ->
     "POST /continue-1 HTTP/1.0\r\n"
     "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n".
+
+http_1_0_nohost(Config) ->
+    "POST http://"++domain(Config)++"/continue-1 HTTP/1.0\r\n"
     "Content-Length: 10\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
