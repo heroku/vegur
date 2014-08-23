@@ -81,9 +81,11 @@
       HandlerState :: handler_state().
 
 -callback service_backend(Service, Upstream, HandlerState) ->
-    {ServiceBackend, Upstream, HandlerState} when
+    {ServiceBackend, Upstream, HandlerState}|
+    {ServiceBackend, ConnectOpts, Upstream, HandlerState} when
       Service :: service(),
       ServiceBackend :: service_backend(),
+      ConnectOpts :: [term()],
       Upstream :: upstream(),
       HandlerState :: handler_state().
 

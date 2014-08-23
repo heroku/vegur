@@ -3,6 +3,7 @@
 -define(UPSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
 
 -export([backend_connection/1
+         ,backend_connection/2
          ,send_headers/7
          ,send_body/7
          ,read_backend_response/2
@@ -18,11 +19,16 @@
                                 {error, any()} when
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
-backend_connection({IpAddress, Port}) ->
+backend_connection(ServiceBackend) ->
+    backend_connection(ServiceBackend, []).
+
+backend_connection({IpAddress, Port}, Opts) ->
+    ConnectTimeout = proplists:get_value(connect_timeout, Opts,
+                                         vegur_utils:config(downstream_connect_timeout)),
     TcpBufSize = vegur_utils:config(client_tcp_buffer_limit),
     {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
                                       {recbuf, TcpBufSize}]),
-    case vegur_client:connect(ranch_tcp, IpAddress, Port, Client) of
+    case vegur_client:connect(ranch_tcp, IpAddress, Port, ConnectTimeout, Client) of
         {ok, Client1} ->
             {connected, Client1};
         {error, Reason} ->

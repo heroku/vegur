@@ -34,9 +34,9 @@ lookup_service(Req, Env) ->
       HttpCode :: cowboy:http_status().
 handle_service(Service, Req, Env) ->
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-    {ServiceBackend, Req2, HandlerState1} = InterfaceModule:service_backend(Service, Req1, HandlerState),
+    {ServiceBackend, ConnectOpts, Req2, HandlerState1} = service_backend(InterfaceModule, Service, Req1, HandlerState),
     Req3 = vegur_request_log:stamp(pre_connect, Req2),
-    case ?LOG(connect_time, vegur_proxy:backend_connection(ServiceBackend), Req3) of
+    case ?LOG(connect_time, vegur_proxy:backend_connection(ServiceBackend, ConnectOpts), Req3) of
         {{connected, Client}, Req4} ->
             Req5 = cowboy_req:set_meta(backend_connection, Client, Req4),
             Req6 = vegur_utils:set_handler_state(HandlerState1, Req5),
@@ -57,3 +57,21 @@ handle_service(Service, Req, Env) ->
 handle_error(Reason, Req, _Env) ->
     {HttpCode, Req1} = vegur_utils:handle_error(Reason, Req),
     {error, HttpCode, Req1}.
+
+-spec service_backend(InterfaceModule, Service, Req, HandlerState) ->
+                             {ServiceBackend, ConnectOpts, Upstream, HandlerState} when
+      InterfaceModule :: module(),
+      Service :: vegur_interface:service(),
+      ServiceBackend :: vegur_interface:service_backend(),
+      ConnectOpts :: [term()],
+      Upstream :: vegur_interface:upstream(),
+      HandlerState :: vegur_interface:handler_state(),
+      Req :: cowboy_req:req().
+service_backend(InterfaceModule, Service, Req, HandlerState) ->
+    case InterfaceModule:service_backend(Service, Req, HandlerState) of
+        {ServiceBackend, Req, HandlerState1} ->
+            {ServiceBackend, [], Req, HandlerState1};
+        {ServiceBackend, ConnectOpts, Req, HandlerState1} ->
+            {ServiceBackend, ConnectOpts, Req, HandlerState1}
+    end.
+            
