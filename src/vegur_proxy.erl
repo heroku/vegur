@@ -22,6 +22,12 @@
 backend_connection(ServiceBackend) ->
     backend_connection(ServiceBackend, []).
 
+-spec backend_connection(ServiceBackend, ConnectOptions) ->
+                                {connected, Client} |
+                                {error, any()} when
+      ServiceBackend :: vegur_interface:service_backend(),
+      ConnectOptions :: vegur_interface:connect_options(),
+      Client :: vegur_client:client().
 backend_connection({IpAddress, Port}, Opts) ->
     ConnectTimeout = proplists:get_value(connect_timeout, Opts,
                                          vegur_utils:config(downstream_connect_timeout)),

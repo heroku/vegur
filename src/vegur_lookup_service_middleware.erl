@@ -63,7 +63,7 @@ handle_error(Reason, Req, _Env) ->
       InterfaceModule :: module(),
       Service :: vegur_interface:service(),
       ServiceBackend :: vegur_interface:service_backend(),
-      ConnectOpts :: [term()],
+      ConnectOpts :: vegur_interface:connect_options(),
       Upstream :: vegur_interface:upstream(),
       HandlerState :: vegur_interface:handler_state(),
       Req :: cowboy_req:req().
