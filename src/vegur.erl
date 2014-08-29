@@ -161,8 +161,4 @@ defaults() ->
      ,{timeout, timer:seconds(60)}
      ,{onrequest, fun vegur_request_log:new/1}
      ,{onresponse, fun vegur_request_log:done/4}
-     ,{request_id_name, <<"x-request-id">>}
-     ,{connect_time_header, <<"connect-time">>}
-     ,{route_time_header, <<"total-route-time">>}
-     ,{request_id_max_size, 200}
     ].

@@ -80,7 +80,7 @@
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
           version = 'HTTP/1.1' :: cowboy:http_version(),
-          status = undefined :: 100..999,
+          status = undefined :: 100..999 | undefined, % can be undefined before parsing
           response_body = undefined :: chunked | undefined | non_neg_integer(),
           bytes_sent :: non_neg_integer() | undefined, % Bytes sent downstream
           bytes_recv :: non_neg_integer() | undefined, % Bytes recv from downstream
