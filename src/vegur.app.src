@@ -18,7 +18,6 @@
           ,{start_time_header, <<"x-request-start">>}
           ,{connect_time_header, <<"connect-time">>}
           ,{route_time_header, <<"total-route-time">>}
-          ,{instance_name, <<"vegur">>}
           ,{request_id_max_size, 200}
           ,{idle_timeout, 55} % seconds
           ,{downstream_connect_timeout, 5000} % milliseconds
