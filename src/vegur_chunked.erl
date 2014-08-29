@@ -279,7 +279,7 @@ header_value_switch(<<" ", Rest/binary>>, S=#state{}) ->
     header_value(Rest, maybe_buffer(<<" ">>, S));
 header_value_switch(<<"\t", Rest/binary>>, S=#state{}) ->
     %% Header folding
-    header_value(Rest, maybe_buffer(<<" ">>, S));
+    header_value(Rest, maybe_buffer(<<"\t">>, S));
 header_value_switch(<<"\r", Rest/binary>>, S=#state{}) ->
     %% Last header
     finalize(<<"\r", Rest/binary>>, S);
