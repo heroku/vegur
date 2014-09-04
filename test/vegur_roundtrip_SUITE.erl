@@ -83,6 +83,8 @@ init_per_testcase(response_status_limits, Config0) ->
     Default = vegur_utils:config(client_tcp_buffer_limit),
     application:set_env(vegur, client_tcp_buffer_limit, ?config(default_tcp_recbuf, Config)),
     [{default_tcp, Default} | Config];
+init_per_testcase(nohost_1_0, _Config) ->
+    {skip, "Host header required for HTTP/1.0 even with an absolute path."};
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
