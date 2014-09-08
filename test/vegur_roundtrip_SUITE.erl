@@ -27,7 +27,9 @@ groups() -> [{continue, [], [
              ]},
              {chunked, [], [
                 passthrough, passthrough_short_crlf, passthrough_early_0length,
-                interrupted_client, interrupted_server, bad_chunk
+                interrupted_client, interrupted_server, bad_chunk, trailers,
+                trailers_close, trailers_client_err, trailers_serv_err,
+                trailers_skip
              ]},
              {body_less, [], [
                 head_small_body_expect, head_large_body_expect,
@@ -81,6 +83,8 @@ init_per_testcase(response_status_limits, Config0) ->
     Default = vegur_utils:config(client_tcp_buffer_limit),
     application:set_env(vegur, client_tcp_buffer_limit, ?config(default_tcp_recbuf, Config)),
     [{default_tcp, Default} | Config];
+init_per_testcase(nohost_1_0, _Config) ->
+    {skip, "Host header required for HTTP/1.0 even with an absolute path."};
 init_per_testcase(_, Config) ->
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
     {ok, LPort} = inet:port(Listen),
@@ -626,16 +630,16 @@ delete_hop_by_hop(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
-    %% All hop by hop headers but proxy-authentication are gone
+    %% All hop by hop headers but proxy-authentication and trailers are gone
     ct:pal("SRV:~p~n",[RecvServ]),
     ct:pal("CLI:~p~n",[RecvClient]),
     nomatch = re:run(RecvServ, "^te:", [global,multiline,caseless]),
-    nomatch = re:run(RecvServ, "^trailer:", [global,multiline,caseless]),
+    {match,_} = re:run(RecvServ, "^trailer:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^keep-alive:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^proxy-authorization:", [global,multiline,caseless]),
     {match,_} = re:run(RecvServ, "^proxy-authentication:", [global,multiline,caseless]),
     nomatch = re:run(RecvClient, "^te:", [global,multiline,caseless]),
-    nomatch = re:run(RecvClient, "^trailer:", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^trailer:", [global,multiline,caseless]),
     nomatch = re:run(RecvClient, "^keep-alive:", [global,multiline,caseless]),
     nomatch = re:run(RecvClient, "^proxy-authorization:", [global,multiline,caseless]),
     {match,_} = re:run(RecvClient, "^proxy-authentication:", [global,multiline,caseless]).
@@ -1100,9 +1104,8 @@ interrupted_server(Config) ->
     check_stub_error({downstream, closed}).
 
 bad_chunk(Config) ->
-    %% Chunked data can move through the stack without being modified.
-    %% We *could* re-chunk data, but leaving chunks as is is more
-    %% transparent and also easier.
+    %% A bad chunk from the server cannot be reported on via error codes
+    %% due to being part of an already-in-progress response.
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
     Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n\r\n",
@@ -1125,6 +1128,157 @@ bad_chunk(Config) ->
     ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvClient, "200"),
     nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
+    wait_for_closed(Server, 500).
+
+trailers(Config) ->
+    %% Trailers are supported, from the server *and* the client.
+    %% We do not care to verify whether the client had the
+    %% `TE: trailers' header for supporting trailers in the response.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n0\r\nhead1:val1\r\nhead2: val2\r\n\r\n",
+    Req = [chunked_headers_trailers(Config, "head1, head2"), Chunks],
+    Resp = [resp_headers({trailers, "head1,head2"}), Chunks],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_timeout(Client),
+    %% Check final connection status
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    {match, _} = re:run(RecvServ, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
+    {match, _} = re:run(RecvServ, "head1:val1", [global, multiline, caseless]),
+    {match, _} = re:run(RecvServ, "head2: val2", [global, multiline, caseless]),
+    {match, _} = re:run(RecvClient, "200 OK"),
+    nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
+    nomatch = re:run(RecvClient, "400"), % can't report an error halfway through
+    {match, _} = re:run(RecvClient, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
+    {match, _} = re:run(RecvClient, "head1:val1", [global, multiline, caseless]),
+    {match, _} = re:run(RecvClient, "head2: val2", [global, multiline, caseless]),
+    wait_for_closed(Server, 500).
+
+trailers_close(Config) ->
+    %% Trailers are supported, from the server *and* the client.
+    %% We do not care to verify whether the client had the
+    %% `TE: trailers' header for supporting trailers in the response.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n0\r\nhead1:val1\r\nhead2: val2\r\n\r\n",
+    Req = [chunked_headers_trailers(Config, "head1, head2", close), Chunks],
+    Resp = [resp_headers({trailers, "head1,head2"}), Chunks],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_close(Client),
+    %% Check final connection status
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    {match, _} = re:run(RecvServ, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
+    {match, _} = re:run(RecvServ, "head1:val1", [global, multiline, caseless]),
+    {match, _} = re:run(RecvServ, "head2: val2", [global, multiline, caseless]),
+    {match, _} = re:run(RecvClient, "200 OK"),
+    nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
+    nomatch = re:run(RecvClient, "400"), % can't report an error halfway through
+    {match, _} = re:run(RecvClient, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
+    {match, _} = re:run(RecvClient, "head1:val1", [global, multiline, caseless]),
+    {match, _} = re:run(RecvClient, "head2: val2", [global, multiline, caseless]),
+    wait_for_closed(Server, 500).
+
+trailers_client_err(Config) ->
+    %% Bad trailers from a client yields a 400.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n0\r\ntrailer is invalid\r\n\r\n",
+    Req = [chunked_headers_trailers(Config, "head1, head2", close), Chunks],
+    Resp = [resp_headers({trailers, "head1,head2"}), Chunks],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    ok = gen_tcp:send(Server, Resp),
+    RecvServ = recv_until_close(Server),
+    RecvClient = recv_until_close(Client),
+    %% Check final connection status
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    nomatch = re:run(RecvClient, "200 OK"),
+    {match,_} = re:run(RecvClient, "400").
+
+trailers_serv_err(Config) ->
+    %% A bad trailer from the server cannot be reported on via error codes
+    %% due to being part of an already-in-progress response.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n0\r\ntrailer is invalid\r\n\r\n",
+    Req = req(Config),
+    Resp = [resp_headers({trailers, "head1,head2"}), Chunks],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_close(Client),
+    %% Check final connection status
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    {match, _} = re:run(RecvClient, "200"),
+    nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
+    nomatch = re:run(RecvClient, "400"), % can't report an error halfway through
+    wait_for_closed(Server, 500).
+
+trailers_skip(Config) ->
+    %% Trailers without the `trailer' header are ignored and seen as garbage
+    %% on the line to be left for later.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n",
+    Trailers = "head: val\r\n\r\n",
+    Req = [chunked_headers(Config), Chunks, Trailers],
+    Resp = [resp_headers(chunked), Chunks, Trailers],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_close(Client),
+    %% Check final connection status
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    {match,_} = re:run(RecvServ, Chunks),
+    {match,_} = re:run(RecvClient, Chunks),
+    nomatch = re:run(RecvServ, "head: ?val", [global, multiline, caseless]),
+    nomatch = re:run(RecvClient, "head: ?val", [global, multiline, caseless]),
+    {match,_} = re:run(RecvClient, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
+    %% The garbage from the client is seen as a bad request
+    {match,_} = re:run(RecvClient, "0\r\nHTTP/1.1 400", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1643,6 +1797,25 @@ chunked_headers(Config) ->
     "Content-Type: text/plain\r\n"
     "\r\n".
 
+chunked_headers_trailers(Config, Trailers) ->
+    "POST /chunked HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10\r\n" % should be ignored for chunked
+    "Transfer-encoding: chunked\r\n"
+    "Content-Type: text/plain\r\n"
+    "Trailer: "++Trailers++"\r\n"
+    "\r\n".
+
+chunked_headers_trailers(Config, Trailers, close) ->
+    "POST /chunked HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10\r\n" % should be ignored for chunked
+    "Transfer-encoding: chunked\r\n"
+    "Content-Type: text/plain\r\n"
+    "connection: close\r\n"
+    "Trailer: "++Trailers++"\r\n"
+    "\r\n".
+
 upgrade_headers(Config) ->
     "GET /continue-1 HTTP/1.1\r\n"
     "Host: "++domain(Config)++"\r\n"
@@ -1814,6 +1987,13 @@ resp_headers(chunked) ->
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
     "Transfer-Encoding: chunked\r\n"
+    "\r\n";
+resp_headers({trailers,Trailers}) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Transfer-Encoding: chunked\r\n"
+    "trailer: "++Trailers++"\r\n"
     "\r\n";
 resp_headers(close) ->
     "HTTP/1.1 200 OK\r\n"

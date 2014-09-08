@@ -1,13 +1,13 @@
 -module(vegur_chunked_SUITE).
 -include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -compile(export_all).
 
-all() -> [bad_length, html, short_msg, stream, trailers, zero_crlf_end, boundary_chunk,
-          zero_chunk_in_middle, bad_next_chunk
+all() -> [bad_length, html, short_msg, stream, trailers, bad_trailers,
+          zero_crlf_end, boundary_chunk, zero_chunk_in_middle,
+          bad_next_chunk
          ].
 
-init_per_testcase(trailers, _) ->
-    {skip, "Trailers not supported"};
 init_per_testcase(_, Config) ->
     Config.
 
@@ -49,6 +49,7 @@ short_msg(_) ->
     {done, _, <<"">>} = vegur_chunked:next_chunk(undefined, Rest5),
     {done, _, <<"garbage">>} = vegur_chunked:next_chunk(<<"garbage">>, Rest5),
     {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n\r\n">>, Rest4).
+
 
 html(_) ->
     String = <<""
@@ -96,21 +97,61 @@ stream(_) ->
        =:= iolist_to_binary([Str1, Str2, Str3, Str4, Str5]).
 
 trailers(_) ->
+    %% The RFC Specifies that An HTTP/1.1 message SHOULD include a Trailer
+    %% header field in a message using chunked transfer-coding with a
+    %% non-empty trailer.
+    %%
+    %% Because a SHOULD is used, the header verification for trailers is purely
+    %% optional.
     String= <<""
     "29\r\n"
-    "<html><body><p>The file you requested is\r\n"
+    "<html><body><p>The file you requested is \r\n"
     "5\r\n"
     "3,400\r\n"
-    "23\r\n"
-    "bytes long and was last modified:\r\n"
+    "22\r\n"
+    "bytes long and was last modified: \r\n"
     "1d\r\n"
     "Sat, 20 Mar 2004 21:12:00 GMT\r\n"
     "13\r\n"
     ".</p></body></html>\r\n"
     "0\r\n"
-    "Expires: Sat, 27 Mar 2004 21:12:00 GMT\r\n">>,
-    {done, Buf, <<>>} = vegur_chunked:all_chunks(String, <<"Expires">>),
-    String = iolist_to_binary(Buf).
+    "Expires: Sat, 27 Mar 2004 21:12:00 GMT\r\n"
+    "Some-HEader: with\"a \\\" quoted\"value\r\n"
+    " that-line-folded-its-value\r\n"
+    "Last-Header: aaa\r\n"
+    "\r\n">>,
+    {done, Buf, <<>>} = vegur_chunked:all_chunks(String, trailers),
+    {done, Buf2} = parse_chunked(String, trailers),
+    String = iolist_to_binary(Buf),
+    String = iolist_to_binary(Buf2).
+
+bad_trailers(_) ->
+    %% The RFC Specifies that An HTTP/1.1 message SHOULD include a Trailer
+    %% header field in a message using chunked transfer-coding with a
+    %% non-empty trailer.
+    %%
+    %% Because a SHOULD is used, the header verification for trailers is purely
+    %% optional.
+    String= <<""
+    "29\r\n"
+    "<html><body><p>The file you requested is \r\n"
+    "5\r\n"
+    "3,400\r\n"
+    "22\r\n"
+    "bytes long and was last modified: \r\n"
+    "1d\r\n"
+    "Sat, 20 Mar 2004 21:12:00 GMT\r\n"
+    "13\r\n"
+    ".</p></body></html>\r\n"
+    "0\r\n"
+    "Expires: Sat, 27 Mar 2004 21:12:00 GMT\r\n"
+    "Some-HEader: with\"a \\\" quoted\"value\r\n"
+    " that-line-folded-its-value\r\n"
+    "Last-Header: aaa\r\n"  % bad trailer ending, missing an additional CLRF
+    "GET some/path HTTP/1.1\r\n">>,
+    {error, _Buf, {bad_chunk, {bad_trailer,_}}} = vegur_chunked:all_chunks(String, trailers),
+    {error, {bad_chunk, {bad_trailer,_}}} = parse_chunked(String, trailers).
+
 
 boundary_chunk(_) ->
     Chunks1 = <<""
@@ -158,27 +199,27 @@ bad_next_chunk(_) ->
     "0\r\n">>,
     {error, [], {bad_chunk, {length_char, <<"\r">>}}} = vegur_chunked:all_chunks(String).
 
-parse_chunked(Buf, State) -> parse_chunked(Buf, State, <<>>).
+parse_chunked(Buf, State) -> parse_chunked(State, Buf, State, <<>>).
 
-parse_chunked(<<>>, State, Acc) ->
-    parse(<<>>, <<>>, State, Acc);
-parse_chunked(<<B:1/binary, Rest/binary>>, State, Acc) ->
-    parse(B, Rest, State, Acc).
+parse_chunked(InitState, <<>>, State, Acc) ->
+    parse(InitState, <<>>, <<>>, State, Acc);
+parse_chunked(InitState, <<B:1/binary, Rest/binary>>, State, Acc) ->
+    parse(InitState, B, Rest, State, Acc).
 
-parse(What, Rest, State, Acc) ->
+parse(InitState, What, Rest, State, Acc) ->
     case vegur_chunked:stream_chunk(What, State) of
         {done, Res, _Remainder} ->
             Bin = iolist_to_binary(Res),
             {done, <<Acc/binary, Bin/binary>>};
         {maybe_done, Res, State1} ->
             Bin = iolist_to_binary(Res),
-            parse_chunked(Rest, State1, <<Acc/binary, Bin/binary>>);
+            parse_chunked(InitState, Rest, State1, <<Acc/binary, Bin/binary>>);
         {error, _Reason} = Res ->
             Res;
         {chunk, Chunk, MoreBuffer} ->
             Bin = iolist_to_binary(Chunk),
-            parse_chunked(<<Rest/binary, MoreBuffer/binary>>, undefined, <<Acc/binary, Bin/binary>>);
+            parse_chunked(InitState, <<Rest/binary, MoreBuffer/binary>>, InitState, <<Acc/binary, Bin/binary>>);
         {more, _Len, Buf, State1} ->
             Bin = iolist_to_binary(Buf),
-            parse_chunked(Rest, State1, <<Acc/binary, Bin/binary>>)
+            parse_chunked(InitState, Rest, State1, <<Acc/binary, Bin/binary>>)
     end.
