@@ -1,3 +1,9 @@
+%%% @doc Reference implementation of a dumb router callback module for vegur.
+%%%
+%%% This one does very little except route requests as they are to a pre-
+%%% configured endpoint and be useful for vegur's own testing purposes.
+%%% It is expected to be replaced but a custom one when being used in an
+%%% actual system.
 -module(vegur_stub).
 
 -behaviour(vegur_interface).
@@ -19,6 +25,10 @@
          }).
 
 
+ %% @doc The init function get called as soon as the request has been accepted
+ %% and the basic headers parsed. This is the earliest point at which control
+ %% is yielded to the router, and lets you set-up initial data such as storing
+ %% metrics, seeding RNGs, and so on.
 -spec init(RequestAccepted, Upstream) ->
                   {ok, Upstream, HandlerState} when
       RequestAccepted :: erlang:timestamp(),
@@ -27,6 +37,25 @@
 init(_, Upstream) ->
     {ok, Upstream, #state{}}.
 
+%% @doc When the proxy figures out the domain name a request was intended for,
+%% Vegur will ask your router module to figure out if it belongs to you, and if
+%% so, how.
+%%
+%% The expected return value in the successful case is a 'domain group', which
+%% is an abstraction standing for a given application or set of back-end
+%% instances. This has been chosen because a same application may have
+%% multiple domains (say example.org, www.example.org, and example.com).
+%%
+%% The domain group can be any term you wish possible. If you do not want
+%% to use this abstraction, returning a server IP might as well do it, but
+%% the following callbacks will still be called.
+%%
+%% A redirection can also be returned as a possible value, returning a 301
+%% to the user.
+%%
+%% Returning `{error, not_found, Upstream, State}' will respond with an
+%% undefined error code -- to be handled and configured in
+%% {@link error_page/4}.
 -spec lookup_domain_name(Domain, Upstream, HandlerState) ->
                                 {error, not_found, Upstream, HandlerState} |
                                 {redirect, Reason, DomainGroup, Domain, Upstream, HandlerState} |
@@ -39,6 +68,13 @@ init(_, Upstream) ->
 lookup_domain_name(_Domain, Upstream, HandlerState) ->
     {ok, domain_group, Upstream, HandlerState}.
 
+%% @doc A service is a subsection of a 'domain group', representing a set or
+%% a subset of available endpoints. Checking it out may or may not be done
+%% from different storage sets than domain groups -- or require different
+%% levels of error handling and whatnot.
+%%
+%% This also lets you put restrictions across specific sections of an
+%% application or endpoint such as rate-limiting and whatnot.
 -spec checkout_service(DomainGroup, Upstream, HandlerState) ->
                               {service, Service, Upstream, HandlerState} |
                               {error, CheckoutError, Upstream, HandlerState} when
@@ -54,6 +90,11 @@ checkout_service(maintenance_mode, Connection, HandlerState) ->
 checkout_service(_DomainGroup, Upstream, HandlerState) ->
     {service, service, Upstream, HandlerState}.
 
+%% @doc Once the request is over, the resource is checked back in to allow for
+%% usage tracking, rate-limitting, and so on. The `Phase' variable lets you
+%% know whether a failure happened while `connecting' or once `connected'.
+%% Similarly, the `ServiceState' variable lets you know if the operations ended
+%% normally (`normal') or not (other).
 -spec checkin_service(DomainGroup, Service, Phase, ServiceState, Upstream, HandlerState) ->
                              {ok, Upstream, HandlerState} when
       DomainGroup :: vegur_interface:domain_group(),
@@ -65,6 +106,13 @@ checkout_service(_DomainGroup, Upstream, HandlerState) ->
 checkin_service(_DomainGroup, _Service, _Phase, _ServiceState, Upstream, HandlerState=#state{connect_tries=Tries}) ->
     {ok, Upstream, HandlerState#state{connect_tries=Tries+1}}.
 
+%% @doc Specific features or behaviour are configurable conditionally, on
+%% demand, on a per-request basis.
+%% The two currently supported features are: 1) `deep_continue', which allows
+%% to choose to pass and respect the `expect: 100-continue' headers, or to have
+%% the proxy answer on behalf of the backends, and 2) `peer_port' which allows
+%% to inject headers about the original peer IP address when working in TCP
+%% Proxy mode.
 -spec feature(Feature, HandlerState) -> {enabled | disabled, HandlerState} when
       Feature :: vegur_interface:feature(),
       HandlerState :: vegur_interface:handler_state().
@@ -75,6 +123,8 @@ feature(peer_port, State) ->
 feature(_, State) ->
     {disabled, State}.
 
+%% @doc Lets you inject HTTP headers in requests to a back-end with custom
+%% values, in order to provide additional information.
 -spec additional_headers(Log, HandlerState) ->
     {HeadersToAddOrReplace, HandlerState} when
       Log :: vegur_req_log:request_log(),
@@ -93,6 +143,11 @@ additional_headers(Log, HandlerState=#state{features=Features}) ->
             {[], HandlerState}
     end.
 
+%% @doc Takes any error reason returned in the other callbacks and lets you
+%% define custom error pages when a back-end application couldn't do it or be
+%% found.
+%% The list in this function example is exhaustive of everything that could
+%% be returned by vegur itself.
 -spec error_page(ErrorReason, DomainGroup, Upstream, HandlerState) ->
                         {{HttpCode, ErrorHeaders, ErrorBody}, Upstream, HandlerState} when
       ErrorReason :: term(),
@@ -189,6 +244,10 @@ error_page(_, _DomainGroup, Upstream, HandlerState) ->
 instance_name() ->
     <<"vegur_stub">>.
 
+%% @doc When a service has been chosen, this function is called to extract
+%% the IP and port of the service itself. This allows to carry around fancier
+%% data structures to represent services while still being able to extract
+%% core infomration.
 -spec service_backend(Service, Upstream, HandlerState) ->
                              {ServiceBackend, Upstream, HandlerState} when
       Service :: vegur_interface:service(),
