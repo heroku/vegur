@@ -25,9 +25,182 @@ nodes to send traffic to, nor will it actually track what backends are
 available. This task is left to the user of the library, by writing a router
 callback module.
 
-The documentation for this isn't complete yet. In the mean time, feel free to
-reverse-engineer what has been done in `src/vegur_stub.erl`, which provides an
-example implementation.
+`src/vegur_stub.erl`, which provides an example implementation of the callback
+module that has to be used to implement routing logic, can be used as a source
+of information.
+
+
+### Demo reverse-proxy
+
+To set up a reverse-proxy that does load balancing locally, we'll first set up
+two toy servers:
+
+```bash
+$ while true ; do  echo -e "HTTP/1.1 200 OK\r\nConnection:close\r\nContent-Length: ${#$(date)}\r\n\r\n$(date)" | nc -l -p 8081 ; done
+$ while true ; do  echo -e "HTTP/1.1 200 OK\r\nConnection:close\r\nContent-Length: ${#$(date)}\r\n\r\n$(date)" | nc -l -p 8082 ; done
+```
+
+These have the same behaviour and will do the exact same thing, except one is
+on port 8081 and the other is on port 8082. You can try reaching them from your
+browser.
+
+To make things simple, I'm going to hardcode both back-ends directly in the
+source module:
+
+```erlang
+-module(toy_router).
+-behaviour(vegur_interface).
+-export([init/2,
+         terminate/3,
+         lookup_domain_name/3,
+         checkout_service/3,
+         checkin_service/6,
+         service_backend/3,
+         feature/2,
+         additional_headers/2,
+         error_page/4]).
+
+-record(state, {tries = [] :: list()}).
+```
+
+This is our list of exported functions, along with the behaviour they implement
+(`vegur_interface`), and a record defining the internal state of each router
+invocation. We track a single value, `tries`, which will be useful to
+make sure we don't end up in an infinite loop if we ever have no backends
+alive.
+
+Now for the implementation of specific callbacks, documented in
+`src/vegur_stub.erl`:
+
+```erlang
+init(AcceptTime, Upstream) ->
+    random:seed(AcceptTime), % RNGs require per-process seeding
+    {ok, Upstream, #state{}}. % state initialization here.
+
+lookup_domain_name(_ReqDomain, _Upstream, State) ->
+    %% hardcoded values, we don't care for the domain
+    Servers = [{1, {127,0,0,1}, 8081},
+               {2, {127,0,0,1}, 8082}],
+    {ok, Servers, State}.
+```
+
+From there on, we then can fill in the checkin/checkout logic. We technically
+have a limitation of one request at a time per server, but we won't track
+these limitations outside of a limited number of connection retries.
+
+```erlang
+checkout_service(Servers, Upstream, State=#state{tries=Tried}) ->
+    Available = Servers -- Tried,
+    case Available of
+        [] ->
+            {error, all_blocked, Upstream, State};
+        _ ->
+            N = random:uniform(length(Available)),
+            Pick = lists:nth(N, Available),
+            {service, Pick, State#state{tries=[Pick | Tried]}}
+    end.
+
+service_backend({_Id, IP, Port}, Upstream, State) ->
+    %% extract the IP:PORT from the chosen server.
+    {{IP, Port}, Upstream, State}.
+
+checkin_service(_Servers, _Pick, _Phase, _ServState, Upstream, State) ->
+    %% if we tracked total connections, it'd be here we decrement the counters
+    {ok, Upstream, State}.
+```
+
+We're also going to enable none of the features and add no headers because
+this is a basic demo:
+
+```erlang
+feature(_WhoCares, State) ->
+    {disabled, State}.
+
+additional_headers(_Log, State) ->
+    {[], State}.
+```
+
+And error pages. For now we only care about the one we return, which is `all_blocked`:
+
+```erlang
+error_page(all_blocked, _DomainGroup, Upstream, State) ->
+    {{502, [], <<>>}, Upstream, State}; % Bad Gateway
+```
+
+And then all the default ones, which I copy from the `vegur_stub` module:
+
+```erlang
+%% Vegur-returned errors that should be handled no matter what
+error_page(expectation_failed, _DomainGroup, Upstream, HandlerState) ->
+    {{417, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, closed}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, closed}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, timeout}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, timeout}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({undefined, timeout}, _DomainGroup, Upstream, HandlerState) ->
+    %% Who knows who timed out. Technically both!
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, invalid_status}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, content_length}, _DomainGroup, Upstream, HandlerState) ->
+    {{502, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, cookie_length}, _DomainGroup, Upstream, HandlerState) ->
+    {{502, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, header_length}, _DomainGroup, Upstream, HandlerState) ->
+    {{502, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, status_length}, _DomainGroup, Upstream, HandlerState) ->
+    {{502, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
+    %% bad chunked encoding from client
+    {{400, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, invalid_transfer_encoding}, _DomainGroup, Upstream, HandlerState) ->
+    {{400, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
+    %% bad chunked encoding from server
+    {{502, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, non_terminal_status_after_continue}, _DomainGroup, Upstream, HandlerState) ->
+    %% Can't send a 1xx status after a 100 continue (except for upgrades)
+    %% when expect: 100-continue is declared
+    {{502, [], <<>>}, Upstream, HandlerState};
+%% Generic handling
+error_page(empty_host, _DomainGroup, Upstream, HandlerState) ->
+    {{400, [], <<>>}, Upstream, HandlerState};
+error_page(bad_request, _DomainGroup, Upstream, HandlerState) ->
+    {{400, [], <<>>}, Upstream, HandlerState};
+error_page(bad_request_header, _DomainGroup, Upstream, HandlerState) ->
+    {{400, [], <<>>}, Upstream, HandlerState};
+error_page(_, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState}.
+```
+
+And then terminate in a way we don't care:
+
+```erlang
+terminate(_, _, _) ->
+    ok.
+```
+
+And then we're done. Compile all that stuff:
+
+```bash
+$ rebar compile && erl -pa ebin demo deps/*/ebin
+Erlang/OTP 17 [erts-6.0] [source] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false]
+
+Eshell V6.0  (abort with ^G)
+1> c("demo/toy_router"), application:ensure_all_started(vegur), vegur:start_http(8080, toy_router, [{middlewares, vegur:default_middlewares()}]).
+{ok,<0.62.0>}
+```
+
+You can then call localhost:8080 and see the request routed to either of your
+netcat servers.
+
+Congratulations, you have a working reverse-load balancer and/or proxy/router
+combo running. You can shut down either server, the other should take the load,
+or get an error once nothing is left available.
 
 ## Behaviour
 
@@ -97,7 +270,7 @@ per-listener manner. The following options are valid when passed to
   header in HTTP requests. Defaults to `8192`. Note that this value may be
   disregarded if the entire line managed to fit within the confines of a single
   HTTP packet or `recv` operation.
-- `{max__headers, pos_integer()}`: number of HTTP headers allowed in a single
+- `{max_headers, pos_integer()}`: number of HTTP headers allowed in a single
   request. Defaults to 1000.
 - `{timeout, timeout()}`: Delay, in milliseconds, after which a connection is
   closed for inactivity. This delay also specifies the maximal time that an

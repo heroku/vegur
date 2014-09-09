@@ -106,6 +106,19 @@ checkout_service(_DomainGroup, Upstream, HandlerState) ->
 checkin_service(_DomainGroup, _Service, _Phase, _ServiceState, Upstream, HandlerState=#state{connect_tries=Tries}) ->
     {ok, Upstream, HandlerState#state{connect_tries=Tries+1}}.
 
+%% @doc When a service has been chosen, this function is called to extract
+%% the IP and port of the service itself. This allows to carry around fancier
+%% data structures to represent services while still being able to extract
+%% core infomration.
+-spec service_backend(Service, Upstream, HandlerState) ->
+                             {ServiceBackend, Upstream, HandlerState} when
+      Service :: vegur_interface:service(),
+      HandlerState :: vegur_interface:handler_state(),
+      ServiceBackend :: vegur_interface:service_backend(),
+      Upstream :: vegur_interface:upstream().
+service_backend(_Service, Upstream, HandlerState) ->
+    {{{127,0,0,1}, 80}, Upstream, HandlerState}.
+
 %% @doc Specific features or behaviour are configurable conditionally, on
 %% demand, on a per-request basis.
 %% The two currently supported features are: 1) `deep_continue', which allows
@@ -243,19 +256,6 @@ error_page(_, _DomainGroup, Upstream, HandlerState) ->
 
 instance_name() ->
     <<"vegur_stub">>.
-
-%% @doc When a service has been chosen, this function is called to extract
-%% the IP and port of the service itself. This allows to carry around fancier
-%% data structures to represent services while still being able to extract
-%% core infomration.
--spec service_backend(Service, Upstream, HandlerState) ->
-                             {ServiceBackend, Upstream, HandlerState} when
-      Service :: vegur_interface:service(),
-      HandlerState :: vegur_interface:handler_state(),
-      ServiceBackend :: vegur_interface:service_backend(),
-      Upstream :: vegur_interface:upstream().
-service_backend(_Service, Upstream, HandlerState) ->
-    {{{127,0,0,1}, 80}, Upstream, HandlerState}.
 
 -spec terminate(Status, Upstream, HandlerState) -> ok when
       Status :: vegur_interface:terminate_reason(),
