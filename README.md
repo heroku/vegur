@@ -282,8 +282,7 @@ match the options for the `max_cookie_length` in the OTP options to avoid the
 painful case of a backend setting a cookie that cannot be sent back by the end
 client.
 
-Logs and statistics being collected
------------------------------------
+## Logs and statistics being collected
 
 * `domain_lookup`
  * Time it takes to lookup the domain in the domain service.
@@ -296,8 +295,163 @@ Logs and statistics being collected
 * `connection_accepted`
  * Timestamp when connection is accepted
 
-Reference Material
-------------------
+
+
+## Behaviour
+
+### Added Headers
+
+All headers are considered to be case-insensitive, as per HTTP Specification,
+but will be camel-cased by default. A few of them are added by Vegur.
+
+- `X-Forwarded-For`: the originating IP address of the client connecting to the
+  proxy
+- `X-Forwarded-Proto`: the originating protocol of the HTTP request (example:
+  https). This is detected based on the incoming port, so using port 8080 will
+  not add this header.
+- `X-Forwarded-Port`: the originating port of the HTTP request (example: 443)
+- `X-Request-Start`: unix timestamp (milliseconds) when the request was
+  received by the proxy
+- `X-Request-Id`: the HTTP Request ID
+- `Via`: a code name for the vegur proxy, with the value `vegur: 1.1`
+- `Server`: will be added to the response (using our forked `cowboy`) if the
+  endpoint didn't add it first.
+
+### Protocol Details
+
+The vegur proxy only supports HTTP/1.0 and HTTP/1.1 clients. HTTP/0.9 and
+earlier are no longer supported. SPDY and HTTP/2.0 are not supported at this
+point.
+
+The proxy's behavior is to be as compliant as possible with the HTTP/1.1
+specifications. Special exceptions must be made for HTTP/1.0 however:
+
+- The proxy will advertise itself as using HTTP/1.1 no matter if the client
+  uses HTTP/1.0 or not.
+- The proxy will take on itself to do the necessary conversions from a chunked
+  response to a regular HTTP response. In order to do so without accumulating
+  potentially gigabytes of data, the response to the client will be delimited by
+  the termination of the connection (See [Point 4.4.5](http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4))
+- The router will assume that the client wants to close the connection on each
+  request (no keep-alive).
+- An HTTP/1.0 client may send a request with an explicit `connection:keep-alive`
+  header. Despite the keep-alive mechanism not being defined back in 1.0 (it
+  was ad-hoc), the router makes the assumption that the behavior requested is
+  similar to the HTTP/1.1 behavior at this point.
+
+Other details:
+
+- No caching done by the proxy
+- Websockets (and the general `upgrade` mechanism) are supported
+- Responses are not compressed on behalf of the application
+- All HTTP methods are supported, except `CONNECT`.
+- `Expect: 100-continue` requests can be automatically answered to with `100
+  Continue` or forwarded to the application based on the `feature` routing
+  callback function.
+- Only `100-continue` is accepted as a value for `expect` headers. In case any
+  other value is encountered, the proxy responds with `417 Expectation Failed`
+- The proxy will ignore `Connection: close` on a `100 Continue` and only honor
+  it after having received the final response. Note however, that because
+  `Connection: close` is a hop-by-hop mechanism, the proxy will not necessarily
+  close the connection to the client, and may not forward it.
+- The proxy will close all connections to the back-ends after each request, but
+  will honor keep-alive to the client when possible.
+- The proxy will return a configurable error code if the server returns a `100
+  Continue` following an initial `100 Continue` response. The proxy does not
+  yet support infinite `1xx` streams.
+- In the case of chunked encoding and `content-length` both being present in
+  the request, the router will [give precedence to chunked
+  encoding](http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4).
+- If multiple `content-length` fields are present, and that they have the same
+  length, they will be merged into a single `content-length` header
+- If a `content-length` header contain multiple values (`content-length: 15,24`)
+  or a request contains multiple content-length headers with multiple values,
+  the request will be denied with a code `400`.
+- Headers are restricted to 8192 bytes per line (and 1000 bytes for the header
+  name)
+- Hop-by-hop headers will be stripped to avoid confusion
+- At most, 1000 headers are allowed per request
+- The request line of the HTTP request is limited to 8192 bytes
+
+Specifically for responses:
+
+
+- Hop-by-hop headers will be stripped to avoid confusion
+- Headers are restricted to 512kb per line
+- Cookies are explicitly restricted to 8192 bytes. This is to protect against
+  common restrictions (for example, imposed by CDNs) that rarely accept larger
+  cookie values. In such cases, a developer could accidentally set large cookies,
+  which would be submitted back to the user, who would then see all of his or her
+  requests denied.
+- The status line (`HTTP/1.1 200 OK`) is restricted to 8192 bytes in length,
+  must have a 3-digits response code and contain a string explaining the code,
+  as per RFC.
+
+Additionally, while HTTP/1.1 requests and responses are expected to be
+keep-alive by default, if the initial request had an explicit connection: close
+header from the router to the backend, the backend can send a response
+delimited by the connection termination, without a specific content-encoding
+nor an explicit content-length.
+
+Even though `HEAD` HTTP verbs usually do not require having a proper response
+sent over the line (regarding content-length, for example), `HEAD` requests are
+explicitly made to work with `101 Switching Protocols` responses. A backend that
+doesn't want to upgrade should send a different status code, and the connection
+will not be upgraded
+
+## Not Supported
+
+- SPDY
+- HTTP/2.x
+- `Expect` headers with any content other than 100-continue (yields a `417`)
+- HTTP Extensions such as WEBDAV
+- A HEAD, 1xx, 204, or 304 response with a content-length or chunked encoding
+  doesn’t have the proxy try to relay a body that will never come
+- Header line endings other than CRLF (`\r\n`)
+- Caching of HTTP Content
+- Caching the HTTP versions of backends
+- Long-standing preallocated idle connections. The limit is set to 1 minute
+  before an idle connection is closed.
+
+## Contributing
+
+All contributed work must have:
+
+- Tests
+- Documentation
+- Rationale
+- Proper commit description
+
+And all contributed work will be reviewed before being merged (or rejected).
+
+This proxy is used in production with existing apps, and a commitment to
+backwards compatibility (or just working in the real world) is in place.
+
+## Architecture Guidelines
+
+Most of the request validation is done through the usage of middlewares.
+The middlewares we use are implemented through `midjan`, which wraps some
+operations traditionally done by `cowboy` in order to have more control
+over vital parts of a request/response whenever the RFC is different
+between servers and proxies.
+
+All middleware modules have their name terminated by `_middleware`.
+
+The proxy is then split into 5 major parts maintained in this directory:
+
+1. `vegur_proxy_middleware`, which handles the high-level request/response
+   patterns.
+2. `vegur_proxy`, which handles the low-level HTTP coordination between
+   requests and responses, and technicalities of socket management, header
+   reconciliation, etc.
+3. `vegur_client`, a small HTTP client to call back-ends
+4. Supporting sub-states, such as the chunked parser and the bytepipe (used
+   for upgrades)
+5. Supporting modules, such as functional logging modules, midjan translators,
+   and so on.
+
+
+## Reference Material
 
 * [HTTP Made Easy](http://www.jmarshall.com/easy/http/)
 * [HTTPbis Wiki](http://trac.tools.ietf.org/wg/httpbis/trac/wiki)
