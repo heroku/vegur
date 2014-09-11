@@ -1046,8 +1046,9 @@ passthrough_early_0length(Config) ->
     %% The good request
     {match,_} = re:run(RecvClient, "200 OK"),
     {match,_} = re:run(RecvClient, "3\r\nabc\r\n0\r\n"),
-    %% Garbage left on the line
-    {match,_} = re:run(RecvClient, "400 Bad Request"),
+    %% Garbage left on the line doesn't exist anymore (it used to) as
+    %% the connection gets closed.
+    nomatch = re:run(RecvClient, "400 Bad Request"),
     wait_for_closed(Server, 500).
 
 interrupted_client(Config) ->
@@ -1277,8 +1278,9 @@ trailers_skip(Config) ->
     nomatch = re:run(RecvServ, "head: ?val", [global, multiline, caseless]),
     nomatch = re:run(RecvClient, "head: ?val", [global, multiline, caseless]),
     {match,_} = re:run(RecvClient, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
-    %% The garbage from the client is seen as a bad request
-    {match,_} = re:run(RecvClient, "0\r\nHTTP/1.1 400", [global,multiline,caseless]),
+    %% The garbage from the client is ignored and the connection is closed
+    %% before then
+    nomatch = re:run(RecvClient, "0\r\nHTTP/1.1 400", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

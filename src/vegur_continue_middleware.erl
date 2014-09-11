@@ -33,7 +33,7 @@ handle_feature(Req, Env) ->
             Headers = cowboy_req:get(headers, Req3),
             NewHeaders = vegur_utils:delete_all_headers(<<"expect">>, Headers),
             Req4 = cowboy_req:set([{headers, NewHeaders}], Req3),
-            {{Transport, Socket}, _Discard} = vegur_utils:raw_cowboy_socket(Req4),
+            {Transport, Socket} = vegur_utils:borrow_cowboy_socket(Req4),
             Transport:send(Socket, <<"HTTP/1.1 100 Continue\r\n\r\n">>),
             {Req4, Env}
     end.

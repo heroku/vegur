@@ -15,10 +15,10 @@
          ,get_request_status/1
          ,handle_error/2
          ,peer_ip_port/1
+         ,borrow_cowboy_socket/1
          ,raw_cowboy_socket/1
          ,raw_cowboy_sockbuf/1
          ,append_to_cowboy_buffer/2
-         ,mark_as_done/1
         ]).
 
 -export([config/1
@@ -187,14 +187,31 @@ peer_ip_port(Req) ->
             {{PeerIp, Port}, Req4}
     end.
 
+%% Get a cowboy socket for a temporary operation, expected to be
+%% non-destructive and non-terminal (more data to be sent by the
+%% regular cowboy code path after).
+-spec borrow_cowboy_socket(Req) -> {Transport, Socket} when
+    Transport :: module(),
+    Socket :: any(),
+    Req :: cowboy_req:req().
+borrow_cowboy_socket(Req) ->
+    [Transport, Socket] = cowboy_req:get([transport, socket], Req),
+    {Transport, Socket}.
+
+%% Get a cowboy socket for a terminal operation, expected to be
+%% destructive (no more data to be sent by the regular cowboy code path after)
 -spec raw_cowboy_socket(Req) ->  {{Transport, Socket}, Req} when
     Transport :: module(),
     Socket :: any(),
     Req :: cowboy_req:req().
 raw_cowboy_socket(Req) ->
     [Transport, Socket] = cowboy_req:get([transport, socket], Req),
-    {{Transport, Socket}, cowboy_req:set([{resp_state, done}], Req)}.
+    {{Transport, Socket}, mark_as_done(Req)}.
 
+%% Get a cowboy socket for a terminal operation, expected to be
+%% destructive (no more data to be sent by the regular cowboy code path after).
+%% To be used specifically when the currently buffered data is relevant and
+%% needs to be used.
 -spec raw_cowboy_sockbuf(Req) -> {{Transport, Socket}, Buffer, Req} when
     Transport :: module(),
     Socket :: any(),
@@ -204,7 +221,7 @@ raw_cowboy_sockbuf(Req) ->
     [Transport, Socket, Buffer] = cowboy_req:get([transport, socket, buffer], Req),
     {{Transport, Socket},
      Buffer,
-     cowboy_req:set([{resp_state, done}, {buffer, <<>>}], Req)}.
+     mark_as_done(cowboy_req:set([{buffer, <<>>}], Req))}.
 
 -spec append_to_cowboy_buffer(Buffer, Req) -> Req when
     Buffer :: iodata(),
@@ -215,7 +232,8 @@ append_to_cowboy_buffer(Buffer, Req) ->
 
 -spec mark_as_done(Req) -> Req when Req :: cowboy_req:req().
 mark_as_done(Req) ->
-     cowboy_req:set([{resp_state, done}], Req).
+    self() ! {cowboy_req, resp_sent},
+    cowboy_req:set([{resp_state, done}], Req).
 
 % Config helpers
 config(Key, Default) ->
