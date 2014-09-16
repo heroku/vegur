@@ -17,7 +17,7 @@ init(AcceptTime, Upstream) ->
     {ok, Upstream, #state{}}. % state initialization here.
 
 lookup_domain_name(_AllDomains, Upstream, State) ->
-    %% hardcoded values
+    %% hardcoded values, we don't care about the domain
     Servers = [{1, {127,0,0,1}, 8081},
                {2, {127,0,0,1}, 8082}],
     {ok, Servers, Upstream, State}.
@@ -38,7 +38,7 @@ service_backend({_Id, IP, Port}, Upstream, State) ->
     {{IP, Port}, Upstream, State}.
 
 checkin_service(_Servers, _Pick, _Phase, _ServState, Upstream, State) ->
-    %% if we tracked total connections, it'd be here we decrement the counters
+    %% if we tracked total connections, we would decrement the counters here
     {ok, Upstream, State}.
 
 feature(_WhoCares, State) ->

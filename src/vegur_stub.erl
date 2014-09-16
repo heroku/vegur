@@ -1,8 +1,8 @@
-%%% @doc Reference implementation of a dumb router callback module for vegur.
+%%% @doc Reference implementation of a trivial router callback module for vegur.
 %%%
 %%% This one does very little except route requests as they are to a pre-
 %%% configured endpoint and be useful for vegur's own testing purposes.
-%%% It is expected to be replaced but a custom one when being used in an
+%%% It is expected to be replaced by a custom one when being used in an
 %%% actual system.
 -module(vegur_stub).
 
@@ -27,8 +27,8 @@
 
  %% @doc The init function get called as soon as the request has been accepted
  %% and the basic headers parsed. This is the earliest point at which control
- %% is yielded to the router, and lets you set-up initial data such as storing
- %% metrics, seeding RNGs, and so on.
+ %% is yielded to the router, and lets you set up initial data such as storing
+ %% metrics, seeding RNGs, and whatever else the user may need.
 -spec init(RequestAccepted, Upstream) ->
                   {ok, Upstream, HandlerState} when
       RequestAccepted :: erlang:timestamp(),
@@ -46,9 +46,9 @@ init(_, Upstream) ->
 %% instances. This has been chosen because a same application may have
 %% multiple domains (say example.org, www.example.org, and example.com).
 %%
-%% The domain group can be any term you wish possible. If you do not want
-%% to use this abstraction, returning a server IP might as well do it, but
-%% the following callbacks will still be called.
+%% The domain group can be any term. If you do not want to use this
+%% abstraction, returning a server IP will also work, but the following
+%% callbacks will still be called.
 %%
 %% A redirection can also be returned as a possible value, returning a 301
 %% to the user.
@@ -71,7 +71,7 @@ lookup_domain_name(_Domain, Upstream, HandlerState) ->
 %% @doc A service is a subsection of a 'domain group', representing a set or
 %% a subset of available endpoints. Checking it out may or may not be done
 %% from different storage sets than domain groups -- or require different
-%% levels of error handling and whatnot.
+%% levels of error handling, for example.
 %%
 %% This also lets you put restrictions across specific sections of an
 %% application or endpoint such as rate-limiting and whatnot.
@@ -91,7 +91,7 @@ checkout_service(_DomainGroup, Upstream, HandlerState) ->
     {service, service, Upstream, HandlerState}.
 
 %% @doc Once the request is over, the resource is checked back in to allow for
-%% usage tracking, rate-limitting, and so on. The `Phase' variable lets you
+%% usage tracking, rate-limiting, and so on. The `Phase' variable lets you
 %% know whether a failure happened while `connecting' or once `connected'.
 %% Similarly, the `ServiceState' variable lets you know if the operations ended
 %% normally (`normal') or not (other).
@@ -106,10 +106,10 @@ checkout_service(_DomainGroup, Upstream, HandlerState) ->
 checkin_service(_DomainGroup, _Service, _Phase, _ServiceState, Upstream, HandlerState=#state{connect_tries=Tries}) ->
     {ok, Upstream, HandlerState#state{connect_tries=Tries+1}}.
 
-%% @doc When a service has been chosen, this function is called to extract
-%% the IP and port of the service itself. This allows to carry around fancier
-%% data structures to represent services while still being able to extract
-%% core infomration.
+%% @doc When a service has been chosen, this function is called to extract the
+%% IP and port of the service itself. This allows the callback module to carry
+%% around fancier data structures to represent services while still leaving
+%% vegur able to extract core information.
 -spec service_backend(Service, Upstream, HandlerState) ->
                              {ServiceBackend, Upstream, HandlerState} when
       Service :: vegur_interface:service(),
@@ -136,8 +136,8 @@ feature(peer_port, State) ->
 feature(_, State) ->
     {disabled, State}.
 
-%% @doc Lets you inject HTTP headers in requests to a back-end with custom
-%% values, in order to provide additional information.
+%% @doc Lets you inject custom HTTP headers in requests to a back-end, in order
+%% to provide additional information.
 -spec additional_headers(Log, HandlerState) ->
     {HeadersToAddOrReplace, HandlerState} when
       Log :: vegur_req_log:request_log(),

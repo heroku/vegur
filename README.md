@@ -78,7 +78,7 @@ init(AcceptTime, Upstream) ->
     {ok, Upstream, #state{}}. % state initialization here.
 
 lookup_domain_name(_ReqDomain, _Upstream, State) ->
-    %% hardcoded values, we don't care for the domain
+    %% hardcoded values, we don't care about the domain
     Servers = [{1, {127,0,0,1}, 8081},
                {2, {127,0,0,1}, 8082}],
     {ok, Servers, State}.
@@ -105,7 +105,7 @@ service_backend({_Id, IP, Port}, Upstream, State) ->
     {{IP, Port}, Upstream, State}.
 
 checkin_service(_Servers, _Pick, _Phase, _ServState, Upstream, State) ->
-    %% if we tracked total connections, it'd be here we decrement the counters
+    %% if we tracked total connections, we would decrement the counters here
     {ok, Upstream, State}.
 ```
 
@@ -177,7 +177,8 @@ error_page(_, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState}.
 ```
 
-And then terminate in a way we don't care:
+And then terminate without doing anything special (we don't have state
+to tear down, for example):
 
 ```erlang
 terminate(_, _, _) ->
@@ -199,14 +200,15 @@ You can then call localhost:8080 and see the request routed to either of your
 netcat servers.
 
 Congratulations, you have a working reverse-load balancer and/or proxy/router
-combo running. You can shut down either server, the other should take the load,
-or get an error once nothing is left available.
+combo running. You can shut down either server. The other should take the load,
+and if it also fails, the user would get an error since nothing is left
+available.
 
 ## Behaviour
 
 There are multiple specific HTTP behaviours that have been chosen/implemented
 in this proxying software. The list is maintained at
-https://devcenter.heroku.com/articles/heroku-improved-router
+https://devcenter.heroku.com/articles/http-routing
 
 ## Configuration
 
@@ -301,8 +303,9 @@ client.
 
 ### Added Headers
 
-All headers are considered to be case-insensitive, as per HTTP Specification,
-but will be camel-cased by default. A few of them are added by Vegur.
+All headers are considered to be case-insensitive, as per the HTTP
+Specification, but will be camel-cased by default. A few of them are added by
+Vegur.
 
 - `X-Forwarded-For`: the originating IP address of the client connecting to the
   proxy
@@ -326,12 +329,13 @@ point.
 The proxy's behavior is to be as compliant as possible with the HTTP/1.1
 specifications. Special exceptions must be made for HTTP/1.0 however:
 
-- The proxy will advertise itself as using HTTP/1.1 no matter if the client
-  uses HTTP/1.0 or not.
-- The proxy will take on itself to do the necessary conversions from a chunked
-  response to a regular HTTP response. In order to do so without accumulating
-  potentially gigabytes of data, the response to the client will be delimited by
-  the termination of the connection (See [Point 4.4.5](http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4))
+- The proxy will advertise itself as using HTTP/1.1 regardless whether the
+  client uses HTTP/1.0 or not.
+- It is the proxy's responsibility to convert a chunked response to a regular
+  HTTP response. In order to do so without accumulating potentially gigabytes
+  of data, the response to the client will be delimited by the termination
+  of the connection
+  (See [Point 4.4.5](http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4))
 - The router will assume that the client wants to close the connection on each
   request (no keep-alive).
 - An HTTP/1.0 client may send a request with an explicit `connection:keep-alive`
@@ -351,7 +355,7 @@ Other details:
 - Only `100-continue` is accepted as a value for `expect` headers. In case any
   other value is encountered, the proxy responds with `417 Expectation Failed`
 - The proxy will ignore `Connection: close` on a `100 Continue` and only honor
-  it after having received the final response. Note however, that because
+  it after it receives the final response. Note however, that because
   `Connection: close` is a hop-by-hop mechanism, the proxy will not necessarily
   close the connection to the client, and may not forward it.
 - The proxy will close all connections to the back-ends after each request, but
@@ -364,7 +368,7 @@ Other details:
   encoding](http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4).
 - If multiple `content-length` fields are present, and that they have the same
   length, they will be merged into a single `content-length` header
-- If a `content-length` header contain multiple values (`content-length: 15,24`)
+- If a `content-length` header contains multiple values (`content-length: 15,24`)
   or a request contains multiple content-length headers with multiple values,
   the request will be denied with a code `400`.
 - Headers are restricted to 8192 bytes per line (and 1000 bytes for the header
@@ -384,34 +388,37 @@ Specifically for responses:
   which would be submitted back to the user, who would then see all of his or her
   requests denied.
 - The status line (`HTTP/1.1 200 OK`) is restricted to 8192 bytes in length,
-  must have a 3-digits response code and contain a string explaining the code,
+  must have a 3-digit response code and contain a string explaining the code,
   as per RFC.
 
 Additionally, while HTTP/1.1 requests and responses are expected to be
-keep-alive by default, if the initial request had an explicit connection: close
+keep-alive by default, if the initial request had an explicit `connection: close`
 header from the router to the backend, the backend can send a response
 delimited by the connection termination, without a specific content-encoding
 nor an explicit content-length.
 
-Even though `HEAD` HTTP verbs usually do not require having a proper response
-sent over the line (regarding content-length, for example), `HEAD` requests are
+Even though the `HEAD` HTTP verb does not require a response body to be
+sent over the line and ends at the response headers, `HEAD` requests are
 explicitly made to work with `101 Switching Protocols` responses. A backend that
 doesn't want to upgrade should send a different status code, and the connection
-will not be upgraded
+will not be upgraded.
 
 ## Not Supported
 
 - SPDY
 - HTTP/2.x
 - `Expect` headers with any content other than 100-continue (yields a `417`)
-- HTTP Extensions such as WEBDAV
-- A HEAD, 1xx, 204, or 304 response with a content-length or chunked encoding
-  doesn’t have the proxy try to relay a body that will never come
+- HTTP Extensions such as WEBDAV, relying on additional 1xx status responses
+- A HEAD, 1xx, 204, or 304 response which specifies a content-length or chunked
+  encoding will result in the proxy forwarding such headers, but not the body
+  that may or may not be coming with the response.
 - Header line endings other than CRLF (`\r\n`)
 - Caching of HTTP Content
 - Caching the HTTP versions of backends
 - Long-standing preallocated idle connections. The limit is set to 1 minute
   before an idle connection is closed.
+- HTTP/1.0 routing without a `Host` header, even when the full path is
+  submitted in the request line.
 
 ## Contributing
 
@@ -420,9 +427,12 @@ All contributed work must have:
 - Tests
 - Documentation
 - Rationale
-- Proper commit description
+- Proper commit description.
 
-And all contributed work will be reviewed before being merged (or rejected).
+A good commit message should include a rationale for the change, along with the
+existing, expected, and new behaviour.
+
+All contributed work will be reviewed before being merged (or rejected).
 
 This proxy is used in production with existing apps, and a commitment to
 backwards compatibility (or just working in the real world) is in place.
@@ -445,17 +455,24 @@ The proxy is then split into 5 major parts maintained in this directory:
    requests and responses, and technicalities of socket management, header
    reconciliation, etc.
 3. `vegur_client`, a small HTTP client to call back-ends
-4. Supporting sub-states, such as the chunked parser and the bytepipe (used
-   for upgrades)
+4. Supporting sub-states of HTTP, such as the chunked parser and the bytepipe
+   (used for upgrades), each having its own module (`vegur_chunked` and
+   `vegur_bytepipe`)
 5. Supporting modules, such as functional logging modules, midjan translators,
-   and so on.
+   and so on (`vegur_req_log`, `vegur_midjan_translator`).
 
 
 ## Reference Material
 
 * [HTTP Made Easy](http://www.jmarshall.com/easy/http/)
+* [HTTP/1.0 RFC](http://www.isi.edu/in-notes/rfc1945.txt)
+* [HTTP/1.1 RFC (original)](https://www.ietf.org/rfc/rfc2068.txt)
+* [HTTP/1.1 RFC (updated)](https://www.ietf.org/rfc/rfc2616.txt)
+* [HTTP/1.1 RFCs (updated again, by HTTPbis)](https://datatracker.ietf.org/wg/httpbis/documents/),
+  particularly the [Messaging RFC](https://datatracker.ietf.org/doc/rfc7230/), and
+  the [Semantics RFC](https://datatracker.ietf.org/doc/rfc7231/)
 * [HTTPbis Wiki](http://trac.tools.ietf.org/wg/httpbis/trac/wiki)
-* [HTTPbis RFC - Messaging](http://tools.ietf.org/html/draft-ietf-httpbis-p1-messaging-24)
-* [HTTPbis RFC - Semantics](http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-24)
 * [The Cowboy Guide](http://ninenines.eu/docs/en/cowboy/HEAD/guide/introduction)
 * [Key differences between HTTP/1.0 and 1.1](http://www8.org/w8-papers/5c-protocols/key/key.html)
+* [What Proxies Must Do](https://www.mnot.net/blog/2011/07/11/what_proxies_must_do)
+* [Heroku's HTTP Routing](https://devcenter.heroku.com/articles/http-routing)
