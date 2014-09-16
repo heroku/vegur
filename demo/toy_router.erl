@@ -47,53 +47,27 @@ feature(_WhoCares, State) ->
 additional_headers(_Log, State) ->
     {[], State}.
 
-error_page(all_blocked, _DomainGroup, Upstream, State) ->
-    {{502, [], <<>>}, Upstream, State}; % Bad Gateway
-%% Vegur-returned errors that should be handled no matter what
-error_page(expectation_failed, _DomainGroup, Upstream, HandlerState) ->
-    {{417, [], <<>>}, Upstream, HandlerState};
-error_page({upstream, closed}, _DomainGroup, Upstream, HandlerState) ->
-    {{503, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, closed}, _DomainGroup, Upstream, HandlerState) ->
-    {{503, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, timeout}, _DomainGroup, Upstream, HandlerState) ->
-    {{503, [], <<>>}, Upstream, HandlerState};
-error_page({upstream, timeout}, _DomainGroup, Upstream, HandlerState) ->
-    {{503, [], <<>>}, Upstream, HandlerState};
-error_page({undefined, timeout}, _DomainGroup, Upstream, HandlerState) ->
-    %% Who knows who timed out. Technically both!
-    {{503, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, invalid_status}, _DomainGroup, Upstream, HandlerState) ->
-    {{503, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, content_length}, _DomainGroup, Upstream, HandlerState) ->
-    {{502, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, cookie_length}, _DomainGroup, Upstream, HandlerState) ->
-    {{502, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, header_length}, _DomainGroup, Upstream, HandlerState) ->
-    {{502, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, status_length}, _DomainGroup, Upstream, HandlerState) ->
-    {{502, [], <<>>}, Upstream, HandlerState};
-error_page({upstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
-    %% bad chunked encoding from client
+%% Vegur-returned errors that should be handled no matter what.
+%% Full list in src/vegur_stub.erl
+error_page({upstream, _Reason}, _DomainGroup, Upstream, HandlerState) ->
+    %% Blame the caller
     {{400, [], <<>>}, Upstream, HandlerState};
-error_page({upstream, invalid_transfer_encoding}, _DomainGroup, Upstream, HandlerState) ->
-    {{400, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, {bad_chunk,_}}, _DomainGroup, Upstream, HandlerState) ->
-    %% bad chunked encoding from server
-    {{502, [], <<>>}, Upstream, HandlerState};
-error_page({downstream, non_terminal_status_after_continue}, _DomainGroup, Upstream, HandlerState) ->
-    %% Can't send a 1xx status after a 100 continue (except for upgrades)
-    %% when expect: 100-continue is declared
-    {{502, [], <<>>}, Upstream, HandlerState};
-%% Generic handling
+error_page({downstream, _Reason}, _DomainGroup, Upstream, HandlerState) ->
+    %% Blame the server
+    {{500, [], <<>>}, Upstream, HandlerState};
+error_page({undefined, _Reason}, _DomainGroup, Upstream, HandlerState) ->
+    %% Who knows who was to blame!
+    {{500, [], <<>>}, Upstream, HandlerState};
+%% Specific error codes from middleware
 error_page(empty_host, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page(bad_request, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
-error_page(bad_request_header, _DomainGroup, Upstream, HandlerState) ->
-    {{400, [], <<>>}, Upstream, HandlerState};
+error_page(expectation_failed, _DomainGroup, Upstream, HandlerState) ->
+    {{417, [], <<>>}, Upstream, HandlerState};
+%% Catch-all
 error_page(_, _DomainGroup, Upstream, HandlerState) ->
-    {{503, [], <<>>}, Upstream, HandlerState}.
+    {{500, [], <<>>}, Upstream, HandlerState}.
 
 terminate(_, _, _) ->
     ok.
