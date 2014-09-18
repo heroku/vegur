@@ -201,7 +201,7 @@ read_backend_response(Req, Client) ->
 
 send_continue(Req, BackendClient) ->
     HTTPVer = atom_to_binary(vegur_client:version(BackendClient), latin1),
-    {{Transport,Socket}, _} = vegur_utils:raw_cowboy_socket(Req),
+    {Transport,Socket} = vegur_utils:borrow_cowboy_socket(Req),
     Transport:send(Socket,
         [HTTPVer, <<" 100 Continue\r\n\r\n">>]),
     %% Got it. Now clean up the '100 Continue' state from
