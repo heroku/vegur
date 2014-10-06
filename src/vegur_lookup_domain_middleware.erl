@@ -38,20 +38,29 @@ handle_error(Reason, Req, _Env) ->
       HttpCode :: cowboy:http_status(),
       Env :: cowboy_middleware:env().
 handle_redirect(_Reason, _DomainGroup, RedirectTo, Req, _Env) ->
-    {Path, Req1} = cowboy_req:path(Req),
-    {Qs, Req2} = cowboy_req:qs(Req1),
-    Qs2 = case Qs of
-              <<>> -> <<>>;
-              _ -> ["?", Qs]
-          end,
-    {HeaderValue, Req3} = cowboy_req:header(<<"x-forwarded-proto">>, Req2),
-    Proto = get_proto(HeaderValue),
-    FullLocation = [Proto, <<"://">>, RedirectTo, Path, Qs2],
-    {ok, Req4} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req3),
-    {halt, 301, Req4}.
+    {FullLocation, Req2} = build_redirect_uri(RedirectTo, Req),
+    {ok, Req3} = cowboy_req:reply(301, [{<<"location">>, FullLocation}], Req2),
+    {halt, 301, Req3}.
 
 % Internal
+
+build_redirect_uri(RedirectTo, Req) ->
+    {Path, Req1} = cowboy_req:path(Req),
+    {Qs, Req2} = get_querystring(Req1),
+    {HeaderValue, Req3} = cowboy_req:header(<<"x-forwarded-proto">>, Req2),
+    Proto = get_proto(HeaderValue),
+    {[Proto, <<"://">>, RedirectTo, Path, Qs], Req3}.
+
+
+get_querystring(Req) ->
+    {Qs, Req2} = cowboy_req:qs(Req),
+    case Qs of
+        <<>> -> {<<>>, Req2};
+        _ -> {["?", Qs], Req2}
+    end.
+
 get_proto(<<"https">>) ->
     <<"https">>;
 get_proto(_) ->
     <<"http">>.
+
