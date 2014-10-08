@@ -1,0 +1,17 @@
+{level, overview}.
+{incl_dirs, ["ebin"]}.
+{excl_dirs_r, ["deps"]}.
+{excl_mods, [header_ordering_handler,
+             vegur_bytepipe_SUITE,
+             vegur_chunked_SUITE,
+             vegur_client_SUITE,
+             vegur_dyno,
+             vegur_proxy_SUITE,
+             vegur_req_log_SUITE,
+             vegur_request_SUITE,
+             vegur_roundtrip_SUITE,
+             vegur_test_middleware,
+             vegur_unchunked_SUITE,
+             vegur_websocket_client,
+             vegur_websockets_dyno,
+             vegur_interface]}.
