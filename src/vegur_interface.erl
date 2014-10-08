@@ -15,6 +15,7 @@
                 {route_time|connect_time|total_time, ms()}.
 -type stats() :: [stat()]|[].
 -type feature() :: deep_continue | peer_port.
+-type connect_options() :: [{connect_timeout, non_neg_integer()}].
 -opaque upstream() :: cowboy_req:req().
 
 -export_type([domain/0,
@@ -31,7 +32,8 @@
               stats/0,
               ms/0,
               feature/0,
-              upstream/0]).
+              upstream/0,
+              connect_options/0]).
 
 -callback init(RequestAccepted, Upstream) ->
     {ok, Upstream, HandlerState} when
@@ -81,9 +83,11 @@
       HandlerState :: handler_state().
 
 -callback service_backend(Service, Upstream, HandlerState) ->
-    {ServiceBackend, Upstream, HandlerState} when
+    {ServiceBackend, Upstream, HandlerState}|
+    {ServiceBackend, ConnectOpts, Upstream, HandlerState} when
       Service :: service(),
       ServiceBackend :: service_backend(),
+      ConnectOpts :: connect_options(),
       Upstream :: upstream(),
       HandlerState :: handler_state().
 
