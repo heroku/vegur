@@ -1,6 +1,7 @@
 -module(vegur_proxy).
 
 -define(UPSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
+-define(DOWNSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
 
 -export([backend_connection/1
          ,send_headers/7
@@ -474,20 +475,36 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
 %% going from a cowboy stream to raw vegur_client requests
 %% frontend -> backend
 stream_request(Req, Client) ->
+    %% Buffer the first bit of data
     case cowboy_req:stream_body(Req) of
         {done, Req2} -> {done, Req2, Client};
-        {ok, Data, Req2} -> stream_request(Data, Req2, Client);
+        {ok, Data, Req2} -> stream_request(Data, Req2, Client, <<>>);
         {error, Err} -> {error, upstream, Err}
     end.
 
-stream_request(Buffer, Req, Client) ->
+stream_request(Buffer, Req, Client, DownBuffer) ->
+    %% Buffer the data so that if the connection is
+    %% interrupted, we can read the response (if any) before communicating
+    %% the closed connection to the client
+    NewDownBuffer = check_downstream(Client, DownBuffer),
+    %% Send data once
     case vegur_client:raw_request(Buffer, Client) of
         {ok, Client2} ->
+            %% Buffer again
             case cowboy_req:stream_body(Req) of
-                {done, Req2} -> {done, Req2, Client2};
-                {ok, Data, Req2} -> stream_request(Data, Req2, Client2);
-                {error, Err} -> {error, upstream, Err}
+                {done, Req2} ->
+                    {done, Req2, vegur_client:append_to_buffer(NewDownBuffer,Client2)};
+                {ok, Data, Req2} ->
+                    stream_request(Data, Req2, Client2, NewDownBuffer);
+                {error, Err} ->
+                    {error, upstream, Err}
             end;
+        {error, closed} when byte_size(DownBuffer) > 0 ->
+            %% we have a buffer accumulated, it's likely an early response came
+            %% while streaming the body. We must however force the connection
+            %% to be closed because we won't wait until the full body is read.
+            Req2 = vegur_utils:mark_cowboy_close(Req),
+            {done, Req2, vegur_client:append_to_buffer(NewDownBuffer,Client)};
         {error, Err} ->
             {error, downstream, Err}
     end.
@@ -735,9 +752,43 @@ check(Transport, Sock) ->
                 {ok, Data} ->
                     buffer_append(Data),
                     buffer_size() >= ?UPSTREAM_BODY_BUFFER_LIMIT andalso
-                        lager:info("mod=vegur_proxy at=check message=buffer_full"),
+                        error_logger:info_msg("mod=vegur_proxy at=check message=upstream_buffer_full"),
                     ok
             end
+    end.
+
+%% When uploading data from the client to the back-end server, there is a
+%% possibility that the transfer will be long and slow, but that the server
+%% interjects with an early response (such as a 3xx, 4xx, or 5xx status),
+%% and then promptly closing the connection.
+%%
+%% The problem is that if the upload is particularly long, we may eventually
+%% find that the connection was broken while sending. At this point, the
+%% data that was lingering in the receive buffer from the server is no longer
+%% available, and we might report the connection as interrupted, while it was
+%% acceptable to have a response comming back.
+%%
+%% This function is used to compare buffers from downstream and fetch data from
+%% the line, so that in the eventuality the case above happens, we still have
+%% the data available to us, and can figure out whether it was an interruption,
+%% or a good response. In the latter case, we can then forward that response
+%% to the caller and let it figure out how to deal with it.
+check_downstream(_, Buffer) when byte_size(Buffer) >= ?DOWNSTREAM_BODY_BUFFER_LIMIT ->
+    %% No check after buffer is full, we'll just check when we're done with
+    %% the downstream transfer
+    Buffer;
+check_downstream(Client, Buffer) ->
+    {Transport, Sock} = vegur_client:borrow_socket(Client),
+    case Transport:recv(Sock, 0, 0) of
+        {error, _} ->
+            %% Timeouts or connection errors do not end up changing the buffer;
+            %% let the caller find errors if need be.
+            Buffer;
+        {ok, Data} ->
+            NewBuf = <<Buffer/binary, Data/binary>>,
+            byte_size(NewBuf)  >= ?DOWNSTREAM_BODY_BUFFER_LIMIT andalso
+                error_logger:info_msg("mod=vegur_proxy at=check message=downstream_buffer_full"),
+            NewBuf
     end.
 
 %%% Buffer management functions

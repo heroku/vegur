@@ -41,7 +41,11 @@ groups() -> [{continue, [], [
                 valid_head
              ]},
              {large_body, [], [
-                large_body_stream, large_body_close, large_body_close_delimited
+                large_body_stream, large_body_close, large_body_close_delimited,
+                large_body_request_response_interrupt,
+                large_chunked_request_response_interrupt,
+                large_close_request_response_interrupt,
+                large_close_request_response_interrupt_undetected
              ]}
             ].
 
@@ -1737,6 +1741,148 @@ large_body_close_delimited(Config) ->
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000).
 
+
+large_body_request_response_interrupt(Config) ->
+    %% When transfering a large body from a client to the back-end, the
+    %% back-end may respond and close the connection early. This will in
+    %% turn yield a case where the proxy should detect the data on the
+    %% line and return it to the client.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    <<Req1:8000/binary, Req2:4000/binary, _/binary>> = iolist_to_binary(req_large(Config, 16000)),
+    Resp = resp_304(close),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req1),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    _ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    %% slowly trickle upload data to make sure we receive the response
+    [ok = gen_tcp:send(Client, <<Byte>>) || <<Byte>> <= Req2, ok == timer:sleep(1)],
+    %% Close the connection
+    gen_tcp:close(Server),
+    %% We should get a response back even if we didn't finish sending it
+    Recv = recv_until_close(Client),
+    %% Check results
+    ct:pal("Resp: ~p", [Recv]),
+    {match,_} = re:run(Recv, "^HTTP/1.1 304 OK", [global,multiline,caseless]).
+
+large_chunked_request_response_interrupt(Config) ->
+    %% When transfering a large body from a client to the back-end, the
+    %% back-end may respond and close the connection early. This will in
+    %% turn yield a case where the proxy should detect the data on the
+    %% line and return it to the client.
+    %% Same as the other, but chunked.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req1 = chunked_headers(Config),
+    Req2 = iolist_to_binary(lists:duplicate(50, "3\r\nabc\r\n5\r\ndefg")), % never finish
+    Resp = resp_304(close),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req1),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    _ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    %% slowly trickle upload data to make sure we receive the response
+    [ok = gen_tcp:send(Client, <<Byte>>) || <<Byte>> <= Req2, ok == timer:sleep(1)],
+    %% Close the connection
+    gen_tcp:close(Server),
+    %% We should get a response back even if we didn't finish sending it
+    Recv = recv_until_close(Client),
+    %% Check results
+    ct:pal("Resp: ~p", [Recv]),
+    {match,_} = re:run(Recv, "^HTTP/1.1 304 OK", [global,multiline,caseless]).
+
+large_close_request_response_interrupt(Config) ->
+    %% When transfering a large body from a client to the back-end, the
+    %% back-end may respond and close the connection early. This will in
+    %% turn yield a case where the proxy should detect the data on the
+    %% line and return it to the client.
+    %% Same as before, but using a close-delimited response
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    <<Req1:8000/binary, Req2:4000/binary, _/binary>> = iolist_to_binary(req_large(Config, 16000)),
+    Resp = resp_large_close_delimited(30000),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req1),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    _ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    %% slowly trickle upload data to make sure we receive the response
+    [ok = gen_tcp:send(Client, <<Byte>>) || <<Byte>> <= Req2, ok == timer:sleep(1)],
+    %% Close the connection
+    gen_tcp:close(Server),
+    %% We should get a response back even if we didn't finish sending it
+    Recv = recv_until_close(Client),
+    %% Check results
+    {match,_} = re:run(Recv, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
+    ?assert(30000 =< byte_size(iolist_to_binary(Recv))).
+
+large_close_request_response_interrupt_undetected(Config) ->
+    %% When transfering a large body from a client to the back-end, the
+    %% back-end may respond and close the connection early. This will in
+    %% turn yield a case where the proxy should detect the data on the
+    %% line and return it to the client.
+    %% However, if the body size ends up being greater than what the buffer
+    %% can accumulate, the detection falls apart and the response cannot
+    %% detect the termination in a surefire way (this may depend on
+    %% the platform?)
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    <<Req1:8000/binary, Req2:4000/binary, Req3/binary>> = iolist_to_binary(req_large(Config, 16000)),
+    Resp = resp_large_close_delimited(80000),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req1),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    _ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    %% slowly trickle upload data to make sure we receive the response
+    [ok = gen_tcp:send(Client, <<Byte>>) || <<Byte>> <= Req2, ok == timer:sleep(1)],
+    %% Close the connection
+    gen_tcp:close(Server),
+    %% We shouldn't get a response because we filled the buffer on the other end,
+    %% but only one some TCP stacks. Depending on this, we have different
+    %% possible endings -- either a timeout or a closed connection, depending on
+    %% if you're working with a remote host or on localhost.
+    Recv = case recv_until_close_or_timeout(Client) of
+        [] -> % This is a timeout
+            %% Send the rest, get the response
+            gen_tcp:send(Client, Req3),
+            recv_until_close(Client);
+        Data -> % this is a close
+            Data
+    end,
+    %% Check results
+    %% The buffer is set to 64kb, so the response relayed will work, but
+    %% be broken at the end. This is expected.
+    {match,_} = re:run(Recv, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
+    %% we can't know how much we received except that it was >= than
+    %% the max buffer size
+    ?assert(65536 =< byte_size(iolist_to_binary(Recv))).
+
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
 %%%%%%%%%%%%%%%
@@ -1767,6 +1913,17 @@ recv_until_timeout(Port) ->
     case gen_tcp:recv(Port, 0, 100) of
         {error, timeout} -> [];
         {ok, Data} -> [Data | recv_until_timeout(Port)]
+    end.
+
+%% Only use this if you can't know how a connection will terminate.
+%% This may happen when the differences between running on a loopback
+%% interface or a more standard IP end up triggering TCP stack
+%% optimizations in the OS that change the expected behaviour.
+recv_until_close_or_timeout(Port) ->
+    case gen_tcp:recv(Port, 0, 100) of
+        {error, timeout} -> [];
+        {error, closed} -> [];
+        {ok, Data} -> [Data | recv_until_close_or_timeout(Port)]
     end.
 
 wait_for_closed(_Port, T) when T =< 0 -> error(not_closed);
