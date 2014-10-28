@@ -54,6 +54,7 @@
 -export([stream_chunk/1]).
 -export([stream_unchunk/1]).
 -export([buffer_data/3]).
+-export([append_to_buffer/2]).
 
 -export([body_type/1]).
 -export([version/1]).
@@ -62,6 +63,7 @@
 -export([request_to_headers_iolist/6]).
 -export([request_to_iolist/6]).
 -export([raw_socket/1]).
+-export([borrow_socket/1]).
 -export([auth_header/1]).
 
 -export([set_stats/1]).
@@ -203,6 +205,9 @@ request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
 
 raw_socket(Client=#client{transport=T, socket=S, buffer=Buf}) ->
     {{T,S}, Buf, Client#client{buffer= <<>>, state=raw}}.
+
+borrow_socket(#client{transport=T, socket=S}) ->
+    {T,S}.
 
 parse_url(<< "https://", Rest/binary >>) ->
     parse_url(Rest, ranch_ssl);
@@ -620,6 +625,9 @@ buffer_data(Length, Timeout, Client=#client{socket=Socket, transport=Transport,
         _ ->
             {ok, Client}
     end.
+
+append_to_buffer(Data, Client=#client{buffer = Buffer}) ->
+    Client#client{buffer = <<Buffer/binary, Data/binary>>}.
 
 header_list_values(Value) ->
     cowboy_http:nonempty_list(Value, fun cowboy_http:token_ci/2).
