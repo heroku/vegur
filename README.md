@@ -69,6 +69,10 @@ invocation. We track a single value, `tries`, which will be useful to
 make sure we don't end up in an infinite loop if we ever have no backends
 alive.
 
+An important thing to note is that this `toy_router` module will be called once
+per request and is decentralized with nothing shared, unlike a node-unique
+`gen_server`.
+
 Now for the implementation of specific callbacks, documented in
 `src/vegur_stub.erl`:
 
