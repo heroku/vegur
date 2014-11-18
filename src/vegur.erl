@@ -9,14 +9,18 @@
 
 -module(vegur).
 -define(HTTP_REF, vegur_http).
+-define(HTTPS_REF, vegur_https).
 -define(PROXY_REF, vegur_proxy).
 
 %% API
 -export([start_http/3
+         ,start_https/3
          ,start_proxy/3
          ,stop_http/0
+         ,stop_https/0
          ,stop_proxy/0
          ,stop_http/1
+         ,stop_https/1
          ,stop_proxy/1
         ]).
 
@@ -47,6 +51,15 @@ start_http(Port, Interface, Config) ->
     HttpRef = proplists:get_value(ref, Config, ?HTTP_REF),
     start(http, HttpRef, Port, Interface, Config).
 
+-spec start_https(PortNumber, Interface, Options) ->
+                         {ok, pid()}|no_return() when
+      PortNumber :: inet:port_number(), 
+      Interface :: module(),
+      Options :: options().
+start_https(Port, Interface, Config) ->
+    HttpRef = proplists:get_value(ref, Config, ?HTTPS_REF),
+    start(https, HttpRef, Port, Interface, Config).
+
 -spec start_proxy(PortNumber, Interface, Options) ->
                          {ok, pid()}|no_return() when
       PortNumber :: inet:port_number(),
@@ -60,12 +73,20 @@ start_proxy(Port, Interface, Config) ->
 stop_http() ->
     stop_http(?HTTP_REF).
 
+-spec stop_https() -> ok.
+stop_https() ->
+    stop_https(?HTTPS_REF).
+
 -spec stop_proxy() -> ok.
 stop_proxy() ->
     stop_proxy(?PROXY_REF).
 
 -spec stop_http(atom()) -> ok.
 stop_http(Ref) ->
+    cowboy:stop_listener(Ref).
+
+-spec stop_https(atom()) -> ok.
+stop_https(Ref) ->
     cowboy:stop_listener(Ref).
 
 -spec stop_proxy(atom()) -> ok.
@@ -128,6 +149,14 @@ start(Type, Ref, Port, Interface, Config) ->
 start_listener(http, Ref, Port, Acceptors, MaxConnections, Config) ->
     cowboy:start_http(Ref, Acceptors,
                       [{port, Port},
+                       {max_connections, MaxConnections}],
+                      merge_options(defaults(), Config));
+start_listener(https, Ref, Port, Acceptors, MaxConnections, Config) ->    
+    cowboy:start_https(Ref, Acceptors,
+                      [{port, Port},
+                       {cacertfile, "priv/ssl/cowboy-ca.crt"},
+                       {certfile, "priv/ssl/server.crt"},
+                       {keyfile, "priv/ssl/server.key"},
                        {max_connections, MaxConnections}],
                       merge_options(defaults(), Config));
 start_listener(proxy, Ref, Port, Acceptors, MaxConnections, Config) ->
