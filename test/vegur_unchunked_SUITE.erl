@@ -54,7 +54,9 @@ html(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    {done, Buf, <<>>} = vegur_chunked:all_unchunks(String),
+    {error, _, incomplete} = vegur_chunked:all_unchunks(String),
+    S = byte_size(String),
+    {done, Buf, <<>>} = vegur_chunked:all_unchunks(<<String:S/binary, "\r\n">>),
     <<"<h1>go!</h1>"
       "<h1>first chunk loaded</h1>"
       "<h1>second chunk loaded and displayed</h1>"
@@ -86,8 +88,9 @@ stream(_) ->
     {more, _, Buf6, Cont4} = vegur_chunked:stream_unchunk(Str4, Cont3),
     {chunk, Buf7, Rest3} = vegur_chunked:stream_unchunk(Str5, Cont4),
     {chunk, Buf8, Rest4} = vegur_chunked:stream_unchunk(Rest3, undefined), % that works too
-    {maybe_done, Buf9, Cont5} = vegur_chunked:stream_unchunk(Rest4),
-    {done, <<>>, <<>>} = vegur_chunked:stream_unchunk(undefined, Cont5),
+    {more, _, Buf9, Cont5} = vegur_chunked:stream_unchunk(Rest4),
+    {done, <<>>, <<>>} = vegur_chunked:stream_unchunk(<<"\r\n">>, Cont5),
+    {error, {bad_chunk, {last_crlf, _}}} = vegur_chunked:stream_unchunk(undefined, Cont5),
     true = iolist_to_binary([Buf1, Buf2, Buf3, Buf4, Buf5, Buf6, Buf7, Buf8, Buf9])
        =:= <<"<h1>go!</h1>"
              "<h1>first chunk loaded</h1>"
@@ -105,7 +108,7 @@ boundary_chunk(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    done = parse_chunked(Chunks1, undefined),
+    {error, {bad_chunk, {last_crlf,_}}} = parse_chunked(Chunks1, undefined),
     Chunks2 = <<""
    "c\r\n"
    "<h1>go!</h1>\r\n"
@@ -131,8 +134,6 @@ parse(What, Rest, State) ->
     case vegur_chunked:stream_unchunk(What, State) of
         {done, _, _} ->
             done;
-        {maybe_done, _, State1} ->
-            parse_chunked(Rest, State1);
         {error, _Reason} = Res ->
             Res;
         {chunk, _Chunk, MoreBuffer} ->

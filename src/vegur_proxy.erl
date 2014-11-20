@@ -543,11 +543,7 @@ decode_chunked(Data, {InitCont, Cont, Total}) ->
             {ok, Buf, Rest, {InitCont, InitCont, Total+iolist_size(Buf)}};
         {more, _Len, Buf, Cont2} ->
             %% Not yet done on the current chunk, but keep going.
-            {ok, Buf, <<>>, {InitCont, Cont2, Total}};
-        {maybe_done, Buf, _Cont2} ->
-            %% Treat it as done. Cowboy doesn't let us do fancier things like
-            %% polling temporarily. Best effort.
-            {done, Buf, Total+iolist_size(Buf), <<>>}
+            {ok, Buf, <<>>, {InitCont, Cont2, Total}}
     end.
 
 respond(Status, Headers, Body, Req) ->

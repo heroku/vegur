@@ -77,8 +77,6 @@ stream_chunk(Bin, {Fun, State=#state{}}) ->
         {done, Buf, Rest} -> {done, Buf, Rest};
         {error, Reason} -> {error, Reason};
         {chunk, Buf, Rest} -> {chunk, Buf, Rest};
-        {maybe_done, {NewFun,S=#state{buffer=Buf}}} ->
-            {maybe_done, Buf, {NewFun,S#state{buffer = <<>>}}};
         {more, {NewFun, S=#state{buffer=Buf, length=Len}}} ->
             {more, Len, Buf, {NewFun,S#state{buffer = <<>>}}}
     end.
@@ -94,7 +92,6 @@ all_chunks(Bin, Opt) -> all_chunks(Bin, fun(Arg) -> next_chunk(Arg, Opt) end, []
 all_chunks(Bin, F, Acc) ->
     try F(Bin) of
         {done, Buf, Rest} -> {done, [Acc, Buf], Rest};
-        {maybe_done, {_,#state{buffer=Buf}}} -> {done, [Acc, Buf], <<>>};
         {error, Reason} -> {error, Acc, Reason};
         {more, _State} -> {error, Acc, incomplete};
         {chunk, Buf, Rest} -> all_chunks(Rest, F, [Acc, Buf])
@@ -214,10 +211,9 @@ last_chunk(<<>>, S=#state{}) ->
     %% to return partial last chunks. The downside is that it misses
     %% the occasional CRLF that was split on a packet boundary
     %{done, Buf, <<>>};
-    %% Solution: add a new return state: {maybe_done, Buf, {Fun, State}}
     %% This one allows to go make sure that nothing is left on the buffer or
     %% connection while maintaining data integrity.
-    {maybe_done, {fun maybe_trailers/2, S}};
+    {more, {fun maybe_trailers/2, S}};
 last_chunk(<<"\r", Rest/binary>>, S=#state{length=0}) ->
     last_chunk_cr(Rest, maybe_buffer(<<"\r">>, S));
 last_chunk(Bin, S=#state{length=0, buffer=_Buf}) ->
@@ -325,13 +321,15 @@ maybe_trailers(OtherData, S=#state{trailers=true}) ->
 
 
 finalize(undefined, #state{buffer=Buf}) ->
-    {done, Buf, <<>>};
+    {error, {bad_chunk, {last_crlf, Buf}}};
 finalize(<<"\r",Rest/binary>>, S=#state{}) ->
     finalize_cr(Rest, maybe_buffer(<<"\r">>, S));
 finalize(OtherData, #state{buffer=Buf}) ->
     %% That data may belong to anything, even other requests. Take
     %% no chances. We should have already checked for trailers at this point.
-    {done, Buf, OtherData}.
+    %{done, Buf, OtherData}.
+    % We instead go strict. We need more of that final data.
+    {error, {bad_chunk, {last_crlf, [Buf,OtherData]}}}.
 
 finalize_cr(<<>>, S=#state{}) ->
     {more, {fun finalize_cr/2, S}};

@@ -312,15 +312,6 @@ next_chunk(Client=#client{buffer=Buffer}, Cont) ->
                 {ok, Data} -> next_chunk(stamp_recv(Client#client{buffer=Data}), State);
                 {error, Reason} -> {error, Reason}
             end;
-        {maybe_done, State} ->
-            case recv(Client#client{read_timeout=0}) of
-                {ok, Data} ->
-                    next_chunk(Client#client{buffer=Data}, State);
-                {error, timeout} ->
-                    next_chunk(Client#client{buffer= <<>>}, State);
-                {error, Reason} ->
-                    {error, Reason}
-            end;
         {error, Reason} ->
             {error, Reason}
     end.
