@@ -84,12 +84,8 @@ send_body(_Method, Headers, Body, _Path, _Url, Req, BackendClient) ->
     end.
 
 %% depending on the type of body, set the right streaming function
-choose_body_stream_type(Headers, chunked) ->
-    InitState = case has_trailers(Headers) of
-        false -> undefined;
-        true -> trailers
-    end,
-    {fun decode_chunked/2, {InitState, InitState, 0}};
+choose_body_stream_type(_Headers, chunked) ->
+    {fun decode_chunked/2, {undefined, undefined, 0}};
 choose_body_stream_type(_Headers, BodyLen) ->
     {fun decode_raw/2, {0, BodyLen}}.
 
@@ -708,9 +704,6 @@ add_connection_upgrade_header(Hdrs) ->
 add_via(Headers) ->
     Via = vegur_utils:get_via_value(),
     vegur_utils:add_or_append_header(<<"via">>, Via, Headers).
-
-has_trailers(Headers) ->
-    lists:keymember(<<"trailer">>, 1, Headers).
 
 %% When sending data in passive mode, it is usually impossible to be notified
 %% of connections being closed. For this to be done, we need to poll the socket

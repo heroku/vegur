@@ -2,7 +2,8 @@
 -include_lib("common_test/include/ct.hrl").
 -compile(export_all).
 
-all() -> [bad_length, html, short_msg, stream, boundary_chunk, zero_crlf_end].
+all() -> [bad_length, html, short_msg, stream, boundary_chunk, zero_crlf_end,
+          trailers, bad_trailers].
 
 init_per_testcase(_, Config) ->
     Config.
@@ -90,7 +91,7 @@ stream(_) ->
     {chunk, Buf8, Rest4} = vegur_chunked:stream_unchunk(Rest3, undefined), % that works too
     {more, _, Buf9, Cont5} = vegur_chunked:stream_unchunk(Rest4),
     {done, <<>>, <<>>} = vegur_chunked:stream_unchunk(<<"\r\n">>, Cont5),
-    {error, {bad_chunk, {last_crlf, _}}} = vegur_chunked:stream_unchunk(undefined, Cont5),
+    {more, _, _, Cont5} = vegur_chunked:stream_unchunk(<<>>, Cont5),
     true = iolist_to_binary([Buf1, Buf2, Buf3, Buf4, Buf5, Buf6, Buf7, Buf8, Buf9])
        =:= <<"<h1>go!</h1>"
              "<h1>first chunk loaded</h1>"
@@ -108,13 +109,51 @@ boundary_chunk(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    {error, {bad_chunk, {last_crlf,_}}} = parse_chunked(Chunks1, undefined),
+    incomplete = parse_chunked(Chunks1, undefined),
     Chunks2 = <<""
    "c\r\n"
    "<h1>go!</h1>\r\n"
     "0\r\n\r\n">>,
     done = parse_chunked(Chunks2, undefined).
 
+trailers(_) ->
+    %% The RFC Specifies that An HTTP/1.1 message SHOULD include a Trailer
+    %% header field in a message using chunked transfer-coding with a
+    %% non-empty trailer.
+    %%
+    %% Because a SHOULD is used, the header verification for trailers is purely
+    %% optional.
+    String= <<""
+    "13\r\n"
+    ".</p></body></html>\r\n"
+    "0\r\n"
+    "Expires: Sat, 27 Mar 2004 21:12:00 GMT\r\n"
+    "Some-HEader: with\"a \\\" quoted\"value\r\n"
+    " that-line-folded-its-value\r\n"
+    "Last-Header: aaa\r\n"
+    "\r\n">>,
+    {done, Buf, <<>>} = vegur_chunked:all_unchunks(String),
+    done = parse_chunked(String, undefined),
+    <<".</p></body></html>">> = iolist_to_binary(Buf).
+
+bad_trailers(_) ->
+    %% The RFC Specifies that An HTTP/1.1 message SHOULD include a Trailer
+    %% header field in a message using chunked transfer-coding with a
+    %% non-empty trailer.
+    %%
+    %% Because a SHOULD is used, the header verification for trailers is purely
+    %% optional.
+    String= <<""
+    "13\r\n"
+    ".</p></body></html>\r\n"
+    "0\r\n"
+    "Expires: Sat, 27 Mar 2004 21:12:00 GMT\r\n"
+    "Some-HEader: with\"a \\\" quoted\"value\r\n"
+    " that-line-folded-its-value\r\n"
+    "Last-Header: aaa\r\n"  % bad trailer ending, missing an additional CLRF
+    "GET some/path HTTP/1.1\r\n">>,
+    {error, _Buf, {bad_chunk, {bad_trailer,_}}} = vegur_chunked:all_unchunks(String),
+    {error, {bad_chunk, {bad_trailer,_}}} = parse_chunked(String, undefined).
 
 zero_crlf_end(_) ->
     String = <<""
@@ -138,6 +177,8 @@ parse(What, Rest, State) ->
             Res;
         {chunk, _Chunk, MoreBuffer} ->
             parse_chunked(<<Rest/binary, MoreBuffer/binary>>, undefined);
-        {more, _, _, State1} ->
-            parse_chunked(Rest, State1)
+        {more, _, _, State1} when Rest =/= <<>> ->
+            parse_chunked(Rest, State1);
+        {more, _, _, _} when Rest =:= <<>> ->
+            incomplete
     end.

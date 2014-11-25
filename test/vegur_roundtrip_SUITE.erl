@@ -31,8 +31,7 @@ groups() -> [{continue, [], [
                 passthrough_partial_early_0length3,
                 interrupted_client, interrupted_server, bad_chunk, trailers,
                 trailers_close, trailers_client_err, trailers_serv_err,
-                trailers_skip_client, trailers_skip_server,
-                trailers_skip_client_partial, trailers_skip_server_partial
+                trailers_no_header
              ]},
              {body_less, [], [
                 head_small_body_expect, head_large_body_expect,
@@ -549,7 +548,7 @@ duplicate_different_lengths_resp(Config) ->
     {ok, Response} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
     {match, _} = re:run(Response, "502"),
-    %% Connection to the server is closed, but not to the client
+    %% Connection to the server is closed, also to the client
     wait_for_closed(Server, 500),
     wait_for_closed(Client, 500),
     check_stub_error({downstream, content_length}).
@@ -1363,13 +1362,8 @@ trailers_serv_err(Config) ->
     nomatch = re:run(RecvClient, "400"), % can't report an error halfway through
     wait_for_closed(Server, 500).
 
-trailers_skip_client(Config) ->
-    %% Trailers without the `trailer' header are ignored and seen as garbage
-    %% on the line to be left for later. They trigger an error given they
-    %% turn out to be a bad 0\r\n\r\n termination as they're unsupported without
-    %% matching headers.
-    %% Sent in one batch, the server doesn't react in time before vegur
-    %% sends the response back.
+trailers_no_header(Config) ->
+    %% Trailers without the `trailer' header are supported.
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
     Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n",
@@ -1385,145 +1379,18 @@ trailers_skip_client(Config) ->
     %% Fetch the server socket
     Server = get_accepted(Ref),
     %% Exchange all the data
-    RecvServ = recv_until_close(Server),
-    {error, closed} = gen_tcp:send(Server, Resp),
-    RecvClient = recv_until_close(Client),
-    %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
-    {match, _} = re:run(RecvServ, "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n"),
-    nomatch = re:run(RecvServ, Chunks),
-    nomatch = re:run(RecvClient, Chunks),
-    nomatch = re:run(RecvServ, "head: ?val", [global, multiline, caseless]),
-    nomatch = re:run(RecvClient, "head: ?val", [global, multiline, caseless]),
-    nomatch = re:run(RecvClient, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
-    %% The garbage from the client is ignored and the connection is closed
-    %% before then
-    nomatch = re:run(RecvClient, "0\r\nHTTP/1.1 400", [global,multiline,caseless]),
-    {match, _} = re:run(RecvClient, "400 Bad Request").
-
-trailers_skip_server(Config) ->
-    %% Trailers without the `trailer' header are ignored and seen as garbage
-    %% on the line to be left for later. They trigger an error given they
-    %% turn out to be a bad 0\r\n\r\n termination as they're unsupported without
-    %% matching headers.
-    %% Sent in one batch, the trailers are ignored from the client up until the
-    %% next request (which auto-fails);
-    %% Trailers without the `trailer' header are ignored and seen as garbage
-    %% on the line to be left for later, which triggers an error when the server
-    %% sends them.
-    IP = ?config(server_ip, Config),
-    Port = ?config(proxy_port, Config),
-    Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n",
-    Trailers = "head: val\r\n\r\n",
-    Req = [chunked_headers(Config), Chunks, "\r\n", Trailers],
-    Resp = [resp_headers(chunked), Chunks, Trailers],
-    %% Open the server to listening. We then need to send data for the
-    %% proxy to get the request and contact a back-end
-    Ref = make_ref(),
-    start_acceptor(Ref, Config),
-    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
-    ok = gen_tcp:send(Client, Req),
-    %% Fetch the server socket
-    Server = get_accepted(Ref),
-    %% Exchange all the data
     RecvServ = recv_until_timeout(Server),
     ok = gen_tcp:send(Server, Resp),
-    RecvClient = recv_until_close(Client),
+    RecvClient = recv_until_timeout(Client),
     %% Check final connection status
     ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
-    {match,_} = re:run(RecvServ, Chunks),
-    {match, _} = re:run(RecvClient, "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n"),
-    nomatch = re:run(RecvClient, Chunks),
-    nomatch = re:run(RecvServ, "head: ?val", [global, multiline, caseless]),
-    nomatch = re:run(RecvClient, "head: ?val", [global, multiline, caseless]),
-    {match,_} = re:run(RecvClient, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
-    %% The garbage from either end is ignored and the connection is closed
-    %% before then
-    nomatch = re:run(RecvClient, "0\r\nHTTP/1.1 400", [global,multiline,caseless]),
-    wait_for_closed(Server, 500).
+    {match, _} = re:run(RecvServ, Chunks),
+    {match, _} = re:run(RecvServ, Trailers),
+    {match, _} = re:run(RecvClient, Chunks),
+    {match, _} = re:run(RecvClient, Trailers),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
 
-trailers_skip_client_partial(Config) ->
-    %% Trailers without the `trailer' header are ignored and seen as garbage
-    %% on the line to be left for later. They trigger an error given they
-    %% turn out to be a bad 0\r\n\r\n termination as they're unsupported without
-    %% matching headers.
-    %% Sent in many parts, the server can see the bad data before vegur
-    %% sends the response back.
-    IP = ?config(server_ip, Config),
-    Port = ?config(proxy_port, Config),
-    Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n",
-    Trailers = "head: val\r\n\r\n",
-    Req = [chunked_headers(Config), Chunks],
-    Resp = [resp_headers(chunked), Chunks, Trailers],
-    %% Open the server to listening. We then need to send data for the
-    %% proxy to get the request and contact a back-end
-    Ref = make_ref(),
-    start_acceptor(Ref, Config),
-    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
-    ok = gen_tcp:send(Client, Req),
-    %% Fetch the server socket
-    Server = get_accepted(Ref),
-    %% Exchange all the data
-    RecvServ1 = recv_until_timeout(Server),
-    ok = gen_tcp:send(Client, Trailers),
-    RecvServ2 = recv_until_close(Server),
-    {error, closed} = gen_tcp:send(Server, Resp),
-    RecvClient = recv_until_close(Client),
-    %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2], RecvClient]),
-    {match,_} = re:run(RecvServ1, Chunks),
-    nomatch = re:run(RecvClient, Chunks),
-    nomatch = re:run([RecvServ1,RecvServ2], "head: ?val", [global, multiline, caseless]),
-    nomatch = re:run(RecvClient, "head: ?val", [global, multiline, caseless]),
-    nomatch = re:run(RecvClient, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
-    %% The garbage from the client is ignored and the connection is closed
-    %% before then
-    nomatch = re:run(RecvClient, "0\r\nHTTP/1.1 400", [global,multiline,caseless]),
-    {match, _} = re:run(RecvClient, "400 Bad Request").
-
-trailers_skip_server_partial(Config) ->
-    %% Trailers without the `trailer' header are ignored and seen as garbage
-    %% on the line to be left for later. They trigger an error given they
-    %% turn out to be a bad 0\r\n\r\n termination as they're unsupported without
-    %% matching headers.
-    %% Sent in many bathes, the trailers are ignored from the client up until the
-    %% next request (which auto-fails);
-    %% Trailers without the `trailer' header are ignored and seen as garbage
-    %% on the line to be left for later, which triggers an error when the server
-    %% sends them. Because chunks are sent per-chunk, there is no difference
-    %% whether the server sends them at once or not because vegur will choke on them
-    %% first
-    IP = ?config(server_ip, Config),
-    Port = ?config(proxy_port, Config),
-    Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n",
-    Trailers = "head: val\r\n\r\n",
-    Req = [chunked_headers(Config), Chunks, "\r\n", Trailers],
-    Resp = [resp_headers(chunked), Chunks],
-    %% Open the server to listening. We then need to send data for the
-    %% proxy to get the request and contact a back-end
-    Ref = make_ref(),
-    start_acceptor(Ref, Config),
-    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
-    ok = gen_tcp:send(Client, Req),
-    %% Fetch the server socket
-    Server = get_accepted(Ref),
-    %% Exchange all the data
-    RecvServ = recv_until_timeout(Server),
-    ok = gen_tcp:send(Server, Resp),
-    RecvClient1 = recv_until_timeout(Client),
-    ok = gen_tcp:send(Server, Trailers),
-    RecvClient2 = recv_until_close(Client),
-    %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,[RecvClient1,RecvClient2]]),
-    {match,_} = re:run(RecvServ, Chunks),
-    {match, _} = re:run([RecvClient1,RecvClient2], Chunks),
-    nomatch = re:run(RecvServ, "head: ?val", [global, multiline, caseless]),
-    nomatch = re:run([RecvClient1,RecvClient2], "head: ?val", [global, multiline, caseless]),
-    {match,_} = re:run(RecvClient1, "^HTTP/1.1 200 OK", [global,multiline,caseless]),
-    %% The garbage from either end is ignored and the connection is closed
-    %% before then
-    nomatch = re:run([RecvClient1,RecvClient2], "0\r\nHTTP/1.1 400", [global,multiline,caseless]),
-    wait_for_closed(Server, 500).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% BODY LESS REQUEST BEHAVIOUR %%%
