@@ -45,9 +45,12 @@ short_msg(_) ->
     {more, Rest3} = vegur_chunked:next_chunk(<<"d en">>, Rest2),
     {chunk, _, <<"">>} = vegur_chunked:next_chunk(<<"coded\r\n">>, Rest3),
     {more, Rest4} = vegur_chunked:next_chunk(<<"00">>),
-    {maybe_done, Rest5} = vegur_chunked:next_chunk(<<"\r\n">>, Rest4),
-    {done, _, <<"">>} = vegur_chunked:next_chunk(undefined, Rest5),
-    {done, _, <<"garbage">>} = vegur_chunked:next_chunk(<<"garbage">>, Rest5),
+    {more, Rest5} = vegur_chunked:next_chunk(<<"\r\n">>, Rest4),
+    {more, Rest5} = vegur_chunked:next_chunk(<<>>, Rest5),
+    {more, _TrailerExpect} = vegur_chunked:next_chunk(<<"garbage">>, Rest5),
+    {error, {bad_chunk, {bad_trailer,_}}} = vegur_chunked:next_chunk(<<" garbage">>, Rest5),
+    {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n">>, Rest5),
+    {done, _, <<"\r\n">>} = vegur_chunked:next_chunk(<<"\r\n\r\n">>, Rest5),
     {done, _, <<"">>} = vegur_chunked:next_chunk(<<"\r\n\r\n">>, Rest4).
 
 
@@ -62,8 +65,10 @@ html(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    {done, Buf, <<>>} = vegur_chunked:all_chunks(String),
-    String = iolist_to_binary(Buf).
+    {error, _, incomplete} = vegur_chunked:all_chunks(String),
+    S = byte_size(String),
+    {done, Buf, <<>>} = vegur_chunked:all_chunks(<<String:S/binary, "\r\n">>),
+    <<String:S/binary, "\r\n">> = iolist_to_binary(Buf).
 
 stream(_) ->
     Str1 = <<""
@@ -91,8 +96,9 @@ stream(_) ->
     {more, _, Buf6, Cont4} = vegur_chunked:stream_chunk(Str4, Cont3),
     {chunk, Buf7, Rest3} = vegur_chunked:stream_chunk(Str5, Cont4),
     {chunk, Buf8, Rest4} = vegur_chunked:stream_chunk(Rest3, undefined), % that works too
-    {maybe_done, Buf9, Cont5} = vegur_chunked:stream_chunk(Rest4),
-    {done, <<>>, <<>>} = vegur_chunked:stream_chunk(undefined, Cont5),
+    {more, _, Buf9, Cont5} = vegur_chunked:stream_chunk(Rest4),
+    {more, _, <<>>, Cont5} = vegur_chunked:stream_chunk(<<>>, Cont5),
+    {done, <<"\r\n">>, <<>>} = vegur_chunked:stream_chunk(<<"\r\n">>, Cont5),
     true = iolist_to_binary([Buf1, Buf2, Buf3, Buf4, Buf5, Buf6, Buf7, Buf8, Buf9])
        =:= iolist_to_binary([Str1, Str2, Str3, Str4, Str5]).
 
@@ -120,8 +126,8 @@ trailers(_) ->
     " that-line-folded-its-value\r\n"
     "Last-Header: aaa\r\n"
     "\r\n">>,
-    {done, Buf, <<>>} = vegur_chunked:all_chunks(String, trailers),
-    {done, Buf2} = parse_chunked(String, trailers),
+    {done, Buf, <<>>} = vegur_chunked:all_chunks(String, undefined),
+    {done, Buf2} = parse_chunked(String, undefined),
     String = iolist_to_binary(Buf),
     String = iolist_to_binary(Buf2).
 
@@ -149,8 +155,8 @@ bad_trailers(_) ->
     " that-line-folded-its-value\r\n"
     "Last-Header: aaa\r\n"  % bad trailer ending, missing an additional CLRF
     "GET some/path HTTP/1.1\r\n">>,
-    {error, _Buf, {bad_chunk, {bad_trailer,_}}} = vegur_chunked:all_chunks(String, trailers),
-    {error, {bad_chunk, {bad_trailer,_}}} = parse_chunked(String, trailers).
+    {error, _Buf, {bad_chunk, {bad_trailer,_}}} = vegur_chunked:all_chunks(String, undefined),
+    {error, {bad_chunk, {bad_trailer,_}}} = parse_chunked(String, undefined).
 
 
 boundary_chunk(_) ->
@@ -164,7 +170,9 @@ boundary_chunk(_) ->
     "29\r\n"
     "<h1>third chunk loaded and displayed</h1>\r\n"
     "0\r\n">>,
-    {done, Chunks1} = parse_chunked(Chunks1, undefined),
+    incomplete = parse_chunked(Chunks1, undefined),
+    S = byte_size(Chunks1),
+    {done, <<Chunks1:S/binary, "\r\n">>} = parse_chunked(<<Chunks1:S/binary, "\r\n">>, undefined),
     Chunks2 = <<""
    "c\r\n"
    "<h1>go!</h1>\r\n"
@@ -188,8 +196,11 @@ zero_chunk_in_middle(_) ->
     B2 = <<"c\r\n"
     "<h1>go!</h1>\r\n"
     "\r\n">>,
-    {done, Buf, Rest} = vegur_chunked:all_chunks(<<B1/binary, B2/binary>>),
-    B1 = iolist_to_binary(Buf),
+    B3 = <<"\r\n">>,
+    {error, _, {bad_chunk,{bad_trailer,_}}} = vegur_chunked:all_chunks(<<B1/binary, B2/binary>>),
+    {done, Buf, Rest} = vegur_chunked:all_chunks(<<B1/binary, B3/binary, B2/binary>>),
+    S = byte_size(B1),
+    <<B1:S/binary,B3/binary>> = iolist_to_binary(Buf),
     B2 = iolist_to_binary(Rest).
 
 bad_next_chunk(_) ->
@@ -211,15 +222,14 @@ parse(InitState, What, Rest, State, Acc) ->
         {done, Res, _Remainder} ->
             Bin = iolist_to_binary(Res),
             {done, <<Acc/binary, Bin/binary>>};
-        {maybe_done, Res, State1} ->
-            Bin = iolist_to_binary(Res),
-            parse_chunked(InitState, Rest, State1, <<Acc/binary, Bin/binary>>);
         {error, _Reason} = Res ->
             Res;
         {chunk, Chunk, MoreBuffer} ->
             Bin = iolist_to_binary(Chunk),
             parse_chunked(InitState, <<Rest/binary, MoreBuffer/binary>>, InitState, <<Acc/binary, Bin/binary>>);
-        {more, _Len, Buf, State1} ->
+        {more, _Len, Buf, State1} when Rest =/= <<>> ->
             Bin = iolist_to_binary(Buf),
-            parse_chunked(InitState, Rest, State1, <<Acc/binary, Bin/binary>>)
+            parse_chunked(InitState, Rest, State1, <<Acc/binary, Bin/binary>>);
+        {more, _, _, _} when Rest =:= <<>> ->
+            incomplete
     end.

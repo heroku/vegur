@@ -90,8 +90,7 @@
           last_packet_recv :: undefined | erlang:timestamp(),
           first_packet_sent :: undefined | erlang:timestamp(),
           last_packet_sent :: undefined | erlang:timestamp(),
-          log :: vegur_req_log:request_log(),
-          expect_trailers = false :: boolean()
+          log :: vegur_req_log:request_log()
 }).
 
 -type client() :: #client{}.
@@ -312,28 +311,12 @@ next_chunk(Client=#client{buffer=Buffer}, Cont) ->
                 {ok, Data} -> next_chunk(stamp_recv(Client#client{buffer=Data}), State);
                 {error, Reason} -> {error, Reason}
             end;
-        {maybe_done, State} ->
-            case recv(Client#client{read_timeout=0}) of
-                {ok, Data} ->
-                    next_chunk(Client#client{buffer=Data}, State);
-                {error, timeout} ->
-                    next_chunk(Client#client{buffer= <<>>}, State);
-                {error, Reason} ->
-                    {error, Reason}
-            end;
         {error, Reason} ->
             {error, Reason}
     end.
 
 stream_chunk({Client, Cont}) -> stream_chunk(Client, stream_chunk, Cont);
-stream_chunk(Client=#client{expect_trailers=Trailers}) ->
-    %% Detect if we wait for trailers. Only do this for chunked transfers,
-    %% never for 'unchunked' ones as this doesn't carry over.
-    if Trailers ->
-            stream_chunk(Client, stream_chunk, trailers)
-     ; not Trailers ->
-            stream_chunk(Client, stream_chunk, undefined)
-    end.
+stream_chunk(Client=#client{}) -> stream_chunk(Client, stream_chunk, undefined).
 
 stream_unchunk({Client, Cont}) -> stream_chunk(Client, stream_unchunk, Cont);
 stream_unchunk(Client) -> stream_chunk(Client, stream_unchunk, undefined).
@@ -540,8 +523,6 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                         true -> {error, cookie_length};
                         false -> Client
                     end;
-                <<"trailer">> ->
-                    Client#client{expect_trailers=true};
                 _ ->
                     Client
             end,

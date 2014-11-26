@@ -34,7 +34,6 @@
          all_chunks/1, all_chunks/2, all_unchunks/1]).
 -record(state, {buffer = <<>> :: binary(),
                 length :: non_neg_integer()|undefined,
-                trailers = undefined,
                 type = chunked :: chunked|unchunked}).
 
 %% Parses a binary stream to get the next chunk in it.
@@ -48,8 +47,6 @@ next_chunk(Bin) -> next_chunk(Bin, undefined).
 
 next_chunk(Bin, undefined) ->
     chunk_size(Bin, #state{type=chunked});
-next_chunk(Bin, trailers) ->
-    chunk_size(Bin, #state{type=chunked, trailers=true});
 next_chunk(Bin, {Fun,State=#state{}}) ->
     Fun(Bin, State).
 
@@ -70,15 +67,11 @@ stream_chunk(Bin) -> stream_chunk(Bin, undefined).
 
 stream_chunk(Bin, undefined) ->
     stream_chunk(Bin, {fun chunk_size/2, #state{type=chunked}});
-stream_chunk(Bin, trailers) ->
-    stream_chunk(Bin, {fun chunk_size/2, #state{type=chunked, trailers=true}});
 stream_chunk(Bin, {Fun, State=#state{}}) ->
     case Fun(Bin, State) of
         {done, Buf, Rest} -> {done, Buf, Rest};
         {error, Reason} -> {error, Reason};
         {chunk, Buf, Rest} -> {chunk, Buf, Rest};
-        {maybe_done, {NewFun,S=#state{buffer=Buf}}} ->
-            {maybe_done, Buf, {NewFun,S#state{buffer = <<>>}}};
         {more, {NewFun, S=#state{buffer=Buf, length=Len}}} ->
             {more, Len, Buf, {NewFun,S#state{buffer = <<>>}}}
     end.
@@ -94,15 +87,12 @@ all_chunks(Bin, Opt) -> all_chunks(Bin, fun(Arg) -> next_chunk(Arg, Opt) end, []
 all_chunks(Bin, F, Acc) ->
     try F(Bin) of
         {done, Buf, Rest} -> {done, [Acc, Buf], Rest};
-        {maybe_done, {_,#state{buffer=Buf}}} -> {done, [Acc, Buf], <<>>};
         {error, Reason} -> {error, Acc, Reason};
         {more, _State} -> {error, Acc, incomplete};
         {chunk, Buf, Rest} -> all_chunks(Rest, F, [Acc, Buf])
     catch
         error:function_clause -> {error, Acc, {bad_chunk, Bin}}
     end.
-
-% next_chunk(Bin, Trailers) -> chunk_size(Bin, #state{trailers=Trailers}).
 
 %%           ,-----------------v
 %% chunk_size -> extension -> data -> last chunk -> CRLF
@@ -147,7 +137,7 @@ chunk_size_cr(_Bin, #state{length=undefined}) ->
 chunk_size_cr(<<"">>, S=#state{}) ->
     {more, {fun chunk_size_cr/2, S}};
 chunk_size_cr(<<"\n", Rest/binary>>, S=#state{length=0}) ->
-    last_chunk(Rest, maybe_buffer(<<"\n">>, S));
+    maybe_trailers(Rest, maybe_buffer(<<"\n">>, S));
 chunk_size_cr(<<"\n", Rest/binary>>, S=#state{}) ->
     chunk_data(Rest, maybe_buffer(<<"\n">>, S));
 chunk_size_cr(<<Char, _/binary>>, #state{}) ->
@@ -206,39 +196,18 @@ chunk_data_cr(<<"\n", Rest/binary>>, S=#state{length=0}) ->
 chunk_data_cr(Bin, #state{buffer=Buf, length=Len}) ->
     {error, {bad_chunk, {Len, [Buf,Bin]}}}.
 
-last_chunk(<<>>, S=#state{}) ->
-    %% Consider this done, due to possibly having only a bad CRLF
-    %% after the length, but not after the final chunk.
-    %{more, {fun last_chunk/2, S}};
-    %% This one adds no correction to the CRLF behavior and allows
-    %% to return partial last chunks. The downside is that it misses
-    %% the occasional CRLF that was split on a packet boundary
-    %{done, Buf, <<>>};
-    %% Solution: add a new return state: {maybe_done, Buf, {Fun, State}}
-    %% This one allows to go make sure that nothing is left on the buffer or
-    %% connection while maintaining data integrity.
-    {maybe_done, {fun maybe_trailers/2, S}};
-last_chunk(<<"\r", Rest/binary>>, S=#state{length=0}) ->
-    last_chunk_cr(Rest, maybe_buffer(<<"\r">>, S));
-last_chunk(Bin, S=#state{length=0, buffer=_Buf}) ->
-    %% Here we are lenient on a last chunk to allow all kinds of
-    %% dumb stuff to happen. Uncommenting the line makes for a
-    %% strict parser. This one here tolerates 0-length chunks halfway
-    %% through a stream and whatnot.
-    %{error, {bad_chunk, {0, [Buf,Bin]}}}.
-    %% Lax parser:
-    %{done, Buf, Bin}.
-    %% Move to trailers:
-    maybe_trailers(Bin, S).
+%% We're at the end of the stream, potentially, after
+%% a 0-length chunk. We wait forever on incomplete
+%% streams.
+maybe_trailers(<<>>, S=#state{}) ->
+    {more, {fun maybe_trailers/2, S}};
+maybe_trailers(<<"\r", _/binary>> = Data, S=#state{}) ->
+    finalize(Data, S);
+maybe_trailers(OtherData, S=#state{}) ->
+    trailer(OtherData, S).
 
-trailer(_, #state{type=unchunked}) ->
-    %% Trailers cannot be supported in unchunked mode
-    error(unchunked_trailer);
-trailer(<<>>, S=#state{type=chunked}) ->
-    %% Data missing, we may have more trailers, or more garbage on
-    %% the line.
-    {more, {fun trailer/2, S}};
-trailer(Bin, S=#state{type=chunked}) ->
+%% Passthrough. header_name -> header_value -> switch
+trailer(Bin, S=#state{}) ->
     header_name(Bin, S).
 
 header_name(<<>>, S=#state{}) ->
@@ -301,37 +270,12 @@ header_value_quoted_string_esc(<<>>, S=#state{}) ->
 header_value_quoted_string_esc(<<Char, Rest/binary>>, S=#state{}) ->
     header_value_quoted_string(Rest, maybe_buffer(<<Char>>, S)).
 
-last_chunk_cr(<<>>, S=#state{}) ->
-    {more, {fun last_chunk_cr/2, S}};
-last_chunk_cr(<<"\n", Remainder/binary>>, S=#state{length=0}) ->
-    %% We're done! We ignore trailers and then return potentially bad data
-    %% because of that, until trailers *are* supported.
-    #state{buffer=Buf} = maybe_buffer(<<"\n">>, S),
-    {done, Buf, Remainder};
-last_chunk_cr(Bin, #state{length=0, buffer=Buf}) ->
-    %% Sorry, trailer!
-    {error, {bad_chunk, {0, [Buf,Bin]}}}.
-
-%% We're at the end of the stream, potentially, after
-%% a 0-length chunk.
-maybe_trailers(Data, S=#state{trailers=undefined}) ->
-    %% No trailers, skip;
-    finalize(Data, S);
-maybe_trailers(undefined, #state{buffer=Buf}) ->
-    %% Manually told us that no data was around, even with trailers.
-    {done, Buf, <<>>};
-maybe_trailers(OtherData, S=#state{trailers=true}) ->
-    trailer(OtherData, S).
-
-
-finalize(undefined, #state{buffer=Buf}) ->
-    {done, Buf, <<>>};
 finalize(<<"\r",Rest/binary>>, S=#state{}) ->
     finalize_cr(Rest, maybe_buffer(<<"\r">>, S));
 finalize(OtherData, #state{buffer=Buf}) ->
     %% That data may belong to anything, even other requests. Take
     %% no chances. We should have already checked for trailers at this point.
-    {done, Buf, OtherData}.
+    {error, {bad_chunk, {last_crlf, [Buf,OtherData]}}}.
 
 finalize_cr(<<>>, S=#state{}) ->
     {more, {fun finalize_cr/2, S}};
