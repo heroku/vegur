@@ -13,6 +13,7 @@
          ,delete_all_headers/2
          ,set_request_status/2
          ,get_request_status/1
+         ,add_interface_headers/3
          ,handle_error/2
          ,peer_ip_port/1
          ,borrow_cowboy_socket/1
@@ -154,6 +155,17 @@ set_request_status(Status, Req) ->
       Req :: cowboy_req:req().
 get_request_status(Req) ->
     cowboy_req:meta(status, Req).
+
+-spec add_interface_headers(Direction, Headers, Req) -> {Headers, Req} when
+    Direction :: upstream | downstream,
+    Headers :: [{iodata(), iodata()}],
+    Req :: cowboy_req:req().
+add_interface_headers(Direction, Headers, Req) ->
+    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {InterfaceModule, HandlerState, Req2} = get_interface_module(Req1),
+    {InterfaceHeaders, HandlerState1} = InterfaceModule:additional_headers(Direction, Log, Req2, HandlerState),
+    Req3 = set_handler_state(HandlerState1, Req2),
+    {add_or_replace_headers(InterfaceHeaders, Headers), Req3}.
 
 -spec handle_error(Reason, Req) -> {HttpCode, Req} when
       Reason :: atom() | {Blame::atom(), term()},

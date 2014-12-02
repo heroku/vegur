@@ -23,6 +23,7 @@ groups() ->
                                 ,query_string
                                 ,content_length
                                 ,no_content_length
+                                ,custom_downstream_headers
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
                                 ,request_statistics
@@ -156,10 +157,10 @@ forwarded_for(Config) ->
             throw(timeout)
     end,
 
-	%% Pass a tuple that represents the handler state to enable router_metrics.
-	%% We don't have access to the record definition in the tests so do it manually
-    meck:expect(vegur_stub, additional_headers, 
-			   fun(Log, HandlerState) -> meck:passthrough([Log, {state, 0, [router_metrics]}]) end),
+    %% Pass a tuple that represents the handler state to enable router_metrics.
+    %% We don't have access to the record definition in the tests so do it manually
+    meck:expect(vegur_stub, additional_headers,
+                fun(Direction, Log, Req, _HandlerState) -> meck:passthrough([Direction, Log, Req, {state, 0, [router_metrics]}]) end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req3} ->
@@ -361,6 +362,22 @@ no_content_length(Config) ->
     after 5000 ->
             throw(timeout)
     end,
+    Config.
+
+custom_downstream_headers(Config) ->
+    %% Pass a tuple that represents the handler state to enable router_metrics.
+    %% We don't have access to the record definition in the tests so do it manually
+    meck:expect(vegur_stub, additional_headers,
+                fun(upstream, Log, Req, _HandlerState) ->
+                    meck:passthrough([upstream, Log, Req, {state, 0, [router_metrics]}]);
+                   (downstream, _, _, HandlerState) ->
+                    {[{<<"custom-header">>,<<"custom-value">>}], HandlerState}
+                end),
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/?abc=d",
+    mock_terminate(self()),
+    {ok, {{_, 204, _}, Headers, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    {"custom-header", "custom-value"} = lists:keyfind("custom-header", 1, Headers),
     Config.
 
 

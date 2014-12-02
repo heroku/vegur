@@ -87,9 +87,11 @@
       Upstream :: upstream(),
       HandlerState :: handler_state().
 
--callback additional_headers(Logs, HandlerState) ->
+-callback additional_headers(Direction, Logs, Upstream, HandlerState) ->
     {HeadersToAddOrReplace, HandlerState} when
+      Direction :: upstream | downstream,
       Logs :: vegur_req_log:request_log(),
+      Upstream :: upstream(),
       HeadersToAddOrReplace :: [{binary(), iodata()}],
       HandlerState :: handler_state().
 

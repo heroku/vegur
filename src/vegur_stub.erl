@@ -15,7 +15,7 @@
          checkin_service/6,
          service_backend/3,
          feature/2,
-         additional_headers/2,
+         additional_headers/4,
          error_page/4,
          instance_name/0]).
 
@@ -138,12 +138,14 @@ feature(_, State) ->
 
 %% @doc Lets you inject custom HTTP headers in requests to a back-end, in order
 %% to provide additional information.
--spec additional_headers(Log, HandlerState) ->
+-spec additional_headers(Direction, Log, Upstream, HandlerState) ->
     {HeadersToAddOrReplace, HandlerState} when
+      Direction :: upstream | downstream,
       Log :: vegur_req_log:request_log(),
+      Upstream :: vegur_interface:upstream(),
       HeadersToAddOrReplace :: [{binary(), iodata()}],
       HandlerState :: vegur_interface:handler_state().
-additional_headers(Log, HandlerState=#state{features=Features}) ->
+additional_headers(upstream, Log, _Upstream, HandlerState=#state{features=Features}) ->
     case lists:member(router_metrics, Features) of
         true ->
             ConnectDuration = vegur_req_log:connect_duration(Log),
@@ -154,7 +156,10 @@ additional_headers(Log, HandlerState=#state{features=Features}) ->
             {Headers, HandlerState};
         _ ->
             {[], HandlerState}
-    end.
+    end;
+additional_headers(downstream, _Log, _Upstream, HandlerState) ->
+    %% We have nothing special to send to the user
+    {[], HandlerState}.
 
 %% @doc Takes any error reason returned in the other callbacks and lets you
 %% define custom error pages when a back-end application couldn't do it or be
