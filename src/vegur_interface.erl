@@ -15,7 +15,7 @@
                 {route_time|connect_time|total_time, ms()}.
 -type stats() :: [stat()]|[].
 -type feature() :: deep_continue | peer_port.
--opaque upstream() :: cowboy_req:req().
+-type upstream() :: cowboy_req:req().
 
 -export_type([domain/0,
               domain_group/0,
@@ -52,7 +52,7 @@
 -callback checkout_service(DomainGroup, Upstream, HandlerState) ->
     {service, service(), Upstream, HandlerState}|
     {error, CheckoutError, Upstream, HandlerState} when
-      CheckoutError :: atom(),
+      CheckoutError :: atom()|tuple(),
       DomainGroup :: domain_group(),
       Upstream :: upstream(),
       HandlerState :: handler_state().
