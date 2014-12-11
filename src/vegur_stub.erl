@@ -78,7 +78,7 @@ lookup_domain_name(_Domain, Upstream, HandlerState) ->
 -spec checkout_service(DomainGroup, Upstream, HandlerState) ->
                               {service, Service, Upstream, HandlerState} |
                               {error, CheckoutError, Upstream, HandlerState} when
-      CheckoutError :: atom(),
+      CheckoutError :: atom()|tuple(),
       DomainGroup :: vegur_interface:domain_group(),
       Service :: vegur_interface:service(),
       HandlerState :: vegur_interface:handler_state(),
