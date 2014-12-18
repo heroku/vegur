@@ -75,7 +75,7 @@
       ErrorReason :: term(),
       DomainGroup :: domain_group(),
       HttpCode :: pos_integer(),
-      ErrorHeaders :: [{iolist(), iolist()}]|[],
+      ErrorHeaders :: [{iodata(), iodata()}]|[],
       ErrorBody :: binary(),
       Upstream :: upstream(),
       HandlerState :: handler_state().
@@ -90,7 +90,7 @@
 -callback additional_headers(Logs, HandlerState) ->
     {HeadersToAddOrReplace, HandlerState} when
       Logs :: vegur_req_log:request_log(),
-      HeadersToAddOrReplace :: [{binary(), iolist()}],
+      HeadersToAddOrReplace :: [{binary(), iodata()}],
       HandlerState :: handler_state().
 
 -callback terminate(Reason, Upstream, HandlerState) ->

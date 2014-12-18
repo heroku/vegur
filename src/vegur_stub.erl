@@ -141,7 +141,7 @@ feature(_, State) ->
 -spec additional_headers(Log, HandlerState) ->
     {HeadersToAddOrReplace, HandlerState} when
       Log :: vegur_req_log:request_log(),
-      HeadersToAddOrReplace :: [{binary(), iolist()}],
+      HeadersToAddOrReplace :: [{binary(), iodata()}],
       HandlerState :: vegur_interface:handler_state().
 additional_headers(Log, HandlerState=#state{features=Features}) ->
     case lists:member(router_metrics, Features) of
@@ -166,7 +166,7 @@ additional_headers(Log, HandlerState=#state{features=Features}) ->
       ErrorReason :: term(),
       DomainGroup :: vegur_interface:domain_group(),
       HttpCode :: pos_integer(),
-      ErrorHeaders :: [{iolist(), iolist()}]|[],
+      ErrorHeaders :: [{iodata(), iodata()}]|[],
       ErrorBody :: binary(),
       HandlerState :: vegur_interface:handler_state(),
       Upstream :: vegur_interface:upstream().

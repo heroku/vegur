@@ -137,7 +137,7 @@ linear_summary(#log{start = StartTime, events = Events}) ->
 %% Creates a linear repport of entries in the event log. Its output is rather
 %% similar to linear_summary/1, but the events are tentatively named in
 %% a relevant way, and as iolists ready to be output
--spec linear_report(request_log()) -> [{Key::iolist(), ms()}].
+-spec linear_report(request_log()) -> [{Key::iodata(), ms()}].
 linear_report(Log = #log{}) ->
     {Metrics, {total,Total}} = linear_summary(Log),
     [case Metric of
@@ -150,7 +150,7 @@ linear_report(Log = #log{}) ->
 %% Meaning we need to filter for events we want. This function is similar to
 %% linear_report/1 except it allows to filter entries based on their
 %% event_type() to allow customization of returned values over time.
--spec linear_report(fun((event_type()) -> boolean()), request_log()) -> [{Key::iolist(), ms()}].
+-spec linear_report(fun((event_type()) -> boolean()), request_log()) -> [{Key::iodata(), ms()}].
 linear_report(Pred, Log = #log{events=Events}) ->
     %% The internal format is different from the external one, so we wrap
     %% things around to create a proper abstraction for users. We drop the time
@@ -176,7 +176,7 @@ linear_report(Pred, Log = #log{events=Events}) ->
 %%  first_packet_until_end=1ms total=5014ms
 %%
 %% which basically collapse events with the same key into one
--spec flatten_report([{Key::iolist(), ms()}]) -> [{Key::iolist(), ms()}].
+-spec flatten_report([{Key::iodata(), ms()}]) -> [{Key::iodata(), ms()}].
 flatten_report(Report) ->
     flatten_report(Report, []).
 
