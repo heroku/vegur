@@ -213,7 +213,17 @@ error_page(expectation_failed, _DomainGroup, Upstream, HandlerState) ->
     {{417, [], <<>>}, Upstream, HandlerState};
 error_page({upstream, closed}, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, etimedout}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({upstream, enotconn}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, closed}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, etimedout}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, enotconn}, _DomainGroup, Upstream, HandlerState) ->
+    {{503, [], <<>>}, Upstream, HandlerState};
+error_page({downstream, econnrefused}, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, timeout}, _DomainGroup, Upstream, HandlerState) ->
     {{503, [], <<>>}, Upstream, HandlerState};
