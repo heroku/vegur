@@ -75,7 +75,7 @@
       ErrorReason :: term(),
       DomainGroup :: domain_group(),
       HttpCode :: pos_integer(),
-      ErrorHeaders :: [{iolist(), iolist()}]|[],
+      ErrorHeaders :: [{iodata(), iodata()}]|[],
       ErrorBody :: binary(),
       Upstream :: upstream(),
       HandlerState :: handler_state().
