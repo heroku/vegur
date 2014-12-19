@@ -95,7 +95,7 @@ negotiate_continue(Body, Req, BackendClient) ->
     negotiate_continue(Body, Req, BackendClient, Timeout).
 
 negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
-    {error, upstream, Timeout};
+    {error, upstream, timeout};
 negotiate_continue(Body, Req, BackendClient, Timeout) ->
     %% In here, we must await the 100 continue from the BackendClient
     %% *OR* wait until cowboy (front-end) starts sending data.
