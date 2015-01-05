@@ -273,11 +273,17 @@ relay(Code, Status, HeadersRaw, Req, Client) ->
     %% in batch or directly.
     {Headers, Req1} = case connection_type(Code, Req, Client) of
         {keepalive, Req0} ->
-            {add_connection_keepalive_header(response_headers(HeadersRaw)),
-             Req0};
+            vegur_utils:add_interface_headers(
+                downstream,
+                add_connection_keepalive_header(response_headers(HeadersRaw)),
+                Req0
+            );
         {close, Req0} ->
-            {add_connection_close_header(response_headers(HeadersRaw)),
-             Req0}
+            vegur_utils:add_interface_headers(
+                downstream,
+                add_connection_close_header(response_headers(HeadersRaw)),
+                Req0
+            )
     end,
     case vegur_client:body_type(Client) of
         {content_size, N} when N =< ?UPSTREAM_BODY_BUFFER_LIMIT ->

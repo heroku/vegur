@@ -157,17 +157,14 @@ add_proxy_headers(Headers, Req) ->
     {Headers4, Req4} = add_connect_time(Headers3, Req3),
     {Headers5, Req5} = add_start_time(Headers4, Req4),
     {Headers6, Req6} = add_total_route_time(Headers5, Req5),
-    add_interface_headers(Headers6, Req6).
+    add_upstream_interface_headers(Headers6, Req6).
 
-add_interface_headers(Headers, Req) ->
+add_upstream_interface_headers(Headers, Req) ->
     {Log, Req1} = cowboy_req:meta(logging, Req),
-    {InterfaceModule, HandlerState, Req2} = vegur_utils:get_interface_module(Req1),
-    {InterfaceHeaders, HandlerState1} = InterfaceModule:additional_headers(Log, HandlerState),
-    Req3 = vegur_utils:set_handler_state(HandlerState1, Req2),
-    FinalHeaders = vegur_utils:add_or_replace_headers(InterfaceHeaders, Headers),
+    {Headers1, Req2} = vegur_utils:add_interface_headers(upstream, Headers, Req1),
     Log1 = vegur_req_log:stamp(headers_formatted, Log),
-    Req4 = cowboy_req:set_meta(logging, Log1, Req3),
-    {FinalHeaders, Req4}.
+    Req3 = cowboy_req:set_meta(logging, Log1, Req2),
+    {Headers1, Req3}.
 
 add_start_time(Headers, Req) ->
     {Time, Req1} = vegur_req:start_time(Req),
