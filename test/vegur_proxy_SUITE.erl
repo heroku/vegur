@@ -27,6 +27,7 @@ groups() ->
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
                                 ,request_statistics
+                                ,response_attributes
                                 ,websockets
                                 ]}
     ].
@@ -64,6 +65,20 @@ end_per_group(_, Config) ->
     meck:unload(),
     Config.
 
+init_per_testcase(response_attributes, Config) ->
+    %% Same as regular setup, but with custom cookies and
+    %% headers to test
+    DynoPort = ?config(dyno_port, Config),
+    Self = self(),
+    Headers = [{<<"Set-Cookie">>, <<"my=cookie;">>},
+               {<<"remote-host">>, <<"localhost">>},
+               {<<"X-Tst">>, <<"1337">>}],
+    Dyno = start_dyno(DynoPort, [{in_handle, fun(Req0) ->
+                                                     {ok, Req} = cowboy_req:reply(200, Headers, Req0),
+                                                     Self ! {req, Req},
+                                                     Req
+                                             end}]),
+    [{dyno, Dyno} | Config];
 init_per_testcase(_TestCase, Config) ->
     DynoPort = ?config(dyno_port, Config),
     Self = self(),
@@ -285,6 +300,32 @@ request_statistics(Config) ->
                     {<<"/?abc=d">>, _} = vegur_req:raw_path(Upstream),
                     true = lists:all(fun(X) -> is_integer(X) end,
                                      [RT, CT, TT, SH, QP, RP])
+            after 5000 ->
+                    throw(timeout)
+            end
+    after 5000 ->
+            throw(timeout)
+    end,
+    Config.
+
+response_attributes(Config) ->
+    %% Test vegur_req attributes that have to do with the response
+    %% from the back-end to the client. These so far include the
+    %% status code and the HTTP headers.
+    Port = ?config(vegur_port, Config),
+    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/?abc=d",
+    mock_terminate(self()),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive
+        {req, _Req} ->
+            receive
+                {stats, {successful, Upstream, _State}} ->
+                    ct:pal("Upstream: ~p~n",[Upstream]),
+                    {200, _} = vegur_req:response_code(Upstream),
+                    {Headers, _} = vegur_req:response_headers(Upstream),
+                    true = lists:member({<<"remote-host">>,<<"localhost">>}, Headers),
+                    true = lists:member({<<"set-cookie">>,<<"my=cookie;">>}, Headers),
+                    true = lists:member({<<"x-tst">>,<<"1337">>}, Headers)
             after 5000 ->
                     throw(timeout)
             end

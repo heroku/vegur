@@ -30,6 +30,7 @@
          ,raw_path/1
          ,header/2
          ,response_code/1
+         ,response_headers/1
         ]).
 
 -spec start_time(Req) -> {StartTime, Req} when
@@ -170,6 +171,12 @@ header(Key, Req) ->
       Code :: non_neg_integer().
 response_code(Req) ->
     cowboy_req:meta(response_code, Req, <<>>).
+
+-spec response_headers(Req) -> {[{iodata(), iodata()}], Req} when
+    Req :: cowboy_req:req().
+response_headers(Req) ->
+    cowboy_req:meta(response_headers, Req, []).
+
 
 %% Internal
 timestamp_diff(FromKey, ToKey, Req) ->
