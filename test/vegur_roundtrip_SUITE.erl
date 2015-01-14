@@ -1508,8 +1508,11 @@ head_close_expect(Config) ->
     %% a keep-alive connection (or nothing)
     nomatch = re:run(Recv, "^connection: close", [global,multiline,caseless]),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
+    %% No content-length header was added
+    nomatch = re:run(Recv, "^content-length:", [global,multiline,caseless]),
     wait_for_closed(Server, 500),
-    wait_for_closed(Client, 500).
+    [] = recv_until_timeout(Client),
+    gen_tcp:close(Client).
 
 head_close_expect_client(Config) ->
     %% Same as above, but for larger bodies getting streamed
