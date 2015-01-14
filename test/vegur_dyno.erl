@@ -21,8 +21,7 @@ init(_Transport, Req, Opts) ->
 
 handle(Req, Opts) ->
     F = proplists:get_value(in_handle, Opts, fun(R) -> R end),
-    F(Req),
-    {ok, Req, Opts}.
+    {ok, F(Req), Opts}.
 
 terminate(_Reason, _Req, _State) ->
     ok.

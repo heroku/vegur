@@ -73,7 +73,8 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
     end.
 
 handle_backend_response(Code, Status, RespHeaders, Req, State) ->
-    {Type, Req2} = cowboy_req:meta(request_type, Req, []),
+    Req1 = cowboy_req:set_meta(response_headers, RespHeaders, Req),
+    {Type, Req2} = cowboy_req:meta(request_type, Req1, []),
     case lists:sort(Type) of
         [] ->
             http_request(Code, Status, RespHeaders, Req2, State);
