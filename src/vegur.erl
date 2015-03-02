@@ -25,7 +25,8 @@
 -type ms() :: non_neg_integer().
 -type middleware() :: module().
 -type options() :: [option()]|[].
--type option() :: {max_request_line_length, non_neg_integer()}|
+-type option() :: {ref, atom()}|
+                  {max_request_line_length, non_neg_integer()}|
                   {max_header_name_length, non_neg_integer()}|
                   {max_header_value_length, non_neg_integer()}|
                   {max_headers, non_neg_integer()}|
@@ -40,7 +41,7 @@
 
 -spec start_http(PortNumber, Interface, Options) ->
                         {ok, pid()}|no_return() when
-      PortNumber :: inet:port_number(), 
+      PortNumber :: inet:port_number(),
       Interface :: module(),
       Options :: options().
 start_http(Port, Interface, Config) ->
