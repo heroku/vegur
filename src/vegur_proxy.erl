@@ -2,6 +2,7 @@
 
 -define(UPSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
 -define(DOWNSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
+-define(POLL_INCREMENTS, 1000).
 
 -export([backend_connection/1
          ,send_headers/7
@@ -480,11 +481,17 @@ stream_request(Req, Client) ->
     %% Buffer the first bit of data
     case cowboy_req:stream_body(Req) of
         {done, Req2} -> {done, Req2, Client};
-        {ok, Data, Req2} -> stream_request(Data, Req2, Client, <<>>);
+        {ok, Data, Req2} -> stream_request(Data, Req2, Client, <<>>, reps_left());
         {error, Err} -> {error, upstream, Err}
     end.
 
-stream_request(Buffer, Req, Client, DownBuffer) ->
+%% Loops N times at most. The loop is based off the total poll time for
+%% cowboy (1s) along with a value chosen to represent the max value.
+%% By default we go for 55 seconds, meaning that we will try as much as
+%% 55 polling sequences on both ends.
+stream_request(_Buffer, _Req, _Client, _DownBuffer, 0) ->
+    {error, upstream, timeout};
+stream_request(Buffer, Req, Client, DownBuffer, N) ->
     %% Buffer the data so that if the connection is
     %% interrupted, we can read the response (if any) before communicating
     %% the closed connection to the client
@@ -493,11 +500,13 @@ stream_request(Buffer, Req, Client, DownBuffer) ->
     case vegur_client:raw_request(Buffer, Client) of
         {ok, Client2} ->
             %% Buffer again
-            case cowboy_req:stream_body(Req) of
+            case cowboy_req:stream_body(Req) of % hardcoded 1s
                 {done, Req2} ->
                     {done, Req2, vegur_client:append_to_buffer(NewDownBuffer,Client2)};
                 {ok, Data, Req2} ->
-                    stream_request(Data, Req2, Client2, NewDownBuffer);
+                    stream_request(Data, Req2, Client2, NewDownBuffer, reps_left());
+                {error, timeout} ->
+                    stream_request(Buffer, Req, Client2, NewDownBuffer, N-1);
                 {error, Err} ->
                     {error, upstream, Err}
             end;
@@ -510,6 +519,11 @@ stream_request(Buffer, Req, Client, DownBuffer) ->
         {error, Err} ->
             {error, downstream, Err}
     end.
+
+reps_left() ->
+    %% if changing for a config value rather than hardcoded, remember
+    %% to set a lower boundary to 1 rep.
+    erlang:round(55000 / ?POLL_INCREMENTS).
 
 %% Cowboy also allows to decode data further after one pass, say if it
 %% was gzipped or something. For our use cases, we do not care about this
