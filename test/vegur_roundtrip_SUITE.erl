@@ -55,7 +55,12 @@ groups() -> [{continue, [], [
 %%% Init %%%
 %%%%%%%%%%%%
 init_per_suite(Config) ->
-    {ok, Port} = gen_tcp:listen(0, []),
+    IP = {A,B,C,D} = pick_interface(),
+    TxtIP = iolist_to_binary([integer_to_list(A), ".",
+                              integer_to_list(B), ".",
+                              integer_to_list(C), ".",
+                              integer_to_list(D)]),
+    {ok, Port} = gen_tcp:listen(0, [{ip,IP}]),
     {ok, [{recbuf, RecBuf}]} = inet:getopts(Port, [recbuf]),
     ct:pal("BUF DEFAULT: ~p~n",[inet:getopts(Port, [buffer, recbuf, packet_size])]),
     application:load(vegur),
@@ -65,6 +70,7 @@ init_per_suite(Config) ->
     Env = application:get_all_env(vegur),
     {ok, Started} = application:ensure_all_started(vegur),
     [{vegur_env, Env},
+     {ip, IP}, {txt_ip, TxtIP},
      {default_tcp_recbuf, RecBuf},
      {started, Started} | Config].
 
@@ -92,13 +98,15 @@ init_per_testcase(response_status_limits, Config0) ->
 init_per_testcase(nohost_1_0, _Config) ->
     {skip, "Host header required for HTTP/1.0 even with an absolute path."};
 init_per_testcase(_, Config) ->
-    {ok, Listen} = gen_tcp:listen(0, [{active, false},list]),
+    IP = ?config(ip, Config),
+    TxtIP = ?config(txt_ip, Config),
+    {ok, Listen} = gen_tcp:listen(0, [{active, false},list, {ip, IP}]),
     {ok, LPort} = inet:port(Listen),
-    meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{<<"127.0.0.1">>, LPort}, Req, HandlerState} end),
+    meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{TxtIP, LPort}, Req, HandlerState} end),
     {ok, _} = vegur:start_http(9880, vegur_stub, []),
     [{server_port, LPort},
      {proxy_port, 9880},
-     {server_ip, {127,0,0,1}},
+     {server_ip, IP},
      {server_listen, Listen}
      | Config].
 
@@ -113,6 +121,24 @@ end_per_testcase(response_status_limits, Config) ->
 end_per_testcase(_, Config) ->
     vegur:stop_http(),
     gen_tcp:close(?config(server_listen, Config)).
+
+pick_interface() ->
+    %% If possible, return a non-loopback interface so that we can get
+    %% more realistic testing scenarios. The loopback interface has all
+    %% kinds of OS optimizations around connection termination and error
+    %% detection that can make the tests non-representative of the real world.
+    {ok, Interfaces} = inet:getifaddrs(),
+    MixedInterfaces = lists:flatten([Attrs || {_Name, Attrs} <- Interfaces]),
+    IPv4s = [IPv4 || {addr, IPv4={_,_,_,_}} <- MixedInterfaces,
+                     IPv4 =/= {127,0,0,1}],
+    case IPv4s of
+        [] -> % Fallback
+            ct:pal("Falling back to loopback interface"),
+            {127,0,0,1};
+        [H|_] ->
+            ct:pal("Using IP ~p for tests", [H]),
+            H
+    end.
 
 %%%%%%%%%%%%%%%%%%
 %%% Test Cases %%%
@@ -1209,11 +1235,17 @@ interrupted_server(Config) ->
     %% Exchange all the data
     {ok, _RecvServ} = gen_tcp:recv(Server, 0, 1000),
     ok = gen_tcp:send(Server, Resp),
+    CloseTime = os:timestamp(),
     ok = gen_tcp:close(Server),
     RecvClient = recv_until_close(Client),
+    CloseDetect = os:timestamp(),
     %% Connection closed and may or may not have reported partial chunks
     %% based on timing that would close the socket.
     ct:pal("RecvClient: ~p",[RecvClient]),
+    %% The detection of a termination takes place in less than 2 seconds.
+    %% Note that on a loopback interface, this should always pass. Remote
+    %% interfaces detect and propagate connection termination differently.
+    ?assert(timer:seconds(2) > timer:now_diff(CloseDetect,CloseTime)/1000),
     check_stub_error({downstream, closed}).
 
 bad_chunk(Config) ->
@@ -2408,7 +2440,8 @@ resp_header_order() ->
 
 domain(Config) ->
     LPort = ?config(server_port, Config),
-    binary_to_list(<<"127.0.0.1:", (integer_to_binary(LPort))/binary>>).
+    TxtIp = ?config(txt_ip, Config),
+    binary_to_list(<<TxtIp/binary, ":", (integer_to_binary(LPort))/binary>>).
 
 check_stub_error(Pattern) ->
     Local = [Args || {_, {vegur_stub, error_page, Args}, _Ret} <- meck:history(vegur_stub)],
