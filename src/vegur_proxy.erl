@@ -478,12 +478,7 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
 %% going from a cowboy stream to raw vegur_client requests
 %% frontend -> backend
 stream_request(Req, Client) ->
-    %% Buffer the first bit of data
-    case cowboy_req:stream_body(Req) of
-        {done, Req2} -> {done, Req2, Client};
-        {ok, Data, Req2} -> stream_request(Data, Req2, Client, <<>>, reps_left());
-        {error, Err} -> {error, upstream, Err}
-    end.
+    stream_request(<<>>, Req, Client, <<>>, reps_left()).
 
 %% Loops N times at most. The loop is based off the total poll time for
 %% cowboy (1s) along with a value chosen to represent the max value.
@@ -496,8 +491,8 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
     %% interrupted, we can read the response (if any) before communicating
     %% the closed connection to the client
     NewDownBuffer = check_downstream(Client, DownBuffer),
-    %% Send data once
-    case vegur_client:raw_request(Buffer, Client) of
+    %% Send data once, if any
+    case maybe_raw_request(Buffer, Client) of
         {ok, Client2} ->
             %% Buffer again
             case cowboy_req:stream_body(Req) of % hardcoded 1s
@@ -506,7 +501,7 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
                 {ok, Data, Req2} ->
                     stream_request(Data, Req2, Client2, NewDownBuffer, reps_left());
                 {error, timeout} ->
-                    stream_request(Buffer, Req, Client2, NewDownBuffer, N-1);
+                    stream_request(<<>>, Req, Client2, NewDownBuffer, N-1);
                 {error, Err} ->
                     {error, upstream, Err}
             end;
@@ -524,6 +519,11 @@ reps_left() ->
     %% if changing for a config value rather than hardcoded, remember
     %% to set a lower boundary to 1 rep.
     erlang:round(55000 / ?POLL_INCREMENTS).
+
+maybe_raw_request(<<>>, Client) ->
+    {ok, Client};
+maybe_raw_request(Data, Client) ->
+    vegur_client:raw_request(Data, Client).
 
 %% Cowboy also allows to decode data further after one pass, say if it
 %% was gzipped or something. For our use cases, we do not care about this
