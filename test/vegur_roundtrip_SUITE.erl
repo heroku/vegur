@@ -1939,7 +1939,7 @@ large_chunked_request_response_interrupt(Config) ->
     %% Close the connection
     gen_tcp:close(Server),
     %% We should get a response back even if we didn't finish sending it
-    Recv = recv_until_close(Client),
+    Recv = recv_until_close_long(Client),
     %% Check results
     ct:pal("Resp: ~p", [Recv]),
     {match,_} = re:run(Recv, "^HTTP/1.1 304 OK", [global,multiline,caseless]).
@@ -2064,6 +2064,18 @@ recv_until_close_or_timeout(Port) ->
         {error, timeout} -> [];
         {error, closed} -> [];
         {ok, Data} -> [Data | recv_until_close_or_timeout(Port)]
+    end.
+
+%% Wait up to 55s for the termination -- useful for starvation test
+%% on a non-loopback interface
+recv_until_close_long(Port) -> recv_until_close_long(Port, 550, 0).
+
+recv_until_close_long(_, N, N) -> [];
+recv_until_close_long(Port, Max, N) ->
+    case gen_tcp:recv(Port, 0, 100) of
+        {error, closed} -> [];
+        {error, timeout} -> recv_until_close_long(Port, Max, N+1);
+        {ok, Data} -> [Data | recv_until_close_long(Port, Max, 0)]
     end.
 
 wait_for_closed(_Port, T) when T =< 0 -> error(not_closed);
