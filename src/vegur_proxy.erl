@@ -478,17 +478,59 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
 %% going from a cowboy stream to raw vegur_client requests
 %% frontend -> backend
 stream_request(Req, Client) ->
-    %% Buffer the first bit of data
-    case cowboy_req:stream_body(Req) of
-        {done, Req2} -> {done, Req2, Client};
-        {ok, Data, Req2} -> stream_request(Data, Req2, Client, <<>>, reps_left());
-        {error, Err} -> {error, upstream, Err}
-    end.
+    %% Initialize the request with two empty buffers (one for the
+    %% frontend connection, one for the backend connection), and
+    %% figure out, assuming 1s polling intervals in cowboy, how many
+    %% of them we can do. By default we go to 55 seconds, meaning
+    %% we will try as many as 55 polling sequences on both ends.
+    stream_request(<<>>, Req, Client, <<>>, reps_left()).
 
-%% Loops N times at most. The loop is based off the total poll time for
-%% cowboy (1s) along with a value chosen to represent the max value.
-%% By default we go for 55 seconds, meaning that we will try as much as
-%% 55 polling sequences on both ends.
+%% The idea is to enter a loop with two buffers and be able to
+%% just shuttle data between both ends at once:
+%%
+%%  Frontend <--f--> Vegur <--b--> Backend
+%%
+%% All operations we do comprise three potential actions:
+%%
+%% 1. poll the backend connection (b) to detect for termination.
+%%    This isn't required on the loopback interface, but is needed
+%%    anywehre else. To properly detect a connection termination on
+%%    a FIN packet (RST seems to work okay) we need to read everything
+%%    that was standing in the receive buffer.
+%%
+%%    This read buffer is transfered to the buffer for (b), initialized
+%%    here. The subtle bit in the code flow below is that detection of
+%%    termination on a `recv' is reflected in the next `send'. This is
+%%    crucial because the buffer for (b) might be full, at which point
+%%    we will rely solely on the slower `send' operation to find issues,
+%%    if any (say using `RST').
+%% 2. poll the frontend connection (f) to read data from it. This data
+%%    can then be sent *if* the backend connection is still alive. If no
+%%    data is found, we need to try for more.
+%% 3. Send the data as soon as possible, if the connection to the backend
+%%    (b) is still open
+%%
+%% This is repeated for every packet we have, in a loop.
+%%
+%% It is important to note that in order to have the shortest interval
+%% possible between a connection termination and its detection when sending
+%% data, the code structure has to be twisted a bit so that step 1 happens
+%% right before step 3. So instead of going with the simplest path:
+%%
+%%   1      -> 2      -> 3    -> 1      -> ...
+%%   poll b -> poll f -> send -> poll b -> ...
+%%   0s     -> 1s     -> 0s   -> 0s     -> ...
+%%
+%% Which may accidentally delay the time it takes to find a problem when sending
+%% data by up to 1s, we instead use a buffer that may or may not be empty
+%% representing data to send, allowing us to do:
+%%
+%%   1       -> 3    -> 2     -> 1      -> ...
+%%   poll b -> send -> poll f -> poll b -> ...
+%%   0s     -> 0s   -> 1s     -> 0s     -> ...
+%%
+%% Resulting in faster response times for errors and invalid codes given they
+%% will be followed by a closed connection.
 stream_request(_Buffer, _Req, _Client, _DownBuffer, 0) ->
     {error, upstream, timeout};
 stream_request(Buffer, Req, Client, DownBuffer, N) ->
@@ -496,8 +538,8 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
     %% interrupted, we can read the response (if any) before communicating
     %% the closed connection to the client
     NewDownBuffer = check_downstream(Client, DownBuffer),
-    %% Send data once
-    case vegur_client:raw_request(Buffer, Client) of
+    %% Send data once, if any
+    case maybe_raw_request(Buffer, Client) of
         {ok, Client2} ->
             %% Buffer again
             case cowboy_req:stream_body(Req) of % hardcoded 1s
@@ -506,7 +548,8 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
                 {ok, Data, Req2} ->
                     stream_request(Data, Req2, Client2, NewDownBuffer, reps_left());
                 {error, timeout} ->
-                    stream_request(Buffer, Req, Client2, NewDownBuffer, N-1);
+                    %% Reset the buffer
+                    stream_request(<<>>, Req, Client2, NewDownBuffer, N-1);
                 {error, Err} ->
                     {error, upstream, Err}
             end;
@@ -524,6 +567,13 @@ reps_left() ->
     %% if changing for a config value rather than hardcoded, remember
     %% to set a lower boundary to 1 rep.
     erlang:round(55000 / ?POLL_INCREMENTS).
+
+maybe_raw_request(<<>>, Client) ->
+    %% Nothing to send, but behave as if we did something
+    {ok, Client};
+maybe_raw_request(Data, Client) ->
+    %% Actually send data
+    vegur_client:raw_request(Data, Client).
 
 %% Cowboy also allows to decode data further after one pass, say if it
 %% was gzipped or something. For our use cases, we do not care about this
