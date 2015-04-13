@@ -1,7 +1,7 @@
 # Vegur
 
-Heroku's proxy library based on a forked Cowboy frontend. This libary handles
-proxying in Heroku's routing stack
+Heroku's proxy library based on a forked Cowboy frontend (Cowboyku). This
+libary handles proxying in Heroku's routing stack
 
 ![Illfær vegur](http://i.imgur.com/lwRxWDz.jpg)
 
@@ -421,7 +421,7 @@ backwards compatibility (or just working in the real world) is in place.
 
 Most of the request validation is done through the usage of middlewares.
 The middlewares we use are implemented through `midjan`, which wraps some
-operations traditionally done by `cowboy` in order to have more control
+operations traditionally done by `cowboyku` in order to have more control
 over vital parts of a request/response whenever the RFC is different
 between servers and proxies.
 

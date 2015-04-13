@@ -15,7 +15,7 @@
                 {route_time|connect_time|total_time, ms()}.
 -type stats() :: [stat()]|[].
 -type feature() :: deep_continue | peer_port.
--type upstream() :: cowboy_req:req().
+-type upstream() :: cowboyku_req:req().
 
 -export_type([domain/0,
               domain_group/0,

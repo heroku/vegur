@@ -8,7 +8,7 @@ handle(Req, [first]) ->
     timer:sleep(infinity),
     {ok, Req, [first]};
 handle(Req, [other]) ->
-    {{Trans, Sock}, Req2} = vegur_utils:raw_cowboy_socket(Req),
+    {{Trans, Sock}, Req2} = vegur_utils:raw_cowboyku_socket(Req),
     Trans:send(Sock, "HTTP/1.1 200 O"), % partial data
     timer:sleep(infinity),
     {ok, Req2, [other]}.

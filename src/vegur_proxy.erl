@@ -40,7 +40,7 @@ backend_connection({IpAddress, Port}) ->
       Body :: {stream, chunked|non_neg_integer()} | binary() | iodata(),
       Path :: binary(),
       Url :: binary(),
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       Client :: vegur_client:client(),
       Code :: non_neg_integer(),
       Status :: binary(),
@@ -51,7 +51,7 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% vegur_client:request_to_iolist will return a partial request with the
     %% correct headers in place, and the body can be sent later with sequential
     %% raw_request calls.
-    {Type, _} = cowboy_req:meta(request_type, Req, []),
+    {Type, _} = cowboyku_req:meta(request_type, Req, []),
     IoHeaders = vegur_client:request_to_headers_iolist(Method,
                                                        request_headers(Headers, Type),
                                                        Body,
@@ -60,7 +60,7 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
                                                        Path),
     case vegur_client:raw_request(IoHeaders, Client) of
         {ok, Client2} ->
-            {Cont, Req1} = cowboy_req:meta(continue, Req, []),
+            {Cont, Req1} = cowboyku_req:meta(continue, Req, []),
             case Cont of
                 continue ->
                     negotiate_continue(Body, Req1, Client2);
@@ -75,7 +75,7 @@ send_body(_Method, Headers, Body, _Path, _Url, Req, BackendClient) ->
     case Body of
         {stream, BodyLen} -> % the body is yet to be fetched
             {Fun, FunState} = choose_body_stream_type(Headers, BodyLen),
-            {ok, Req2} = cowboy_req:init_stream(Fun, FunState, fun decode_identity/1, Req),
+            {ok, Req2} = cowboyku_req:init_stream(Fun, FunState, fun decode_identity/1, Req),
             stream_request(Req2, BackendClient);
         Body -> % the body is all there.
             case vegur_client:raw_request(Body, BackendClient) of
@@ -99,7 +99,7 @@ negotiate_continue(_, _, _, Timeout) when Timeout =< 0 ->
     {error, upstream, timeout};
 negotiate_continue(Body, Req, BackendClient, Timeout) ->
     %% In here, we must await the 100 continue from the BackendClient
-    %% *OR* wait until cowboy (front-end) starts sending data.
+    %% *OR* wait until cowboyku (front-end) starts sending data.
     %% Because there is a timeout before which a client may send data,
     %% and that we may have looked for a suitable backend for a considerable
     %% amount of time, always start by looking over the client connection.
@@ -107,7 +107,7 @@ negotiate_continue(Body, Req, BackendClient, Timeout) ->
     %% 100 continue and not pass it on.
     %% Strip the 'continue' request type from meta!
     Wait = timer:seconds(1),
-    case cowboy_req:buffer_data(0, 0, Req) of
+    case cowboyku_req:buffer_data(0, 0, Req) of
         {ok, Req1} ->
             {done, Req1, BackendClient};
         {error, timeout} ->
@@ -162,7 +162,7 @@ read_response(Client) ->
 -spec read_backend_response(Req, Client) ->
                            {ok, Code, Status, Headers, Req, Client} |
                            {error, Blame, Error} when
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       Client :: vegur_client:client(),
       Code :: pos_integer(),
       Status :: binary(),
@@ -173,7 +173,7 @@ read_backend_response(Req, Client) ->
     case read_response(Client) of
         {error, Blame, Error} -> {error, Blame, Error};
         {ok, Code, Status, RespHeaders, Client1} ->
-            {Cont, Req1} = cowboy_req:meta(continue, Req, []),
+            {Cont, Req1} = cowboyku_req:meta(continue, Req, []),
             case {Code, Cont} of
                 {100, continue} ->
                     %% Leftover from Continue due to race condition between
@@ -186,7 +186,7 @@ read_backend_response(Req, Client) ->
                 {100, continued} ->
                     {error, downstream, non_terminal_status_after_continue};
                 {100, _} -> % 100 continue to req without the expect header
-                    case cowboy_req:version(Req1) of
+                    case cowboyku_req:version(Req1) of
                         {'HTTP/1.0', Req2} ->
                             %% HTTP/1.0 client without expect: 100-continue
                             %% Strip as per RFC.
@@ -205,17 +205,17 @@ read_backend_response(Req, Client) ->
 
 send_continue(Req, BackendClient) ->
     HTTPVer = atom_to_binary(vegur_client:version(BackendClient), latin1),
-    {Transport,Socket} = vegur_utils:borrow_cowboy_socket(Req),
+    {Transport,Socket} = vegur_utils:borrow_cowboyku_socket(Req),
     Transport:send(Socket,
         [HTTPVer, <<" 100 Continue\r\n\r\n">>]),
     %% Got it. Now clean up the '100 Continue' state from
     %% the request, and mark it as handled
-    cowboy_req:set_meta(continue, continued, Req).
+    cowboyku_req:set_meta(continue, continued, Req).
 
 -spec upgrade(Headers, Req, Client) ->
                      {done, Req, Client} |
                      {timeout, Req, Client} when
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       Headers :: [{binary(), binary()}]|[],
       Client :: vegur_client:client().
 upgrade(Headers, Req, BackendClient) ->
@@ -246,7 +246,7 @@ upgrade(Headers, Req, BackendClient) ->
 upgrade_init(Headers, Req, BackendClient) ->
     %% fetch raw sockets and buffers
     {Server={TransVeg,SockVeg}, BufVeg, _NewClient} = vegur_client:raw_socket(BackendClient),
-    {Client={TransCow,SockCow}, BufCow, Req2} = vegur_utils:raw_cowboy_sockbuf(Req),
+    {Client={TransCow,SockCow}, BufCow, Req2} = vegur_utils:raw_cowboyku_sockbuf(Req),
     %% Send the response to the caller
     Headers1 = vegur_client:headers_to_iolist(upgrade_response_headers(Headers)),
     TransCow:send(SockCow,
@@ -265,12 +265,12 @@ upgrade_init(Headers, Req, BackendClient) ->
       Code :: pos_integer(),
       Status :: binary(),
       Headers :: [{binary(), binary()}]|[],
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       Client :: vegur_client:client(),
       Error :: any(),
       Blame :: error_blame().
 relay(Code, Status, HeadersRaw, Req, Client) ->
-    %% Dispatch data from vegur_client down into the cowboy connection, either
+    %% Dispatch data from vegur_client down into the cowboyku connection, either
     %% in batch or directly.
     {Headers, Req1} = case connection_type(Code, Req, Client) of
         {keepalive, Req0} ->
@@ -330,22 +330,22 @@ relay_full_body(Code, Status, Headers, Req, Client) ->
     Headers :: [{binary(),binary()}],
     Size :: undefined | non_neg_integer(),
     StreamFun :: fun(({module(),Sock::term()}, Client) -> {error, Reason} | {error, Blame, Reason} | {ok, Client}),
-    Req :: cowboy_req:req(),
+    Req :: cowboyku_req:req(),
     Client :: vegur_client:client(),
     Blame :: error_blame(),
     Reason :: term().
 relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     Req2 = relay_stream_body_init(Code, Status, Headers, Size, StreamFun, Req, Client),
     %% We use the process dictionary to carry around a buffer of
-    %% data read from cowboy's client socket, necessary to detect connections
+    %% data read from cowboyku's client socket, necessary to detect connections
     %% that closed. In such cases, it is possible that data makes it to us
     %% and requires to be buffered to be served better.
     buffer_init(),
-    try cowboy_req:reply(Status, Headers, Req2) of % --ignore dialyzer
+    try cowboyku_req:reply(Status, Headers, Req2) of % --ignore dialyzer
         {ok, Req3} ->
             Buf = buffer_clear(),
             {ok,
-             vegur_utils:append_to_cowboy_buffer(Buf,Req3),
+             vegur_utils:append_to_cowboyku_buffer(Buf,Req3),
              backend_close(Client)}
     catch
         {stream_error, Blame, Error} ->
@@ -355,7 +355,7 @@ relay_stream_body(Code, Status, Headers, Size, StreamFun, Req, Client) ->
     end.
 
 %% Prepare the body to be streamed.
-%% Use cowboy's partial response delivery to stream contents.
+%% Use cowboyku's partial response delivery to stream contents.
 %% We use exceptions (throws) to detect bad transfers and close
 %% both connections when this happens.
 relay_stream_body_init(Code, _Status, _Headers, Size, StreamFun, Req, Client) ->
@@ -365,7 +365,7 @@ relay_stream_body_init(Code, _Status, _Headers, Size, StreamFun, Req, Client) ->
         {dont_wait, Req0} -> {fun stream_nothing/2, Req0}
     end,
     %% Wrap the streaming function to throw exceptions so we
-    %% escape cowboy's scope
+    %% escape cowboyku's scope
     Fun = fun(Socket, Transport) ->
         case FinalFun({Transport,Socket}, Client) of
             {ok, Client2} ->
@@ -376,17 +376,17 @@ relay_stream_body_init(Code, _Status, _Headers, Size, StreamFun, Req, Client) ->
     end,
     %% Add the function to the Req object
     case Size of
-        undefined -> cowboy_req:set_resp_body_fun(Fun, Req1); % end on close
-        _ -> cowboy_req:set_resp_body_fun(Size, Fun, Req1)    % end on size
+        undefined -> cowboyku_req:set_resp_body_fun(Fun, Req1); % end on close
+        _ -> cowboyku_req:set_resp_body_fun(Size, Fun, Req1)    % end on size
     end.
 
 relay_chunked(Code, Status, Headers, Req, Client) ->
-    {Version, Req2} = cowboy_req:version(Req),
+    {Version, Req2} = cowboyku_req:version(Req),
     relay_chunked(Version, Code, Status, Headers, Req2, Client).
 
 relay_chunked('HTTP/1.1', Code, Status, Headers, Req, Client) ->
     %% This is a special case. We stream pre-delimited chunks raw instead
-    %% of using cowboy, which would have to recalculate and re-delimitate
+    %% of using cowboyku, which would have to recalculate and re-delimitate
     %% sizes all over after we parsed them first. We save time by just using
     %% raw chunks.
     {RawSocket, Req2} = relay_chunked_init(Status, Headers, Req),
@@ -399,7 +399,7 @@ relay_chunked('HTTP/1.1', Code, Status, Headers, Req, Client) ->
                 {ok, Client2} ->
                     Buf = buffer_clear(),
                     {ok,
-                     vegur_utils:append_to_cowboy_buffer(Buf,Req3),
+                     vegur_utils:append_to_cowboyku_buffer(Buf,Req3),
                      backend_close(Client2)};
                 {error, Blame, Error} -> % uh-oh, we died during the transfer
                     buffer_clear(),
@@ -423,8 +423,8 @@ relay_chunked_init(Status, Headers, Req) ->
     %% encoding headers. This is more or less just a shortcut
     %% to get the initial chunked headers on the line, then we're
     %% free to take over the body.
-    {ok, Req2} = cowboy_req:chunked_reply(Status, Headers, Req),
-    {RawSocket, Req3} = vegur_utils:raw_cowboy_socket(Req2),
+    {ok, Req2} = cowboyku_req:chunked_reply(Status, Headers, Req),
+    {RawSocket, Req3} = vegur_utils:raw_cowboyku_socket(Req2),
     {RawSocket, Req3}.
 
 
@@ -475,12 +475,12 @@ stream_unchunked({Transport,Sock}=Raw, Client) ->
     end.
 
 %% Deal with the transfer of a large or chunked request body by
-%% going from a cowboy stream to raw vegur_client requests
+%% going from a cowboyku stream to raw vegur_client requests
 %% frontend -> backend
 stream_request(Req, Client) ->
     %% Initialize the request with two empty buffers (one for the
     %% frontend connection, one for the backend connection), and
-    %% figure out, assuming 1s polling intervals in cowboy, how many
+    %% figure out, assuming 1s polling intervals in cowboyku, how many
     %% of them we can do. By default we go to 55 seconds, meaning
     %% we will try as many as 55 polling sequences on both ends.
     stream_request(<<>>, Req, Client, <<>>, reps_left()).
@@ -542,7 +542,7 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
     case maybe_raw_request(Buffer, Client) of
         {ok, Client2} ->
             %% Buffer again
-            case cowboy_req:stream_body(Req) of % hardcoded 1s
+            case cowboyku_req:stream_body(Req) of % hardcoded 1s
                 {done, Req2} ->
                     {done, Req2, vegur_client:append_to_buffer(NewDownBuffer,Client2)};
                 {ok, Data, Req2} ->
@@ -557,7 +557,7 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
             %% we have a buffer accumulated, it's likely an early response came
             %% while streaming the body. We must however force the connection
             %% to be closed because we won't wait until the full body is read.
-            Req2 = vegur_utils:mark_cowboy_close(Req),
+            Req2 = vegur_utils:mark_cowboyku_close(Req),
             {done, Req2, vegur_client:append_to_buffer(NewDownBuffer,Client)};
         {error, Err} ->
             {error, downstream, Err}
@@ -575,13 +575,13 @@ maybe_raw_request(Data, Client) ->
     %% Actually send data
     vegur_client:raw_request(Data, Client).
 
-%% Cowboy also allows to decode data further after one pass, say if it
+%% Cowboyku also allows to decode data further after one pass, say if it
 %% was gzipped or something. For our use cases, we do not care about this
 %% as we relay the information as-is, so this function does nothing.
 decode_identity(Data) ->
     {ok, Data}.
 
-%% Custom decoder for Cowboy that will allow to stream data without modifying
+%% Custom decoder for Cowboyku that will allow to stream data without modifying
 %% it, in bursts, directly to the backend without accumulating it in memory.
 decode_raw(Data, {Streamed, Total}) when Streamed + byte_size(Data) < Total ->
     %% Still a lot to go, we return it all as a frame
@@ -592,7 +592,7 @@ decode_raw(Data, {Streamed, Total}) ->
     <<Data2:Size/binary, Rest/binary>> = Data,
     {done, Data2, Total, Rest}.
 
-%% Custom decoder for Cowboy that will allow to return chunks in streams while
+%% Custom decoder for Cowboyku that will allow to return chunks in streams while
 %% still giving us a general idea when a chunk begins and ends, and when the
 %% entire request is cleared. Can deal with partial chunks for cases where
 %% the user sends in multi-gigabyte chunks to mess with us.
@@ -613,7 +613,7 @@ decode_chunked(Data, {InitCont, Cont, Total}) ->
     end.
 
 respond(Status, Headers, Body, Req) ->
-    {ok, Req1} = cowboy_req:reply(Status, Headers, Body, Req),
+    {ok, Req1} = cowboyku_req:reply(Status, Headers, Body, Req),
     Req1.
 
 %% backend -> frontend
@@ -653,7 +653,7 @@ stream_nothing(_Raw, Client) ->
 %% We should close the connection whenever we get an Expect: 100-Continue
 %% that got answered with a final status code.
 connection_type(Code, Req, Client) ->
-    {Cont, _} = cowboy_req:meta(continue, Req, []),
+    {Cont, _} = cowboyku_req:meta(continue, Req, []),
     %% If we haven't received a 100 continue to forward after having
     %% received an expect AND this is a final status, then we should
     %% close the connection.
@@ -667,19 +667,19 @@ connection_type(Code, Req, Client) ->
                 stream_close ->
                     case wait_for_body(Code, Req) of
                         {dont_wait, Req2} ->
-                            {cowboy_req:get(connection, Req2), Req2};
+                            {cowboyku_req:get(connection, Req2), Req2};
                         {wait, Req2} ->
                             {close, Req2}
                     end;
                 chunked ->
                     %% Chunked with an HTTP/1.0 client gets turned to a close
                     %% to allow proper data streaming.
-                    case cowboy_req:version(Req) of
+                    case cowboyku_req:version(Req) of
                         {'HTTP/1.0', Req2} -> {close, Req2};
-                        {'HTTP/1.1', Req2} -> {cowboy_req:get(connection, Req2), Req2}
+                        {'HTTP/1.1', Req2} -> {cowboyku_req:get(connection, Req2), Req2}
                     end;
                 _ ->
-                    {cowboy_req:get(connection, Req), Req}
+                    {cowboyku_req:get(connection, Req), Req}
             end
     end.
 
@@ -691,7 +691,7 @@ connection_type(Code, Req, Client) ->
 wait_for_body(204, Req) -> {dont_wait, Req};
 wait_for_body(304, Req) -> {dont_wait, Req};
 wait_for_body(_, Req) ->
-    case cowboy_req:method(Req) of
+    case cowboyku_req:method(Req) of
         {<<"HEAD">>, Req1} -> {dont_wait, Req1};
         {_, Req1} -> {wait, Req1}
     end.

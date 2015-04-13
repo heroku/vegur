@@ -1,6 +1,6 @@
 -module(vegur_proxy_middleware).
 
--behaviour(cowboy_middleware).
+-behaviour(cowboyku_middleware).
 -export([execute/2]).
 
 -record(state, { backend_client :: vegur_client:client()
@@ -8,17 +8,17 @@
                }).
 
 execute(Req, Env) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {Log, Req1} = cowboyku_req:meta(logging, Req),
     Log1 = vegur_req_log:stamp(pre_proxy, Log),
-    Req2 = cowboy_req:set_meta(logging, Log1, Req1),
-    {Client, Req3} = cowboy_req:meta(backend_connection, Req2),
+    Req2 = cowboyku_req:set_meta(logging, Log1, Req1),
+    {Client, Req3} = cowboyku_req:meta(backend_connection, Req2),
     case vegur_req_log:log(service_time,
                            fun() ->
                                    proxy(Req3, #state{backend_client = Client, env = Env})
                            end, Log1) of
         {{ok, Code, _Status, Req4, #state{backend_client=Client1}}, Log2} ->
             Req5 = store_byte_counts(Req4, Client1),
-            Req6 = cowboy_req:set_meta(status, successful, Req5),
+            Req6 = cowboyku_req:set_meta(status, successful, Req5),
             {_, Req7} = merge_logs(Log2, Req6, Client1),
             {halt, Code, Req7};
         {{error, Blame, Reason, Req4}, Log2} ->
@@ -40,14 +40,14 @@ send_to_backend({Method, Header, Body, Path, Url}=Request, Req,
                 #state{backend_client=BackendClient}=State) ->
     case vegur_proxy:send_headers(Method, Header, Body, Path, Url, Req, BackendClient) of
         {done, Req1, BackendClient1} -> % headers sent
-            {Log, Req2} = cowboy_req:meta(logging, Req1),
+            {Log, Req2} = cowboyku_req:meta(logging, Req1),
             Log1 = vegur_req_log:stamp(headers_sent, Log),
-            Req3 = cowboy_req:set_meta(logging, Log1, Req2),
+            Req3 = cowboyku_req:set_meta(logging, Log1, Req2),
             send_body_to_backend(Request, Req3, State#state{backend_client=BackendClient1});
         {ok, Code, Status, RespHeaders, BackendClient1} -> % request ended without body sent
-            {Log, Req1} = cowboy_req:meta(logging, Req),
+            {Log, Req1} = cowboyku_req:meta(logging, Req),
             Log1 = vegur_req_log:stamp(headers_sent, Log),
-            Req2 = cowboy_req:set_meta(logging, Log1, Req1),
+            Req2 = cowboyku_req:set_meta(logging, Log1, Req1),
             handle_backend_response(Code, Status, RespHeaders, Req2,
                                     State#state{backend_client=BackendClient1});
         {error, Blame, Error} ->
@@ -73,8 +73,8 @@ read_backend_response(Req, #state{backend_client=BackendClient}=State) ->
     end.
 
 handle_backend_response(Code, Status, RespHeaders, Req, State) ->
-    Req1 = cowboy_req:set_meta(response_headers, RespHeaders, Req),
-    {Type, Req2} = cowboy_req:meta(request_type, Req1, []),
+    Req1 = cowboyku_req:set_meta(response_headers, RespHeaders, Req),
+    {Type, Req2} = cowboyku_req:meta(request_type, Req1, []),
     case lists:sort(Type) of
         [] ->
             http_request(Code, Status, RespHeaders, Req2, State);
@@ -104,8 +104,8 @@ http_request(Code, Status, Headers, Req,
 
 store_byte_counts(Req, Client) ->
     {SentNew, RecvNew} = vegur_client:byte_counts(Client),
-    {BytesSent, Req2} = cowboy_req:meta(bytes_sent, Req),
-    {BytesRecv, Req3} = cowboy_req:meta(bytes_recv, Req2),
+    {BytesSent, Req2} = cowboyku_req:meta(bytes_sent, Req),
+    {BytesRecv, Req3} = cowboyku_req:meta(bytes_recv, Req2),
     Sent = case {BytesSent, SentNew} of
         {_, undefined} -> BytesSent;
         {undefined, _} -> SentNew;
@@ -116,8 +116,8 @@ store_byte_counts(Req, Client) ->
         {undefined, _} -> RecvNew;
         {_,_} -> max(BytesRecv, RecvNew)
     end,
-    Req4 = cowboy_req:set_meta(bytes_sent, Sent, Req3),
-    cowboy_req:set_meta(bytes_recv, Recv, Req4).
+    Req4 = cowboyku_req:set_meta(bytes_sent, Sent, Req3),
+    cowboyku_req:set_meta(bytes_recv, Recv, Req4).
 
 %% We need to merge the logs obtained in the request with those tracked
 %% internally in the req object, and those tracked in the client.
@@ -126,9 +126,9 @@ store_byte_counts(Req, Client) ->
 %% be different to what is called inside of it, so we need to do a 3-way
 %% merge.
 merge_logs(Log, Req, Client) ->
-    {ReqLog, Req2} = cowboy_req:meta(logging, Req),
+    {ReqLog, Req2} = cowboyku_req:meta(logging, Req),
     Merged = vegur_req_log:merge([Log, ReqLog, vegur_client:log(Client)]),
-    {Merged, cowboy_req:set_meta(logging, Merged, Req2)}.
+    {Merged, cowboyku_req:set_meta(logging, Merged, Req2)}.
 
 parse_request(Req) ->
     case check_for_body(Req) of
@@ -139,11 +139,11 @@ parse_request(Req) ->
     end.
 
 parse_request(Body, Req) ->
-    {Method, Req2} = cowboy_req:method(Req),
-    {Path, Req3} = cowboy_req:path(Req2),
-    {Host, Req4} = cowboy_req:host(Req3),
-    {Qs, Req5} = cowboy_req:qs(Req4),
-    {Headers, Req6} = cowboy_req:headers(Req5),
+    {Method, Req2} = cowboyku_req:method(Req),
+    {Path, Req3} = cowboyku_req:path(Req2),
+    {Host, Req4} = cowboyku_req:host(Req3),
+    {Qs, Req5} = cowboyku_req:qs(Req4),
+    {Headers, Req6} = cowboyku_req:headers(Req5),
     FullPath = case Qs of
         <<>> -> Path;
         _ -> <<Path/binary, "?", Qs/binary>>
@@ -161,10 +161,10 @@ add_proxy_headers(Headers, Req) ->
     add_upstream_interface_headers(Headers6, Req6).
 
 add_upstream_interface_headers(Headers, Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {Log, Req1} = cowboyku_req:meta(logging, Req),
     {Headers1, Req2} = vegur_utils:add_interface_headers(upstream, Headers, Req1),
     Log1 = vegur_req_log:stamp(headers_formatted, Log),
-    Req3 = cowboy_req:set_meta(logging, Log1, Req2),
+    Req3 = cowboyku_req:set_meta(logging, Log1, Req2),
     {Headers1, Req3}.
 
 add_start_time(Headers, Req) ->
@@ -192,7 +192,7 @@ add_total_route_time(Headers, Req) ->
                                        Time, Headers), Req1}.
 
 add_request_id(Headers, Req) ->
-    {RequestId, Req1} = cowboy_req:meta(request_id, Req),
+    {RequestId, Req1} = cowboyku_req:meta(request_id, Req),
     {vegur_utils:add_or_replace_header(vegur_utils:config(request_id_name), RequestId, Headers),
      Req1}.
 
@@ -240,9 +240,9 @@ handle_feature(Req, {Headers, PeerPort}) ->
 check_for_body(Req) ->
     %% We handle the request differently based on whether it's chunked,
     %% has a known length, or if it has no body at all.
-    case cowboy_req:has_body(Req) of
+    case cowboyku_req:has_body(Req) of
         true ->
-            case cowboy_req:body_length(Req) of
+            case cowboyku_req:body_length(Req) of
                 {undefined, Req2} ->
                     {{stream, chunked}, Req2};
                 {error, badarg} ->

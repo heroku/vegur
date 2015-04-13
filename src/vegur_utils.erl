@@ -16,11 +16,11 @@
          ,add_interface_headers/3
          ,handle_error/2
          ,peer_ip_port/1
-         ,borrow_cowboy_socket/1
-         ,raw_cowboy_socket/1
-         ,raw_cowboy_sockbuf/1
-         ,append_to_cowboy_buffer/2
-         ,mark_cowboy_close/1
+         ,borrow_cowboyku_socket/1
+         ,raw_cowboyku_socket/1
+         ,raw_cowboyku_sockbuf/1
+         ,append_to_cowboyku_buffer/2
+         ,mark_cowboyku_close/1
         ]).
 
 -export([config/1
@@ -30,24 +30,24 @@
 -spec get_interface_module(Req) ->
                                   {Module, HandlerState, Req}
                                       | no_return() when
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       HandlerState :: term(),
       Module :: module().
 get_interface_module(Req) ->
-    {HandlerState, Req1} = cowboy_req:meta(handler_state, Req, undefined),
+    {HandlerState, Req1} = cowboyku_req:meta(handler_state, Req, undefined),
     {vegur_utils:config(interface_module), HandlerState, Req1}.
 
 -spec set_handler_state(HandlerState, Req) -> Req when
       HandlerState :: term(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 set_handler_state(HandlerState, Req) ->
-    cowboy_req:set_meta(handler_state, HandlerState, Req).
+    cowboyku_req:set_meta(handler_state, HandlerState, Req).
 
--spec parse_header(binary(), cowboy_req:req()) ->
-                          {ok, {[]|[binary()|undefined], cowboy_req:req()}}
+-spec parse_header(binary(), cowboyku_req:req()) ->
+                          {ok, {[]|[binary()|undefined], cowboyku_req:req()}}
                         | {error, badarg}.
 parse_header(Key, Req) ->
-    case cowboy_req:parse_header(Key, Req) of
+    case cowboyku_req:parse_header(Key, Req) of
         {ok, L, Req0} when is_list(L) -> {ok, {L, Req0}};
         {ok, Term, Req0} -> {ok, {[Term], Req0}};
         {undefined, Term, Req0} ->  {ok, {[Term], Req0}};
@@ -74,15 +74,15 @@ add_or_append_header(Key, Val, Headers) ->
 
 %% @doc Similar to add_or_append_header/3, but takes a `Req' object to
 %% allow the reading of the current header value to be done through
-%% Cowboy's cache.
+%% Cowboyku's cache.
 -spec add_or_append_header(Key, Value, Headers, Req) ->
                                   {Headers, Req} when
       Key :: iodata(),
       Value :: iodata(),
       Headers :: [{iodata(), iodata()}]|[],
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 add_or_append_header(Key, Val, Headers, Req) ->
-    case cowboy_req:header(Key, Req) of
+    case cowboyku_req:header(Key, Req) of
         {undefined, Req2} ->
             {Headers ++ [{Key, Val}], Req2};
         {CurrentVal, Req2} ->
@@ -95,10 +95,10 @@ add_or_append_header(Key, Val, Headers, Req) ->
       Key :: iodata(),
       Value :: iodata(),
       Headers :: [{iodata(), iodata()}]|[],
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 add_if_missing_header(Key, Val, Headers, Req) ->
     {NewVal, Req2} =
-        case cowboy_req:header(Key, Req) of
+        case cowboyku_req:header(Key, Req) of
             {undefined, Req1} ->
                 {Val, Req1};
             {CurrentVal, Req1} ->
@@ -124,7 +124,7 @@ add_or_replace_headers(AdditionalHeaders, Headers) ->
     lists:keymerge(1, AdditionalHeaders, Headers).
 
 %% We need to traverse the entire list because a user could have
-%% injected more than one instance of the same header, and cowboy
+%% injected more than one instance of the same header, and cowboyku
 %% doesn't coalesce headers for us.
 -spec delete_all_headers(Key, Headers) -> Headers when
       Key :: iodata(),
@@ -137,31 +137,31 @@ delete_all_headers(Key, [H|Hdrs]) -> [H | delete_all_headers(Key, Hdrs)].
                              Req when
       Headers :: [{iodata(), iodata()}]|[],
       Body :: binary(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 set_response(Headers, Body, Req) ->
-    Req1 = cowboy_req:set_resp_body(Body, Req),
+    Req1 = cowboyku_req:set_resp_body(Body, Req),
     lists:foldl(fun({Name, Value}, R) ->
-                        cowboy_req:set_resp_header(Name, Value, R)
+                        cowboyku_req:set_resp_header(Name, Value, R)
                 end, Req1, Headers).
 
 -spec set_request_status(Status, Req) -> Req when
       Status :: vegur_interface:terminate_reason(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 set_request_status(Status, Req) ->
-    cowboy_req:set_meta(status, Status, Req).
+    cowboyku_req:set_meta(status, Status, Req).
 
 -spec get_request_status(Req) -> {Status, Req} when
       Status :: vegur_interface:terminate_reason(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 get_request_status(Req) ->
-    cowboy_req:meta(status, Req).
+    cowboyku_req:meta(status, Req).
 
 -spec add_interface_headers(Direction, Headers, Req) -> {Headers, Req} when
     Direction :: upstream | downstream,
     Headers :: [{iodata(), iodata()}],
-    Req :: cowboy_req:req().
+    Req :: cowboyku_req:req().
 add_interface_headers(Direction, Headers, Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {Log, Req1} = cowboyku_req:meta(logging, Req),
     {InterfaceModule, HandlerState, Req2} = get_interface_module(Req1),
     {InterfaceHeaders, HandlerState1} = InterfaceModule:additional_headers(Direction, Log, Req2, HandlerState),
     Req3 = set_handler_state(HandlerState1, Req2),
@@ -169,11 +169,11 @@ add_interface_headers(Direction, Headers, Req) ->
 
 -spec handle_error(Reason, Req) -> {HttpCode, Req} when
       Reason :: atom() | {Blame::atom(), term()},
-      HttpCode :: cowboy:http_status(),
-      Req :: cowboy_req:req().
+      HttpCode :: cowboyku:http_status(),
+      Req :: cowboyku_req:req().
 handle_error(Reason, Req) ->
     {InterfaceModule, HandlerState, Req1} = get_interface_module(Req),
-    {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1, undefined),
+    {DomainGroup, Req2} = cowboyku_req:meta(domain_group, Req1, undefined),
     {{HttpCode, ErrorHeaders, ErrorBody}, Req3, HandlerState1} = InterfaceModule:error_page(Reason, DomainGroup, Req2, HandlerState),
     Req4 = set_handler_state(HandlerState1, Req3),
     Req5 = set_response(ErrorHeaders, ErrorBody, Req4),
@@ -186,73 +186,73 @@ handle_error(Reason, Req) ->
                             {IpAddress, PortNumber, PortNumber}, Req} when
       IpAddress :: inet:ip_address(),
       PortNumber :: inet:port_number(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 peer_ip_port(Req) ->
-    Transport = cowboy_req:get(transport, Req),
+    Transport = cowboyku_req:get(transport, Req),
     case Transport:name() of
         proxy_protocol_tcp ->
-            ProxySocket = cowboy_req:get(socket, Req),
+            ProxySocket = cowboyku_req:get(socket, Req),
             {ok, {{PeerIp, PeerPort}, {_, DestPort}}} = Transport:proxyname(ProxySocket),
             {{PeerIp, PeerPort, DestPort}, Req};
         _ ->
-            {{PeerIp, _}, Req3} = cowboy_req:peer(Req),
-            {Port, Req4} = cowboy_req:port(Req3),
+            {{PeerIp, _}, Req3} = cowboyku_req:peer(Req),
+            {Port, Req4} = cowboyku_req:port(Req3),
             {{PeerIp, Port}, Req4}
     end.
 
-%% Get a cowboy socket for a temporary operation, expected to be
+%% Get a cowboyku socket for a temporary operation, expected to be
 %% non-destructive and non-terminal (more data to be sent by the
-%% regular cowboy code path after).
--spec borrow_cowboy_socket(Req) -> {Transport, Socket} when
+%% regular cowboyku code path after).
+-spec borrow_cowboyku_socket(Req) -> {Transport, Socket} when
     Transport :: module(),
     Socket :: any(),
-    Req :: cowboy_req:req().
-borrow_cowboy_socket(Req) ->
-    [Transport, Socket] = cowboy_req:get([transport, socket], Req),
+    Req :: cowboyku_req:req().
+borrow_cowboyku_socket(Req) ->
+    [Transport, Socket] = cowboyku_req:get([transport, socket], Req),
     {Transport, Socket}.
 
-%% Get a cowboy socket for a terminal operation, expected to be
-%% destructive (no more data to be sent by the regular cowboy code path after)
--spec raw_cowboy_socket(Req) ->  {{Transport, Socket}, Req} when
+%% Get a cowboyku socket for a terminal operation, expected to be
+%% destructive (no more data to be sent by the regular cowboyku code path after)
+-spec raw_cowboyku_socket(Req) ->  {{Transport, Socket}, Req} when
     Transport :: module(),
     Socket :: any(),
-    Req :: cowboy_req:req().
-raw_cowboy_socket(Req) ->
-    [Transport, Socket] = cowboy_req:get([transport, socket], Req),
+    Req :: cowboyku_req:req().
+raw_cowboyku_socket(Req) ->
+    [Transport, Socket] = cowboyku_req:get([transport, socket], Req),
     {{Transport, Socket}, mark_as_done(Req)}.
 
-%% Get a cowboy socket for a terminal operation, expected to be
-%% destructive (no more data to be sent by the regular cowboy code path after).
+%% Get a cowboyku socket for a terminal operation, expected to be
+%% destructive (no more data to be sent by the regular cowboyku code path after).
 %% To be used specifically when the currently buffered data is relevant and
 %% needs to be used.
--spec raw_cowboy_sockbuf(Req) -> {{Transport, Socket}, Buffer, Req} when
+-spec raw_cowboyku_sockbuf(Req) -> {{Transport, Socket}, Buffer, Req} when
     Transport :: module(),
     Socket :: any(),
     Buffer :: iodata(),
-    Req :: cowboy_req:req().
-raw_cowboy_sockbuf(Req) ->
-    [Transport, Socket, Buffer] = cowboy_req:get([transport, socket, buffer], Req),
+    Req :: cowboyku_req:req().
+raw_cowboyku_sockbuf(Req) ->
+    [Transport, Socket, Buffer] = cowboyku_req:get([transport, socket, buffer], Req),
     {{Transport, Socket},
      Buffer,
-     mark_as_done(cowboy_req:set([{buffer, <<>>}], Req))}.
+     mark_as_done(cowboyku_req:set([{buffer, <<>>}], Req))}.
 
--spec append_to_cowboy_buffer(Buffer, Req) -> Req when
+-spec append_to_cowboyku_buffer(Buffer, Req) -> Req when
     Buffer :: iodata(),
-    Req :: cowboy_req:req().
-append_to_cowboy_buffer(Buffer, Req) ->
-    [CowBuffer] = cowboy_req:get([buffer], Req),
-    cowboy_req:set([{buffer, iolist_to_binary([CowBuffer, Buffer])}], Req).
+    Req :: cowboyku_req:req().
+append_to_cowboyku_buffer(Buffer, Req) ->
+    [CowBuffer] = cowboyku_req:get([buffer], Req),
+    cowboyku_req:set([{buffer, iolist_to_binary([CowBuffer, Buffer])}], Req).
 
-%% Manually force a cowboy request to be closed once the response is done
--spec mark_cowboy_close(Req) -> Req when
-    Req :: cowboy_req:req().
-mark_cowboy_close(Req) ->
-    cowboy_req:set([{connection,close}], Req).
+%% Manually force a cowboyku request to be closed once the response is done
+-spec mark_cowboyku_close(Req) -> Req when
+    Req :: cowboyku_req:req().
+mark_cowboyku_close(Req) ->
+    cowboyku_req:set([{connection,close}], Req).
 
--spec mark_as_done(Req) -> Req when Req :: cowboy_req:req().
+-spec mark_as_done(Req) -> Req when Req :: cowboyku_req:req().
 mark_as_done(Req) ->
-    self() ! {cowboy_req, resp_sent},
-    cowboy_req:set([{resp_state, done}], Req).
+    self() ! {cowboyku_req, resp_sent},
+    cowboyku_req:set([{resp_state, done}], Req).
 
 % Config helpers
 config(Key, Default) ->
