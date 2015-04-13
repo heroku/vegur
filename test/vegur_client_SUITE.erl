@@ -7,6 +7,7 @@
 
 -module(vegur_client_SUITE).
 -include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -compile(export_all).
 
 %%%%%%%%%%%%%%%%%%%%
@@ -18,6 +19,7 @@
 all() ->
     [{group, reason_phrases}
     ,{group, header_ordering}
+    ,{group, timeouts}
     ].
 
 groups() ->
@@ -27,6 +29,9 @@ groups() ->
       ,blank_reason_phrase]}
     ,{header_ordering, [],
       [order_preservation]}
+    ,{timeouts, [],
+      [first_read_timeout,
+       other_read_timeout]}
     ].
 
 %%%%%%%%%%%%%%%%%%%%%%
@@ -75,12 +80,39 @@ init_per_testcase(Case = order_preservation, Config) ->
                       [{port, Port = 9990}],
                       [{env, [{dispatch, Rules}]}]),
     [{dyno_port, Port} | Config];
+init_per_testcase(Case = first_read_timeout, Config) ->
+    {ok, Original} = application:get_env(vegur, downstream_first_read_timeout),
+    application:set_env(vegur, downstream_first_read_timeout, 0),
+    Rules = cowboy_router:compile([{'_',
+                                    [{'_', timeout_handler, [first]}]}]),
+    cowboy:start_http(Case, 10,
+                      [{port, Port = 9990}],
+                      [{env, [{dispatch, Rules}]}]),
+    [{dyno_port, Port},
+     {reset, [{downstream_first_read_timeout, Original}]}
+    | Config];
+init_per_testcase(Case = other_read_timeout, Config) ->
+    {ok, Original} = application:get_env(vegur, idle_timeout),
+    application:set_env(vegur, idle_timeout, 0),
+    Rules = cowboy_router:compile([{'_',
+                                    [{'_', timeout_handler, [other]}]}]),
+    cowboy:start_http(Case, 10,
+                      [{port, Port = 9990}],
+                      [{env, [{dispatch, Rules}]}]),
+    [{dyno_port, Port},
+     {reset, [{idle_timeout, Original}]}
+    | Config];
 init_per_testcase(_CaseName, Config) ->
     Config.
 
 %% Runs after the test case. Runs in the same process.
 end_per_testcase(Case = order_preservation, Config) ->
     cowboy:stop_listener(Case),
+    Config;
+end_per_testcase(Case, Config) when Case =:= first_read_timeout; Case =:= other_read_timeout ->
+    cowboy:stop_listener(Case),
+    Reset = ?config(reset, Config),
+    [application:set_env(vegur, K, V) || {K, V} <- Reset],
     Config;
 end_per_testcase(CaseName, Config) ->
     ranch:stop_listener(CaseName),
@@ -148,6 +180,37 @@ order_preservation(Config) ->
         [{K, V} || {K = <<"test-header">>, V} <- Headers],
     vegur_client:close(C4),
     ok.
+
+first_read_timeout(Config) ->
+    {ok, C1} = vegur_client:init([]),
+    {ok, C2} = vegur_client:connect(ranch_tcp, {127,0,0,1},
+                                    ?config(dyno_port, Config), C1),
+    Req = vegur_client:request_to_iolist(<<"GET">>, [], <<>>,
+                                         'HTTP/1.1', <<"test.dyno">>,
+                                         <<"/">>),
+    {ok, C3} = vegur_client:raw_request(Req, C2),
+    T1 = os:timestamp(),
+    %% Failing before any byte is received
+    {error, timeout} = vegur_client:response(C3),
+    T2 = os:timestamp(),
+    ?assert((timer:now_diff(T2, T1) / 1000) < 250).
+
+other_read_timeout(Config) ->
+    {ok, C1} = vegur_client:init([]),
+    {ok, C2} = vegur_client:connect(ranch_tcp, {127,0,0,1},
+                                    ?config(dyno_port, Config), C1),
+    Req = vegur_client:request_to_iolist(<<"GET">>, [], <<>>,
+                                         'HTTP/1.1', <<"test.dyno">>,
+                                         <<"/">>),
+    {ok, C3} = vegur_client:raw_request(Req, C2),
+    T1 = os:timestamp(),
+    %% Failing after headers have been sent back
+    {error, timeout} = vegur_client:response(C3),
+    T2 = os:timestamp(),
+    ?assert((timer:now_diff(T2, T1) / 1000) < 250).
+
+
+
 
 start_link(Ref, Socket, Transport, Opts) ->
     Pid = spawn_link(?MODULE, init, [Ref, Socket, Transport, Opts]),
