@@ -78,7 +78,8 @@
           socket = undefined :: undefined | inet:socket(),
           transport = undefined :: module() | tuple(), % tuple for tuple calls
           connect_timeout = vegur_utils:config(downstream_connect_timeout) :: timeout(),
-          read_timeout = timer:seconds(vegur_utils:config(downstream_timeout)) :: timeout(),
+          first_read_timeout = timer:seconds(vegur_utils:config(downstream_first_read_timeout)) :: timeout() | undefined,
+          read_timeout = timer:seconds(vegur_utils:config(idle_timeout)) :: timeout(),
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
           version = 'HTTP/1.1' :: cowboy:http_version(),
@@ -576,7 +577,9 @@ stream_body(Client=#client{state=response_body, buffer=Buffer,
             {ok, Body, Client#client{buffer=Rest, response_body=undefined}}
     end.
 
-recv(#client{socket=Socket, transport=Transport, read_timeout=Timeout}) ->
+recv(#client{socket=Socket, transport=Transport, first_read_timeout=undefined, read_timeout=Timeout}) ->
+    Transport:recv(Socket, 0, Timeout);
+recv(#client{socket=Socket, transport=Transport, first_read_timeout=Timeout}) ->
     Transport:recv(Socket, 0, Timeout).
 
 %% A length of 0 means we want any amount of data buffered, including what
@@ -676,6 +679,9 @@ stamp_sent(Client=#client{first_packet_sent=First}) ->
 stamp_recv(Client=#client{first_packet_recv=First}) ->
     Now = os:timestamp(),
     case First of
-        undefined -> Client#client{first_packet_recv=Now, last_packet_recv=Now};
-        _ -> Client#client{last_packet_recv=Now}
+        undefined ->
+            Client#client{first_packet_recv=Now, last_packet_recv=Now,
+                          first_read_timeout=undefined};
+        _ ->
+            Client#client{last_packet_recv=Now}
     end.
