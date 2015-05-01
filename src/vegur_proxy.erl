@@ -779,10 +779,11 @@ add_via(Headers) ->
 %% of connections being closed. For this to be done, we need to poll the socket
 %% we're writing to.
 %%
-%% This function does it in a protected way that breaks pipelining because it
-%% keeps no buffer of the data. If a client is sending data to the backend
-%% after the backend has started streaming data back, the data will be lost
-%% and the request interrupted.
+%% This function does it in a protected way that uses a buffer to avoid
+%% breaking pipelining. If the buffer is full, data is left on the line
+%% and detection is implicitly disabled. The buffer is stored in the
+%% process dictionary as a side-effect of using cowboy functionality
+%% that does not let us carry state around.
 %%
 %% There is no expectation that data sent after a successful check actually
 %% makes it to the client -- this is only done to detect if FIN packets have
