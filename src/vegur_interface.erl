@@ -6,7 +6,7 @@
 -type queue_length() :: non_neg_integer().
 -type wait_time() :: non_neg_integer().
 -type service_backend() :: {inet:ip_address(), inet:port_number()}.
--type phase() :: connecting | connected.
+-type phase() :: lookup | checkout | connecting | connected.
 -type service_state() :: normal|term().
 -type handler_state() :: term().
 -type terminate_reason() :: healthcheck|healthcheck_error|normal|error.

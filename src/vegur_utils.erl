@@ -4,6 +4,7 @@
 
 -export([get_interface_module/1
          ,set_handler_state/2
+         ,set_service_state/2
          ,parse_header/2
          ,add_or_append_header/3
          ,add_or_append_header/4
@@ -42,6 +43,12 @@ get_interface_module(Req) ->
       Req :: cowboyku_req:req().
 set_handler_state(HandlerState, Req) ->
     cowboyku_req:set_meta(handler_state, HandlerState, Req).
+
+-spec set_service_state(ServiceState, Req) -> Req when
+      ServiceState :: term(),
+      Req :: cowboyku_req:req().
+set_service_state(ServiceState, Req) ->
+    cowboyku_req:set_meta(service_state, ServiceState, Req).
 
 -spec parse_header(binary(), cowboyku_req:req()) ->
                           {ok, {[]|[binary()|undefined], cowboyku_req:req()}}
@@ -178,7 +185,8 @@ handle_error(Reason, Req) ->
     Req4 = set_handler_state(HandlerState1, Req3),
     Req5 = set_response(ErrorHeaders, ErrorBody, Req4),
     Req6 = set_request_status(error, Req5),
-    {HttpCode, Req6}.
+    Req7 = set_service_state(Reason, Req6),
+    {HttpCode, Req7}.
 
 
 
