@@ -1,6 +1,6 @@
 -module(vegur_continue_middleware).
 
--behaviour(cowboy_middleware).
+-behaviour(cowboyku_middleware).
 -export([execute/2]).
 
 execute(Req, Env) ->
@@ -27,7 +27,7 @@ handle_feature(Req, Env) ->
     case InterfaceModule:feature(deep_continue, HandlerState) of
         {enabled, HandlerState2} ->
             Req3 = vegur_utils:set_handler_state(HandlerState2, Req2),
-            {cowboy_req:set_meta(continue, continue, Req3), Env};
+            {cowboyku_req:set_meta(continue, continue, Req3), Env};
         {disabled, HandlerState2} ->
             Req3 = vegur_utils:set_handler_state(HandlerState2, Req2),
             Req4 = flush_expect_headers(Req3),
@@ -36,10 +36,10 @@ handle_feature(Req, Env) ->
     end.
 
 flush_expect_headers(Req) ->
-    Headers = cowboy_req:get(headers, Req),
+    Headers = cowboyku_req:get(headers, Req),
     NewHeaders = vegur_utils:delete_all_headers(<<"expect">>, Headers),
-    cowboy_req:set([{headers, NewHeaders}], Req).
+    cowboyku_req:set([{headers, NewHeaders}], Req).
 
 send_continue(Req) ->
-    {Transport, Socket} = vegur_utils:borrow_cowboy_socket(Req),
+    {Transport, Socket} = vegur_utils:borrow_cowboyku_socket(Req),
     Transport:send(Socket, <<"HTTP/1.1 100 Continue\r\n\r\n">>).

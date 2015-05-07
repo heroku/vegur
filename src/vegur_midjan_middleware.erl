@@ -1,5 +1,5 @@
 -module(vegur_midjan_middleware).
--behaviour(cowboy_middleware).
+-behaviour(cowboyku_middleware).
 
 -export([execute/2]).
 
@@ -7,9 +7,9 @@
                      {ok, Req, Env}|
                      {halt, Req}|
                      {error, StatusCode, Req} when
-      Req :: cowboy_req:req(),
-      Env :: cowboy_middleware:env(),
-      StatusCode :: cowboy:http_status().
+      Req :: cowboyku_req:req(),
+      Env :: cowboyku_middleware:env(),
+      StatusCode :: cowboyku:http_status().
 execute(Req, Env) ->
     case midjan_core:start({Req, Env}, [{ordered, vegur_utils:config(middleware_stack)},
                                         {translator, vegur_midjan_translator},
@@ -31,17 +31,18 @@ finally(Return) ->
         {error, _Code, Req0} -> Req0
     end,
     {InterfaceModule, HandlerState, Req1} = vegur_utils:get_interface_module(Req),
-    {DomainGroup, Req2} = cowboy_req:meta(domain_group, Req1),
-    {Service, Req3} = cowboy_req:meta(service, Req2),
-    ReqFinal = case {DomainGroup, Service} of
-                   {undefined, undefined} -> %% Never checked out anything
-                       Req3;
-                   _ ->
-                       {ok, Req4, HandlerState2} = InterfaceModule:checkin_service(
-                                                     DomainGroup, Service, connected, normal, Req3, HandlerState
-                                                    ),
-                       vegur_utils:set_handler_state(HandlerState2, Req4)
-               end,
+    {DomainGroup, Req2} = cowboyku_req:meta(domain_group, Req1),
+    {Service, Req3} = cowboyku_req:meta(service, Req2),
+    Phase = case {DomainGroup, Service} of
+        {undefined, undefined} -> lookup;
+        {_, undefined} -> checkout;
+        _ -> connected
+    end,
+    {ServiceState, Req4} = cowboyku_req:meta(service_state, Req3, normal),
+    {ok, Req5, HandlerState2} = InterfaceModule:checkin_service(
+        DomainGroup, Service, Phase, ServiceState, Req4, HandlerState
+    ),
+    ReqFinal = vegur_utils:set_handler_state(HandlerState2, Req5),
     %% Call the logger
     Final = case Return of
                 {halt, _} -> {halt, ReqFinal};

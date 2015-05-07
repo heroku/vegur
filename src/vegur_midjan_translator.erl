@@ -14,7 +14,7 @@ run(MiddlewareModule, {Req, Env}) ->
             %% after the logging middleware has run. It would be possible
             %% to flush the response here, but that would not help with
             %% reusing the socket.
-            % ok = cowboy_req:ensure_response(Req, 204),
+            % ok = cowboyku_req:ensure_response(Req, 204),
             {stop, C};
         {halt, _StatusCode, _Req} = C ->
             %% The request is being halted, After that we run the logging
@@ -22,9 +22,9 @@ run(MiddlewareModule, {Req, Env}) ->
             %% after the logging middleware has run. It would be possible
             %% to flush the response here, but that would not help with
             %% reusing the socket.
-            % ok = cowboy_req:ensure_response(Req, 204),
+            % ok = cowboyku_req:ensure_response(Req, 204),
             {stop, C};
         {error, _StatusCode, _Req} = C ->
-            % ok = cowboy_req:ensure_response(Req, StatusCode),
+            % ok = cowboyku_req:ensure_response(Req, StatusCode),
             {stop, C}
     end.

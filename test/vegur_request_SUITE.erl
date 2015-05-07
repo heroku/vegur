@@ -47,11 +47,11 @@ groups() ->
 
 init_per_suite(Config) ->
     application:load(vegur),
-    {ok, Cowboy} = application:ensure_all_started(cowboy),
+    {ok, Cowboyku} = application:ensure_all_started(cowboyku),
     {ok, Inets} = application:ensure_all_started(inets),
     VegurPort = 9333,
     {ok, _} = vegur:start_http(VegurPort, vegur_stub, []),
-    [{started, Cowboy++Inets},
+    [{started, Cowboyku++Inets},
      {vegur_port, VegurPort} | Config].
 
 end_per_suite(Config) ->
@@ -269,7 +269,7 @@ invalid_expect(Config) ->
 
 absolute_uri(Config) ->
     % Make a request with a absolute URI. This is a valid request (used for CONNECT among other things
-    % but it is not supported by us, we expect a 400 back. This is handled by Cowboy.
+    % but it is not supported by us, we expect a 400 back. This is handled by Cowboyku.
     Port = ?config(vegur_port, Config),
     Req = "CONNECT http://example.com:80 HTTP/1.1\r\nHost: localhost\r\n\r\n",
     {ok, Socket} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),

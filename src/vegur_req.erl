@@ -34,14 +34,14 @@
         ]).
 
 -spec start_time(Req) -> {StartTime, Req} when
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       StartTime :: erlang:timestamp().
 start_time(Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {Log, Req1} = cowboyku_req:meta(logging, Req),
     {vegur_req_log:start_time(Log), Req1}.
 
 -spec start_to_proxy_duration(Req) -> {StartToProxyDuration, Req} when
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       StartToProxyDuration :: integer().
 start_to_proxy_duration(Req) ->
     {StartTime, Req1} = start_time(Req),
@@ -49,20 +49,20 @@ start_to_proxy_duration(Req) ->
     {timer:now_diff(PreProxy, StartTime) div 1000, Req2}.
 
 -spec request_id(Req) -> {RequestId, Req} when
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       RequestId :: erequest_id:request_id().
 request_id(Req) ->
-    cowboy_req:meta(request_id, Req, <<>>).
+    cowboyku_req:meta(request_id, Req, <<>>).
 
 -spec peer(Req) -> {Peer, Req} when
       Peer :: {inet:ip_address(), inet:port_number()},
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 peer(Req) ->
-    cowboy_req:peer(Req).
+    cowboyku_req:peer(Req).
 
 -spec proxy_peer(Req) -> {Peer, Req} when
       Peer :: {inet:ip_address(), inet:port_number()},
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 proxy_peer(Req) ->
     case vegur_utils:peer_ip_port(Req) of
         {{PeerIp, _PeerPort, DestPort}, Req} -> {{PeerIp, DestPort}, Req};
@@ -71,88 +71,88 @@ proxy_peer(Req) ->
 
 -spec pre_connect(Req) -> {PreConnectTime|undefined, Req} when
       PreConnectTime :: erlang:timestamp(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 pre_connect(Req) ->
     event(pre_connect, Req).
 
 -spec pre_proxy(Req) -> {PreProxyTime|undefined, Req} when
       PreProxyTime :: erlang:timestamp(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 pre_proxy(Req) ->
     event(pre_proxy, Req).
 
 -spec route_duration(Req) -> {RouteTime|undefined, Req} when
       RouteTime :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 route_duration(Req) ->
     timestamp_diff(accepted, pre_connect, Req).
 
 -spec connect_duration(Req) -> {ConnectTime|undefined, Req} when
       ConnectTime :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 connect_duration(Req) ->
     duration(connect_time, Req).
 
 -spec service_duration(Req) -> {ServiceTime|undefined, Req} when
       ServiceTime :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 service_duration(Req) ->
     duration(service_time, Req).
 
 -spec total_duration(Req) -> {TotalTime|undefined, Req} when
       TotalTime :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 total_duration(Req) ->
     timestamp_diff(accepted, responded, Req).
 
 -spec send_headers_duration(Req) -> {TotalTime|undefined, Req} when
       TotalTime :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 send_headers_duration(Req) ->
     timestamp_diff(headers_formatted, headers_sent, Req).
 
 -spec request_proxy_duration(Req) -> {TotalTime|undefined, Req} when
       TotalTime :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 request_proxy_duration(Req) ->
     timestamp_diff(headers_sent, client_last_packet_sent, Req).
 
 -spec response_proxy_duration(Req) -> {TotalTime|undefined, Req} when
       TotalTime :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 response_proxy_duration(Req) ->
     timestamp_diff(client_first_packet_recv, client_last_packet_recv, Req).
 
 -spec bytes_recv(Req) -> {BytesRecv|undefined, Req} when
       BytesRecv :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 bytes_recv(Req) ->
-    cowboy_req:meta(bytes_recv, Req, undefined).
+    cowboyku_req:meta(bytes_recv, Req, undefined).
 
 -spec bytes_sent(Req) -> {BytesSent|undefined, Req} when
       BytesSent :: non_neg_integer(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 bytes_sent(Req) ->
-    cowboy_req:meta(bytes_sent, Req, undefined).
+    cowboyku_req:meta(bytes_sent, Req, undefined).
 
 -spec method(Req) -> {Method, Req} when
       Method :: binary(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 method(Req) ->
-    cowboy_req:method(Req).
+    cowboyku_req:method(Req).
 
 -spec path(Req) -> {Path, Req} when
       Path :: binary(),
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 path(Req) ->
-    cowboy_req:path(Req).
+    cowboyku_req:path(Req).
 
 -spec raw_path(Req) -> {RawPath, Req} when
     RawPath :: binary(),
-    Req :: cowboy_req:req().
+    Req :: cowboyku_req:req().
 raw_path(Req) ->
-    {Path, Req1} = cowboy_req:path(Req),
-    {Qs, Req2} = cowboy_req:qs(Req1),
+    {Path, Req1} = cowboyku_req:path(Req),
+    {Qs, Req2} = cowboyku_req:qs(Req1),
     RawPath = case Qs of
         <<>> -> Path;
         _ -> <<Path/binary, "?", Qs/binary>>
@@ -162,31 +162,31 @@ raw_path(Req) ->
 -spec header(Key, Req) -> {Value|undefined, Req} when
       Key :: binary(),
       Value :: binary()|undefined,
-      Req :: cowboy_req:req().
+      Req :: cowboyku_req:req().
 header(Key, Req) ->
-    cowboy_req:header(Key, Req).
+    cowboyku_req:header(Key, Req).
 
 -spec response_code(Req) -> {Code, Req} when
-      Req :: cowboy_req:req(),
+      Req :: cowboyku_req:req(),
       Code :: non_neg_integer().
 response_code(Req) ->
-    cowboy_req:meta(response_code, Req, <<>>).
+    cowboyku_req:meta(response_code, Req, <<>>).
 
 -spec response_headers(Req) -> {[{iodata(), iodata()}], Req} when
-    Req :: cowboy_req:req().
+    Req :: cowboyku_req:req().
 response_headers(Req) ->
-    cowboy_req:meta(response_headers, Req, []).
+    cowboyku_req:meta(response_headers, Req, []).
 
 
 %% Internal
 timestamp_diff(FromKey, ToKey, Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {Log, Req1} = cowboyku_req:meta(logging, Req),
     {vegur_req_log:timestamp_diff(FromKey, ToKey, Log), Req1}.
 
 duration(Key, Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {Log, Req1} = cowboyku_req:meta(logging, Req),
     {vegur_req_log:event_duration(Key, Log), Req1}.
 
 event(Key, Req) ->
-    {Log, Req1} = cowboy_req:meta(logging, Req),
+    {Log, Req1} = cowboyku_req:meta(logging, Req),
     {vegur_req_log:event(Key, Log), Req1}.

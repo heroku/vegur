@@ -67,7 +67,7 @@ stop_proxy() ->
 
 -spec stop_http(atom()) -> ok.
 stop_http(Ref) ->
-    cowboy:stop_listener(Ref).
+    cowboyku:stop_listener(Ref).
 
 -spec stop_proxy(atom()) -> ok.
 stop_proxy(Ref) ->
@@ -127,16 +127,16 @@ start(Type, Ref, Port, Interface, Config) ->
     MaxConnections :: pos_integer(),
     Config :: proplists:proplists().
 start_listener(http, Ref, Port, Acceptors, MaxConnections, Config) ->
-    cowboy:start_http(Ref, Acceptors,
-                      [{port, Port},
-                       {max_connections, MaxConnections}],
-                      merge_options(defaults(), Config));
+    cowboyku:start_http(Ref, Acceptors,
+                        [{port, Port},
+                         {max_connections, MaxConnections}],
+                        merge_options(defaults(), Config));
 start_listener(proxy, Ref, Port, Acceptors, MaxConnections, Config) ->
     ranch:start_listener(Ref, Acceptors,
                          ranch_proxy,
                          [{port, Port},
                           {max_connections, MaxConnections}],
-                         cowboy_protocol,
+                         cowboyku_protocol,
                          merge_options(defaults(), Config)).
 
 get_default(Key, Config, Default) ->

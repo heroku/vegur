@@ -1,20 +1,20 @@
 -module(vegur_dyno).
--behaviour(cowboy_http_handler).
+-behaviour(cowboyku_http_handler).
 
 -export([start/2, stop/0]).
 -export([init/3, handle/2, terminate/3]).
 
 start(Port, Opts) ->
-    Dispatch = cowboy_router:compile([
-                                     {'_', [{"/ws", vegur_websockets_dyno, []}
-                                           ,{'_', ?MODULE, Opts}]}
-                                     ]),
-    cowboy:start_http(?MODULE, 100,
-        [{port, Port}],
-        [{env, [{dispatch, Dispatch}]}]).
+    Dispatch = cowboyku_router:compile([
+                                        {'_', [{"/ws", vegur_websockets_dyno, []}
+                                              ,{'_', ?MODULE, Opts}]}
+                                       ]),
+    cowboyku:start_http(?MODULE, 100,
+                        [{port, Port}],
+                        [{env, [{dispatch, Dispatch}]}]).
 
 stop() ->
-    cowboy:stop_listener(?MODULE).
+    cowboyku:stop_listener(?MODULE).
 
 init(_Transport, Req, Opts) ->
     {ok, Req, Opts}.

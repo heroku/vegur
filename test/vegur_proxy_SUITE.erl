@@ -36,13 +36,13 @@ init_per_suite(Config) ->
     application:load(vegur),
     ok = application:load(websocket_client),
     meck:new(vegur_stub, [no_link, passthrough]),
-    {ok, Cowboy} = application:ensure_all_started(cowboy),
+    {ok, Cowboyku} = application:ensure_all_started(cowboyku),
     {ok, Inets} = application:ensure_all_started(inets),
     {ok, Meck} = application:ensure_all_started(meck),
     VegurPort = 9333,
     {ok, _} = vegur:start_http(VegurPort, vegur_stub, []),
     mock_through(),
-    [{started, Cowboy++Inets++Meck},
+    [{started, Cowboyku++Inets++Meck},
      {vegur_port, VegurPort} | Config].
 
 end_per_suite(Config) ->
@@ -74,7 +74,7 @@ init_per_testcase(response_attributes, Config) ->
                {<<"remote-host">>, <<"localhost">>},
                {<<"X-Tst">>, <<"1337">>}],
     Dyno = start_dyno(DynoPort, [{in_handle, fun(Req0) ->
-                                                     {ok, Req} = cowboy_req:reply(200, Headers, Req0),
+                                                     {ok, Req} = cowboyku_req:reply(200, Headers, Req0),
                                                      Self ! {req, Req},
                                                      Req
                                              end}]),
@@ -101,7 +101,7 @@ request_id(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {RequestId, _} = cowboy_req:header(vegur_utils:config(request_id_name), Req),
+            {RequestId, _} = cowboyku_req:header(vegur_utils:config(request_id_name), Req),
             valid = erequest_id:validate(RequestId, vegur_utils:config(request_id_max_size))
     after 5000 ->
             throw(timeout)
@@ -111,7 +111,7 @@ request_id(Config) ->
                                                            "testid-with-a-valid-length"}]}, [], []),
     receive
         {req, Req1} ->
-            {<<"testid-with-a-valid-length">>, _} = cowboy_req:header(vegur_utils:config(request_id_name), Req1)
+            {<<"testid-with-a-valid-length">>, _} = cowboyku_req:header(vegur_utils:config(request_id_name), Req1)
     after 5000 ->
             throw(timeout)
     end,
@@ -120,7 +120,7 @@ request_id(Config) ->
                                                            "testid??"}]}, [], []),
     receive
         {req, Req2} ->
-            {RequestId1, _} = cowboy_req:header(vegur_utils:config(request_id_name), Req2),
+            {RequestId1, _} = cowboyku_req:header(vegur_utils:config(request_id_name), Req2),
             true = RequestId1 /= <<"testid??">>,
             valid = erequest_id:validate(RequestId1, vegur_utils:config(request_id_max_size))
     after 5000 ->
@@ -131,8 +131,8 @@ request_id(Config) ->
 forwarded_for(Config) ->
     meck:expect(vegur_utils, peer_ip_port,
                 fun(Req) ->
-                        {{PeerIp, _}, Req1} = cowboy_req:peer(Req),
-                        {Port, Req2} = cowboy_req:port(Req1),
+                        {{PeerIp, _}, Req1} = cowboyku_req:peer(Req),
+                        {Port, Req2} = cowboyku_req:port(Req1),
                         {{PeerIp, 1234, Port}, Req2}
                    end),
     meck:expect(vegur_stub, feature, fun(peer_port, S) ->
@@ -145,9 +145,9 @@ forwarded_for(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
     receive
         {req, Req} ->
-            {<<"127.0.0.1">>, _} = cowboy_req:header(<<"x-forwarded-for">>, Req),
-            {DestPort, _} = cowboy_req:header(<<"x-forwarded-port">>, Req),
-            {<<"1234">>, _} = cowboy_req:header(<<"x-forwarded-peer-port">>, Req),
+            {<<"127.0.0.1">>, _} = cowboyku_req:header(<<"x-forwarded-for">>, Req),
+            {DestPort, _} = cowboyku_req:header(<<"x-forwarded-port">>, Req),
+            {<<"1234">>, _} = cowboyku_req:header(<<"x-forwarded-peer-port">>, Req),
             Port = list_to_integer(binary_to_list(DestPort))
     after 5000 ->
             throw(timeout)
@@ -157,17 +157,17 @@ forwarded_for(Config) ->
                                                           {"x-forwarded-for", "10.0.0.1"}]}, [], []),
     receive
         {req, Req1} ->
-            {<<"10.0.0.1, 127.0.0.1">>, _} = cowboy_req:header(<<"x-forwarded-for">>, Req1),
-            {<<"80">>, _} = cowboy_req:header(<<"x-forwarded-port">>, Req1),
-            {<<"http">>, _} = cowboy_req:header(<<"x-forwarded-proto">>, Req1)
+            {<<"10.0.0.1, 127.0.0.1">>, _} = cowboyku_req:header(<<"x-forwarded-for">>, Req1),
+            {<<"80">>, _} = cowboyku_req:header(<<"x-forwarded-port">>, Req1),
+            {<<"http">>, _} = cowboyku_req:header(<<"x-forwarded-proto">>, Req1)
     after 5000 ->
             throw(timeout)
     end,
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:443"}]}, [], []),
     receive
         {req, Req2} ->
-            {<<"443">>, _} = cowboy_req:header(<<"x-forwarded-port">>, Req2),
-            {<<"https">>, _} = cowboy_req:header(<<"x-forwarded-proto">>, Req2)
+            {<<"443">>, _} = cowboyku_req:header(<<"x-forwarded-port">>, Req2),
+            {<<"https">>, _} = cowboyku_req:header(<<"x-forwarded-proto">>, Req2)
     after 5000 ->
             throw(timeout)
     end,
@@ -179,10 +179,10 @@ forwarded_for(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req3} ->
-            {<<"vegur_stub">>, _} = cowboy_req:header(<<"heroku-hermes-instance-name">>, Req3),
-            {ConnectTime, _} = cowboy_req:header(<<"heroku-connect-time">>, Req3),
+            {<<"vegur_stub">>, _} = cowboyku_req:header(<<"heroku-hermes-instance-name">>, Req3),
+            {ConnectTime, _} = cowboyku_req:header(<<"heroku-connect-time">>, Req3),
             true = is_integer(list_to_integer(binary_to_list(ConnectTime))),
-            {TotalRouteTime, _} = cowboy_req:header(<<"heroku-total-route-time">>, Req3),
+            {TotalRouteTime, _} = cowboyku_req:header(<<"heroku-total-route-time">>, Req3),
             true = is_integer(list_to_integer(binary_to_list(TotalRouteTime)))
     after 5000 ->
             throw(timeout)
@@ -196,7 +196,7 @@ forwarded_for(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
     receive
         {req, Req4} ->
-            {undefined, _} = cowboy_req:header(<<"x-forwarded-peer-port">>, Req4)
+            {undefined, _} = cowboyku_req:header(<<"x-forwarded-peer-port">>, Req4)
     after 5000 ->
             throw(timeout)
     end,
@@ -208,7 +208,7 @@ via(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {<<"1.1 vegur">>, _} = cowboy_req:header(<<"via">>, Req)
+            {<<"1.1 vegur">>, _} = cowboyku_req:header(<<"via">>, Req)
     after 5000 ->
             throw(timeout)
     end,
@@ -216,7 +216,7 @@ via(Config) ->
                                                           {"via", "happyproxy"}]}, [], []),
     receive
         {req, Req1} ->
-            {<<"happyproxy, 1.1 vegur">>, _} = cowboy_req:header(<<"via">>, Req1)
+            {<<"happyproxy, 1.1 vegur">>, _} = cowboyku_req:header(<<"via">>, Req1)
     after 5000 ->
             throw(timeout)
     end,
@@ -228,7 +228,7 @@ start_time_header(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {Res, _} = cowboy_req:header(vegur_utils:config(start_time_header), Req),
+            {Res, _} = cowboyku_req:header(vegur_utils:config(start_time_header), Req),
             true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)
@@ -241,7 +241,7 @@ connect_time_header(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {Res, _} = cowboy_req:header(vegur_utils:config(connect_time_header), Req),
+            {Res, _} = cowboyku_req:header(vegur_utils:config(connect_time_header), Req),
             true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)
@@ -254,7 +254,7 @@ route_time_header(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {Res, _} = cowboy_req:header(vegur_utils:config(route_time_header), Req),
+            {Res, _} = cowboyku_req:header(vegur_utils:config(route_time_header), Req),
             true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)
@@ -272,7 +272,7 @@ service_try_again(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {Res, _} = cowboy_req:header(vegur_utils:config(connect_time_header), Req),
+            {Res, _} = cowboyku_req:header(vegur_utils:config(connect_time_header), Req),
             true = is_integer(list_to_integer(binary_to_list(Res)))
     after 5000 ->
             throw(timeout)
@@ -355,7 +355,7 @@ host(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {<<"localhost">>, _} = cowboy_req:header(<<"host">>, Req)
+            {<<"localhost">>, _} = cowboyku_req:header(<<"host">>, Req)
     after 5000 ->
             throw(timeout)
     end,
@@ -367,7 +367,7 @@ query_string(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {<<"test=foo&bar=car">>, _} = cowboy_req:qs(Req)
+            {<<"test=foo&bar=car">>, _} = cowboyku_req:qs(Req)
     after 5000 ->
             throw(timeout)
     end,
@@ -386,7 +386,7 @@ content_length(Config) ->
                       Body/binary>>]),
     receive
         {req, Req} ->
-            {Length, _} = cowboy_req:header(<<"content-length">>, Req)
+            {Length, _} = cowboyku_req:header(<<"content-length">>, Req)
     after 5000 ->
             throw(timeout)
     end,
@@ -399,7 +399,7 @@ no_content_length(Config) ->
         httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
-            {undefined, _} = cowboy_req:header(<<"content-length">>, Req)
+            {undefined, _} = cowboyku_req:header(<<"content-length">>, Req)
     after 5000 ->
             throw(timeout)
     end,

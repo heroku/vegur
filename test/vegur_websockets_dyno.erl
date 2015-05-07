@@ -1,5 +1,5 @@
 -module(vegur_websockets_dyno).
--behaviour(cowboy_websocket_handler).
+-behaviour(cowboyku_websocket_handler).
 
 -export([init/3]).
 -export([websocket_init/3]).
@@ -8,7 +8,7 @@
 -export([websocket_terminate/3]).
 
 init({tcp, http}, Req, Opts) ->
-    {upgrade, protocol, cowboy_websocket}.
+    {upgrade, protocol, cowboyku_websocket}.
 
 websocket_init(TransportName, Req, _Opts) ->
     {ok, Req, undefined_state}.

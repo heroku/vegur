@@ -82,7 +82,7 @@
           read_timeout = timer:seconds(vegur_utils:config(idle_timeout)) :: timeout(),
           buffer = <<>> :: binary(),
           connection = keepalive :: keepalive | close,
-          version = 'HTTP/1.1' :: cowboy:http_version(),
+          version = 'HTTP/1.1' :: cowboyku:http_version(),
           status = undefined :: 100..999 | undefined, % can be undefined before parsing
           response_body = undefined :: chunked | undefined | non_neg_integer(),
           bytes_sent :: non_neg_integer() | undefined, % Bytes sent downstream
@@ -196,7 +196,7 @@ content_length_header(_, Body) ->
     [{<<"Content-Length">>, integer_to_list(iolist_size(Body))}].
 
 headers_to_iolist(Headers) ->
-    [[cowboy_bstr:capitalize_token(Name), <<": ">>, Value, <<"\r\n">>] || {Name, Value} <- Headers].
+    [[cowboyku_bstr:capitalize_token(Name), <<": ">>, Value, <<"\r\n">>] || {Name, Value} <- Headers].
 
 request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     [request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path),
@@ -484,7 +484,7 @@ stream_header(Client=#client{state=State, buffer=Buffer,
         [Line, Rest] ->
             %% @todo Do a better parsing later on.
             [Name, Value] = binary:split(Line, [<<": ">>, <<":">>]),
-            Name2 = cowboy_bstr:to_lower(Name),
+            Name2 = cowboyku_bstr:to_lower(Name),
             MaybeClient = case Name2 of
                 <<"content-length">> ->
                     try
@@ -614,7 +614,7 @@ append_to_buffer(Data, Client=#client{buffer = Buffer}) ->
     Client#client{buffer = <<Buffer/binary, Data/binary>>}.
 
 header_list_values(Value) ->
-    cowboy_http:nonempty_list(Value, fun cowboy_http:token_ci/2).
+    cowboyku_http:nonempty_list(Value, fun cowboyku_http:token_ci/2).
 
 auth_header("") ->
     [];

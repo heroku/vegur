@@ -74,31 +74,31 @@ init_per_testcase(blank_reason_phrase, Config) ->
                          [{handler, fun blank_reason_phrase_resp/2}]),
     [{dyno_port, Port} | Config];
 init_per_testcase(Case = order_preservation, Config) ->
-    Rules = cowboy_router:compile([{'_',
-                                    [{'_', header_ordering_handler, []}]}]),
-    cowboy:start_http(Case, 10,
-                      [{port, Port = 9990}],
-                      [{env, [{dispatch, Rules}]}]),
+    Rules = cowboyku_router:compile([{'_',
+                                      [{'_', header_ordering_handler, []}]}]),
+    cowboyku:start_http(Case, 10,
+                        [{port, Port = 9990}],
+                        [{env, [{dispatch, Rules}]}]),
     [{dyno_port, Port} | Config];
 init_per_testcase(Case = first_read_timeout, Config) ->
     {ok, Original} = application:get_env(vegur, downstream_first_read_timeout),
     application:set_env(vegur, downstream_first_read_timeout, 0),
-    Rules = cowboy_router:compile([{'_',
-                                    [{'_', timeout_handler, [first]}]}]),
-    cowboy:start_http(Case, 10,
-                      [{port, Port = 9990}],
-                      [{env, [{dispatch, Rules}]}]),
+    Rules = cowboyku_router:compile([{'_',
+                                      [{'_', timeout_handler, [first]}]}]),
+    cowboyku:start_http(Case, 10,
+                        [{port, Port = 9990}],
+                        [{env, [{dispatch, Rules}]}]),
     [{dyno_port, Port},
      {reset, [{downstream_first_read_timeout, Original}]}
     | Config];
 init_per_testcase(Case = other_read_timeout, Config) ->
     {ok, Original} = application:get_env(vegur, idle_timeout),
     application:set_env(vegur, idle_timeout, 0),
-    Rules = cowboy_router:compile([{'_',
-                                    [{'_', timeout_handler, [other]}]}]),
-    cowboy:start_http(Case, 10,
-                      [{port, Port = 9990}],
-                      [{env, [{dispatch, Rules}]}]),
+    Rules = cowboyku_router:compile([{'_',
+                                      [{'_', timeout_handler, [other]}]}]),
+    cowboyku:start_http(Case, 10,
+                        [{port, Port = 9990}],
+                        [{env, [{dispatch, Rules}]}]),
     [{dyno_port, Port},
      {reset, [{idle_timeout, Original}]}
     | Config];
@@ -107,10 +107,10 @@ init_per_testcase(_CaseName, Config) ->
 
 %% Runs after the test case. Runs in the same process.
 end_per_testcase(Case = order_preservation, Config) ->
-    cowboy:stop_listener(Case),
+    cowboyku:stop_listener(Case),
     Config;
 end_per_testcase(Case, Config) when Case =:= first_read_timeout; Case =:= other_read_timeout ->
-    cowboy:stop_listener(Case),
+    cowboyku:stop_listener(Case),
     Reset = ?config(reset, Config),
     [application:set_env(vegur, K, V) || {K, V} <- Reset],
     Config;

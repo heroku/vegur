@@ -7,7 +7,7 @@
     [kernel
      ,stdlib
      ,ranch_proxy_protocol
-     ,cowboy
+     ,cowboyku
      ,midjan
      ,erequest_id
      ,uuid     
