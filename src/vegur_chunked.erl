@@ -179,20 +179,54 @@ ext_quoted_string_esc(<<>>, S=#state{}) ->
 ext_quoted_string_esc(<<_, Rest/binary>>, S=#state{}) ->
     ext_quoted_string(Rest, S).
 
-chunk_data(<<>>, S=#state{}) ->
-    {more, {fun chunk_data/2, S}};
-chunk_data(<<"\r", Rest/binary>>, S=#state{length=0}) ->
-    chunk_data_cr(Rest, maybe_buffer(<<"\r">>, S));
-chunk_data(<<Byte, Rest/binary>>, S=#state{length=N, buffer=Buf}) when N > 0 ->
-    chunk_data(Rest, S#state{length=N-1, buffer = <<Buf/binary, Byte>>});
-chunk_data(Bin, #state{buffer=Buf, length=0}) ->
-    {error, {bad_chunk, {0, [Buf,Bin]}}}.
+%% instead of buffering byte by byte, keep a reference to the original
+%% binary, iterate through using a cursor, and only buffer (hopefully
+%% larger) binaries when you must.
+chunk_data(Bin, S=#state{}) ->
+    Sz = byte_size(Bin),
+    chunk_data(Bin, S#state{}, 0, Sz).
+
+%% read beyond the anticipated end of the chunk, error out
+chunk_data(Bin, #state{length=L, buffer=Buf}, P, _) when P > L ->
+    {error, {bad_chunk, {0, [Buf,Bin]}}};
+%% P = L  means we've run out of binary without a match, go back for
+%% more data.
+chunk_data(Bin, S=#state{buffer=Buf}, P, P) ->
+    Bin1 = <<Buf/binary, Bin/binary>>,
+    {more, {fun chunk_data/2, S#state{buffer=Bin1}}};
+%% otherwise, look for \r
+chunk_data(Bin, S=#state{buffer=Buf}, P, L) ->
+    case binary:at(Bin, P) of
+        $\r ->
+            Pos = P + 1,
+            <<Bin1:Pos/binary, Rest/binary>> = Bin,
+            Buf1 = <<Buf/binary, Bin1/binary>>,
+            ct:pal("bin1 ~p buf1 ~p rest ~p p ~p",
+                   [Bin1, Buf1, Rest, P]),
+            chunk_data_cr(Rest, S#state{buffer=Buf1});
+        _ ->
+            chunk_data(Bin, S, P + 1, L)
+    end.
 
 chunk_data_cr(<<>>, S=#state{}) ->
     {more, {fun chunk_data_cr/2, S}};
-chunk_data_cr(<<"\n", Rest/binary>>, S=#state{length=0}) ->
-    #state{buffer=Buf} = maybe_buffer(<<"\n">>, S),
-    {chunk, Buf, Rest};
+chunk_data_cr(<<"\n", Rest/binary>>, #state{type=chunked,
+                                            buffer=Buf}) ->
+    {chunk, <<Buf/binary, "\n">>, Rest};
+chunk_data_cr(<<"\n", Rest/binary>>, #state{type=unchunked,
+                                            buffer=Buf}) ->
+    %% have to go back and clip the end off of this because we carry
+    %% it through no matter what in chunk_data/4
+    Buf1 =
+        case catch binary:last(Buf) of
+            $\r ->
+                binary:part(Buf, 0, byte_size(Buf) - 1);
+            %% catch here will usually mean <<>>, which it doesn't
+            %% matter if we pass through.
+            _ ->
+                Buf
+        end,
+    {chunk, Buf1, Rest};
 chunk_data_cr(Bin, #state{buffer=Buf, length=Len}) ->
     {error, {bad_chunk, {Len, [Buf,Bin]}}}.
 
