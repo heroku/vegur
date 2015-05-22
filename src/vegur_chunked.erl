@@ -184,26 +184,27 @@ ext_quoted_string_esc(<<_, Rest/binary>>, S=#state{}) ->
 %% larger) binaries when you must.
 chunk_data(Bin, S=#state{}) ->
     Sz = byte_size(Bin),
+    %% binaries count from 0
     chunk_data(Bin, S#state{}, 0, Sz).
 
 %% read beyond the anticipated end of the chunk, error out
-chunk_data(Bin, #state{length=L, buffer=Buf}, P, _) when P > L ->
+chunk_data(Bin, #state{length=L, buffer=Buf}, P, _len) when P > L ->
     {error, {bad_chunk, {0, [Buf,Bin]}}};
 %% P = L  means we've run out of binary without a match, go back for
 %% more data.
-chunk_data(Bin, S=#state{buffer=Buf}, P, P) ->
+chunk_data(Bin, S=#state{buffer=Buf, length=Len}, P, P) ->
     Bin1 = <<Buf/binary, Bin/binary>>,
-    {more, {fun chunk_data/2, S#state{buffer=Bin1}}};
+    {more, {fun chunk_data/2, S#state{buffer=Bin1,length=Len-P}}};
 %% otherwise, look for \r
-chunk_data(Bin, S=#state{buffer=Buf}, P, L) ->
+chunk_data(Bin, S=#state{buffer=Buf, length=Len}, P, L) ->
     case binary:at(Bin, P) of
-        $\r ->
+        $\r when Len =:= P ->
+            %% add one because at/2 is 0-indexed
             Pos = P + 1,
             <<Bin1:Pos/binary, Rest/binary>> = Bin,
             Buf1 = <<Buf/binary, Bin1/binary>>,
-            ct:pal("bin1 ~p buf1 ~p rest ~p p ~p",
-                   [Bin1, Buf1, Rest, P]),
-            chunk_data_cr(Rest, S#state{buffer=Buf1});
+            chunk_data_cr(Rest, S#state{buffer=Buf1,
+                                        length=Len-P});
         _ ->
             chunk_data(Bin, S, P + 1, L)
     end.

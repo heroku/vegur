@@ -5,7 +5,7 @@
 
 all() -> [bad_length, html, short_msg, stream, trailers, bad_trailers,
           zero_crlf_end, boundary_chunk, zero_chunk_in_middle,
-          bad_next_chunk
+          bad_next_chunk, embedded_cr
          ].
 
 init_per_testcase(_, Config) ->
@@ -209,6 +209,22 @@ bad_next_chunk(_) ->
     "<h1>go!</h1>\r\n"
     "0\r\n">>,
     {error, [], {bad_chunk, {length_char, <<"\r">>}}} = vegur_chunked:all_chunks(String).
+
+embedded_cr(_) ->
+    String = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "1c\r\n"
+    "<h1>first chu\rnk loaded</h1>\r\n"
+    "2b\r\n"
+    "<h1>second chunk lo\raded and displayed</h1>\r\n"
+    "2a\r\n"
+    "<h1>third chunk loa\rded and displayed</h1>\r\n"
+    "0\r\n\r\n">>,
+    {done, Buf, <<>>} = vegur_chunked:all_chunks(String),
+    String = iolist_to_binary(Buf).
+
+%%% helpers
 
 parse_chunked(Buf, State) -> parse_chunked(State, Buf, State, <<>>).
 
