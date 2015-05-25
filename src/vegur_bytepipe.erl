@@ -197,7 +197,10 @@ loop(S=#state{client_transport=TransC, client_port=PortC,
 
 port(_Transport, Port) when is_port(Port) -> Port;
 port(Transport, Port) ->
+    %% this allows to override the port in messages for cases like
+    %% ranch_proxy_protocol, which aims to look like ranch_tcp
+    %% transparently while still holding state.
     case erlang:function_exported(Transport, match_port, 1) of
         true -> Transport:match_port(Port);
-        false -> error({match_impossible, Port})
+        false -> Port
     end.
