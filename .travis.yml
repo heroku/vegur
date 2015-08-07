@@ -1,9 +1,14 @@
+sudo: false
 language: erlang
 before_install:
 - ssh-keyscan git.herokai.com >> ~/.ssh/known_hosts
-script: mkdir -p logs; rebar compile && ct_run -dir test/ -logdir logs -pa ebin -pa
-  deps/*/ebin
+cache:
+  directories:
+  - $HOME/.cache/rebar3/
+install: "true" # don't let travis run get-deps
+script: "./rebar3 do update, ct, dialyzer"
 otp_release:
+- 17.5
 - R16B02
 notifications:
   email: false

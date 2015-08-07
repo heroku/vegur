@@ -34,7 +34,7 @@ groups() ->
 
 init_per_suite(Config) ->
     application:load(vegur),
-    ok = application:load(websocket_client),
+    application:load(websocket_client),
     meck:new(vegur_stub, [no_link, passthrough]),
     {ok, Cowboyku} = application:ensure_all_started(cowboyku),
     {ok, Inets} = application:ensure_all_started(inets),
