@@ -1,13 +1,12 @@
 *~
 *.beam
 .gitignore
-ebin/*.app
 c_src/*.o
 .eunit/*
 .#*
-deps/*
-logs/
 *.swp
 *.swo
 .rebar/
 erl_crash.dump
+_build/
+erln8.config
