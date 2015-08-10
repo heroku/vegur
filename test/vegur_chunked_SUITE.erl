@@ -5,7 +5,7 @@
 
 all() -> [bad_length, html, short_msg, stream, trailers, bad_trailers,
           zero_crlf_end, boundary_chunk, zero_chunk_in_middle,
-          bad_next_chunk
+          bad_next_chunk, embedded_cr, all_bounds_1, all_bounds_2
          ].
 
 init_per_testcase(_, Config) ->
@@ -209,6 +209,78 @@ bad_next_chunk(_) ->
     "<h1>go!</h1>\r\n"
     "0\r\n">>,
     {error, [], {bad_chunk, {length_char, <<"\r">>}}} = vegur_chunked:all_chunks(String).
+
+embedded_cr(_) ->
+    String = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "1c\r\n"
+    "<h1>first chu\rnk loaded</h1>\r\n"
+    "2b\r\n"
+    "<h1>second chunk lo\raded and displayed</h1>\r\n"
+    "2a\r\n"
+    "<h1>third chunk loa\rded and displayed</h1>\r\n"
+    "0\r\n\r\n">>,
+    {done, Buf, <<>>} = vegur_chunked:all_chunks(String),
+    String = iolist_to_binary(Buf).
+
+all_bounds_1(_) ->
+    S = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "1c\r\n"
+    "<h1>first chu\rnk loaded</h1>\r\n"
+    "2b\r\n"
+    "\r<h1>second chunk loaded and displayed</h1>\r\n"
+    "2a\r\n"
+    "<h1>third chunk loaded and displayed</h1>\r\r\n"
+    "0\r\n\r\n">>,
+    [begin
+         S1 = binary:part(S, 0, N),
+         S2 = binary:part(S, N, byte_size(S) - N),
+         {more, Cont} = consume_chunks(S1, undefined),
+         {done, <<"0\r\n\r\n">>, <<>>} = consume_chunks(S2, Cont)
+     end
+     || N <- lists:seq(1, byte_size(S) - 1)].
+
+%% this probably repeats cases far more often than it needs too, but
+%% it runs acceptably quickly on my machine (< 10s, ~3s for this
+%% test), so I don't think it's worth the effort to clean it up more.
+all_bounds_2(_) ->
+    S = <<""
+    "c\r\n"
+    "<h1>go!</h1>\r\n"
+    "1c\r\n"
+    "<h1>first chu\rnk loaded</h1>\r\n"
+    "2b\r\n"
+    "\r<h1>second chunk loaded and displayed</h1>\r\n"
+    "2a\r\n"
+    "<h1>third chunk loaded and displayed</h1>\r\r\n"
+    "0\r\n\r\n">>,
+    [begin
+         One = min(M, N),
+         Two = max(M, N),
+         S1 = binary:part(S, 0, One),
+         S2 = binary:part(S, One, Two - One),
+         S3 = binary:part(S, Two, byte_size(S) - Two),
+         {more, Cont} = consume_chunks(S1, undefined),
+         {more, Cont1} = consume_chunks(S2, Cont),
+         {done, <<"0\r\n\r\n">>, <<>>} = consume_chunks(S3, Cont1)
+     end
+     || {N, M} <- [{I, O} || I <- lists:seq(1, byte_size(S) - 1),
+                             O <- lists:seq(1, byte_size(S) - 1),
+                             I /= O,
+                             abs(I-O) /= 1 ]].
+
+%%% helpers
+
+consume_chunks(Bin, Cont) ->
+    case vegur_chunked:next_chunk(Bin, Cont) of
+        {chunk, _, Rest} ->
+            consume_chunks(Rest, undefined);
+        Else ->
+            Else
+    end.
 
 parse_chunked(Buf, State) -> parse_chunked(State, Buf, State, <<>>).
 
