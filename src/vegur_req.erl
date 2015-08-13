@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @copyright Heroku (2014)
+%% @copyright Heroku (2014-2015)
 %% @author Omar Yasin <omarkj@heroku.com>
 %% @version {@vsn}, {@date} {@time}
 %% @doc vegur req public API

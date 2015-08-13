@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @copyright Heroku (2013)
+%% @copyright Heroku (2013-2015)
 %% @author Geoff Cant <nem@erlang.geek.nz>
 %% @author Omar Yasin <omarkj@heroku.com>
 %% @version {@vsn}, {@date} {@time}

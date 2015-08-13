@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @copyright Heroku (2014)
+%% @copyright Heroku (2014-2015)
 %% @author Geoff Cant <nem@erlang.geek.nz>
 %% @doc CommonTest test suite for vegur_client
 %% @end
