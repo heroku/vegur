@@ -264,6 +264,85 @@ match the options for the `max_cookie_length` in the OTP options to avoid the
 painful case of a backend setting a cookie that cannot be sent back by the end
 client.
 
+## Middlewares ##
+
+Vegur supports a middleware interface that can be configured when booting
+the application. These can be configured by setting the `middlewares` option:
+
+```erlang
+vegur:start_http(Port, CallbackMod, [{middlewares, Middlewares}]),
+vegur:start_proxy(Port, CallbackMod, [{middlewares, Middlewares}]),
+```
+
+The middlewares value should always contain, at the very least, the result of
+`vegur:default_middlewares()`, which implements some required functionality.
+
+For example, the following middlewares are the default ones:
+
+- `vegur_validate_headers`: ensures the presence of `Host` headers, and that
+  `content-length` headers are legitimate without duplication;
+- `vegur_lookup_domain_middleware`: calls the callback module to do domain
+  lookups and keeps it in state;
+- `vegur_continue_middleware`: handles `expect: 100-continue` headers
+  conditionally depending on the `feature` configured by the callback
+  module;
+- `vegur_upgrade_middleware`: detects if the request needs an `upgrade`
+  (for example, websockets) and sets internal state for the proxy to
+  properly handle this once it negotiates headers with the back-end;
+- `vegur_lookup_service_middleware`: calls the callback module to pick
+  a back-end for the current domain;
+- `vegur_proxy_middleware`: actually proxies the request
+
+The order is important, and as defined, default middlewares *must* be
+kept for a lot of functionality (from safety to actual proxying) to
+actually work.
+
+Custom middlewares can still be added throughout the chain by adding
+them to the list.
+
+### Defining middlewares
+
+The middlewares included are standard `cowboyku` (`cowboy` ~0.9)
+middlewares and respect the same interface.
+
+There's a single callback defined:
+
+```erlang
+execute(Req, Env)
+    -> {ok, Req, Env}
+     | {suspend, module(), atom(), [any()]}
+     | {halt, Req}
+     | {error, cowboyku:http_status(), Req}
+    when Req::cowboyku_req:req(), Env::env().
+```
+
+For example, a middleware implementing some custom form of
+authentication where a secret token is required to access
+data could be devised to work like:
+
+```erlang
+module(validate_custom_auth).
+-behaviour(cowboyku_middleware).
+-export([execute/2]).
+
+-define(TOKEN, <<"abcdef">>. % this is really unsafe
+
+execute(Req, Env) ->
+    case cowboyku_req:header(<<"my-token">>, Req) of
+        {?TOKEN, Req2} ->
+            {ok, Req2, Env};
+        {_, Req2} ->
+            {HTTPCode, Req3} = vegur_utils:handle_error(bad_token, Req2),
+            {error, HTTPCode, Req3}
+    end.
+```
+
+Calling `vegur_utils:handle_error(Reason, Req)` will redirect
+the error to the `Callback:error_page/4` callback, letting the
+custom callback module set its own HTTP status, handle logging,
+and do whatever processing it needs before stopping the request.
+
+
 ## Logs and statistics being collected
 
 * `domain_lookup`

@@ -1,3 +1,10 @@
+%%% @doc The continue middleware is in charge of detecting whether a
+%%% 100-continue expectation has been declared. If so, it will ask
+%%% the callback module whether to instantly return the '100 Continue'
+%%% response or whether it should be negotiated with the back-end.
+%%%
+%%% In the latter case, this module sets the `cowboyku_req:meta'
+%%% `continue' entry to `continue' or leaves it undefined otherwise.
 -module(vegur_continue_middleware).
 
 -behaviour(cowboyku_middleware).
