@@ -129,13 +129,15 @@ start(Type, Ref, Port, Interface, Config) ->
 start_listener(http, Ref, Port, Acceptors, MaxConnections, Config) ->
     cowboyku:start_http(Ref, Acceptors,
                         [{port, Port},
-                         {max_connections, MaxConnections}],
+                         {max_connections, MaxConnections}
+                         | extra_socket_options()],
                         merge_options(defaults(), Config));
 start_listener(proxy, Ref, Port, Acceptors, MaxConnections, Config) ->
     ranch:start_listener(Ref, Acceptors,
                          ranch_proxy,
                          [{port, Port},
-                          {max_connections, MaxConnections}],
+                          {max_connections, MaxConnections}
+                          | extra_socket_options()],
                          cowboyku_protocol,
                          merge_options(defaults(), Config)).
 
@@ -152,6 +154,9 @@ merge_options([{Key, _}=DefaultPair|Rest], Config) ->
         false ->
             merge_options(Rest, Config++[DefaultPair])
     end.
+
+extra_socket_options() ->
+    vegur_utils:config(extra_socket_options, []).
 
 defaults() ->
     [{middlewares, [vegur_midjan_middleware]}
