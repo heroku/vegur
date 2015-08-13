@@ -150,9 +150,9 @@ additional_headers(upstream, Log, _Upstream, HandlerState=#state{features=Featur
         true ->
             ConnectDuration = vegur_req_log:connect_duration(Log),
             StartToProxy = vegur_req_log:start_to_proxy_duration(Log),
-            Headers = [{<<"Heroku-Hermes-Instance-Name">>, instance_name()}
-                      ,{<<"Heroku-Connect-Time">>, list_to_binary(integer_to_list(ConnectDuration))}
-                      ,{<<"Heroku-Total-Route-Time">>, list_to_binary(integer_to_list(StartToProxy))}],
+            Headers = [{<<"Instance-Name">>, instance_name()}
+                      ,{<<"Connect-Time">>, list_to_binary(integer_to_list(ConnectDuration))}
+                      ,{<<"Total-Route-Time">>, list_to_binary(integer_to_list(StartToProxy))}],
             {Headers, HandlerState};
         _ ->
             {[], HandlerState}
