@@ -233,6 +233,8 @@ The configuration can be passed following the standard Erlang/OTP application lo
   header line, in bytes. Defaults to `524288`, or 512kb.
 - `{max_client_cookie_length, pos_integer()}`: Maximal size of a cookie in a
   response, in bytes. Defaults to `8192`.
+- `{extra_socket_options, [gen_tcp:option()]}`: Allows to set additional
+  TCP options useful for configuration (such as `nodelay` or `raw` options).
 
 ### Server Configuration
 
