@@ -9,7 +9,8 @@
          ,send_body/7
          ,read_backend_response/2
          ,upgrade/3
-         ,relay/5]).
+         ,relay/5
+	 ,reps_left/0]).
 
 -type error_blame() :: 'undefined' % either/unknown
                      | 'upstream' % client
@@ -483,7 +484,7 @@ stream_request(Req, Client) ->
     %% figure out, assuming 1s polling intervals in cowboyku, how many
     %% of them we can do. By default we go to 55 seconds, meaning
     %% we will try as many as 55 polling sequences on both ends.
-    stream_request(<<>>, Req, Client, <<>>, reps_left()).
+    stream_request(<<>>, Req, Client, <<>>, ?MODULE:reps_left()).
 
 %% The idea is to enter a loop with two buffers and be able to
 %% just shuttle data between both ends at once:
@@ -546,7 +547,7 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
                 {done, Req2} ->
                     {done, Req2, vegur_client:append_to_buffer(NewDownBuffer,Client2)};
                 {ok, Data, Req2} ->
-                    stream_request(Data, Req2, Client2, NewDownBuffer, reps_left());
+                    stream_request(Data, Req2, Client2, NewDownBuffer, ?MODULE:reps_left());
                 {error, timeout} ->
                     %% Reset the buffer
                     stream_request(<<>>, Req, Client2, NewDownBuffer, N-1);
@@ -566,7 +567,7 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
 reps_left() ->
     %% if changing for a config value rather than hardcoded, remember
     %% to set a lower boundary to 1 rep.
-    erlang:round(55000 / ?POLL_INCREMENTS).
+    55.
 
 maybe_raw_request(<<>>, Client) ->
     %% Nothing to send, but behave as if we did something
