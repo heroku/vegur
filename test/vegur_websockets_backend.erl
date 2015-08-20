@@ -27,30 +27,28 @@
 %%% THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 %%% (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 %%% OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
--module(vegur_dyno).
--behaviour(cowboyku_http_handler).
+-module(vegur_websockets_backend).
+-behaviour(cowboyku_websocket_handler).
 
--export([start/2, stop/0]).
--export([init/3, handle/2, terminate/3]).
+-export([init/3]).
+-export([websocket_init/3]).
+-export([websocket_handle/3]).
+-export([websocket_info/3]).
+-export([websocket_terminate/3]).
 
-start(Port, Opts) ->
-    Dispatch = cowboyku_router:compile([
-                                        {'_', [{"/ws", vegur_websockets_dyno, []}
-                                              ,{'_', ?MODULE, Opts}]}
-                                       ]),
-    cowboyku:start_http(?MODULE, 100,
-                        [{port, Port}],
-                        [{env, [{dispatch, Dispatch}]}]).
+init({tcp, http}, Req, Opts) ->
+    {upgrade, protocol, cowboyku_websocket}.
 
-stop() ->
-    cowboyku:stop_listener(?MODULE).
+websocket_init(TransportName, Req, _Opts) ->
+    {ok, Req, undefined_state}.
 
-init(_Transport, Req, Opts) ->
-    {ok, Req, Opts}.
+websocket_handle({text, Msg}, Req, State) ->
+    {reply, {text, Msg}, Req, State};
+websocket_handle(_Data, Req, State) ->
+    {ok, Req, State}.
 
-handle(Req, Opts) ->
-    F = proplists:get_value(in_handle, Opts, fun(R) -> R end),
-    {ok, F(Req), Opts}.
+websocket_info(_Info, Req, State) ->
+    {ok, Req, State}.
 
-terminate(_Reason, _Req, _State) ->
+websocket_terminate(_Reason, _Req, _State) ->
     ok.

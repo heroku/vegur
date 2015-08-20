@@ -82,13 +82,13 @@ end_per_suite(Config) ->
     Config.
 
 init_per_group(vegur_proxy_headers, Config) ->
-    DynoPort = 9555,
+    BackendPort = 9555,
     mock_backend(9555),
-    [{dyno_port, DynoPort} | Config];
+    [{backend_port, BackendPort} | Config];
 init_per_group(vegur_proxy_connect, Config) ->
-    DynoPort = 9555,
+    BackendPort = 9555,
     mock_backend(9555),
-    [{dyno_port, DynoPort} | Config].
+    [{backend_port, BackendPort} | Config].
 
 end_per_group(_, Config) ->
     meck:unload(),
@@ -97,28 +97,28 @@ end_per_group(_, Config) ->
 init_per_testcase(response_attributes, Config) ->
     %% Same as regular setup, but with custom cookies and
     %% headers to test
-    DynoPort = ?config(dyno_port, Config),
+    BackendPort = ?config(backend_port, Config),
     Self = self(),
     Headers = [{<<"Set-Cookie">>, <<"my=cookie;">>},
                {<<"remote-host">>, <<"localhost">>},
                {<<"X-Tst">>, <<"1337">>}],
-    Dyno = start_dyno(DynoPort, [{in_handle, fun(Req0) ->
+    Backend = start_backend(BackendPort, [{in_handle, fun(Req0) ->
                                                      {ok, Req} = cowboyku_req:reply(200, Headers, Req0),
                                                      Self ! {req, Req},
                                                      Req
                                              end}]),
-    [{dyno, Dyno} | Config];
+    [{backend, Backend} | Config];
 init_per_testcase(_TestCase, Config) ->
-    DynoPort = ?config(dyno_port, Config),
+    BackendPort = ?config(backend_port, Config),
     Self = self(),
-    Dyno = start_dyno(DynoPort, [{in_handle, fun(Req) ->
+    Backend = start_backend(BackendPort, [{in_handle, fun(Req) ->
                                                      Self ! {req, Req},
                                                      Req
                                              end}]),
-    [{dyno, Dyno} | Config].
+    [{backend, Backend} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    stop_dyno(),
+    stop_backend(),
     Config.
 
 %%%===================================================================
@@ -208,10 +208,10 @@ forwarded_for(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req3} ->
-            {<<"vegur_stub">>, _} = cowboyku_req:header(<<"heroku-hermes-instance-name">>, Req3),
-            {ConnectTime, _} = cowboyku_req:header(<<"heroku-connect-time">>, Req3),
+            {<<"vegur_stub">>, _} = cowboyku_req:header(<<"instance-name">>, Req3),
+            {ConnectTime, _} = cowboyku_req:header(<<"connect-time">>, Req3),
             true = is_integer(list_to_integer(binary_to_list(ConnectTime))),
-            {TotalRouteTime, _} = cowboyku_req:header(<<"heroku-total-route-time">>, Req3),
+            {TotalRouteTime, _} = cowboyku_req:header(<<"total-route-time">>, Req3),
             true = is_integer(list_to_integer(binary_to_list(TotalRouteTime)))
     after 5000 ->
             throw(timeout)
@@ -295,8 +295,8 @@ service_try_again(Config) ->
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     meck:expect(vegur_stub, service_backend,
                 fun(_, Req, HandlerState) ->
-                        mock_backend(?config(dyno_port, Config)),
-                        {{{127,0,0,1}, ?config(dyno_port, Config)+1}, Req, HandlerState}
+                        mock_backend(?config(backend_port, Config)),
+                        {{{127,0,0,1}, ?config(backend_port, Config)+1}, Req, HandlerState}
                 end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
@@ -452,12 +452,12 @@ custom_downstream_headers(Config) ->
 
 
 %% Helpers
-start_dyno(Port, Opts) ->
-    {ok, Pid} = vegur_dyno:start(Port, Opts),
+start_backend(Port, Opts) ->
+    {ok, Pid} = vegur_backend:start(Port, Opts),
     Pid.
 
-stop_dyno() ->
-    vegur_dyno:stop().
+stop_backend() ->
+    vegur_backend:stop().
 
 mock_through() ->
     meck:expect(vegur_stub, lookup_domain_name,

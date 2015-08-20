@@ -841,7 +841,7 @@ check(Transport, Sock) ->
                 {ok, Data} ->
                     buffer_append(Data),
                     buffer_size() >= ?UPSTREAM_BODY_BUFFER_LIMIT andalso
-                        error_logger:info_msg("mod=vegur_proxy at=check message=upstream_buffer_full"),
+                        error_logger:info_msg("mod=vegur_proxy at=check message=upstream_buffer_full\n"),
                     ok
             end
     end.
@@ -876,7 +876,7 @@ check_downstream(Client, Buffer) ->
         {ok, Data} ->
             NewBuf = <<Buffer/binary, Data/binary>>,
             byte_size(NewBuf)  >= ?DOWNSTREAM_BODY_BUFFER_LIMIT andalso
-                error_logger:info_msg("mod=vegur_proxy at=check message=downstream_buffer_full"),
+                error_logger:info_msg("mod=vegur_proxy at=check message=downstream_buffer_full\n"),
             NewBuf
     end.
 
