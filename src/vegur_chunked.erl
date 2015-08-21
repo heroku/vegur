@@ -1,24 +1,57 @@
+%%% Copyright (c) 2013-2015, Heroku Inc <routing-feedback@heroku.com>.
+%%% All rights reserved.
+%%%
+%%% Redistribution and use in source and binary forms, with or without
+%%% modification, are permitted provided that the following conditions are
+%%% met:
+%%%
+%%% * Redistributions of source code must retain the above copyright
+%%%   notice, this list of conditions and the following disclaimer.
+%%%
+%%% * Redistributions in binary form must reproduce the above copyright
+%%%   notice, this list of conditions and the following disclaimer in the
+%%%   documentation and/or other materials provided with the distribution.
+%%%
+%%% * The names of its contributors may not be used to endorse or promote
+%%%   products derived from this software without specific prior written
+%%%   permission.
+%%%
+%%% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+%%% "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+%%% LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+%%% A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+%%% OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+%%% SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+%%% LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+%%% DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+%%% THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+%%% (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+%%% OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+%%%
+%%% @doc
 %%% Chunked encoding delimitation according to
-%%% http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1
-%%       Chunked-Body   = *chunk
-%%                        last-chunk
-%%                        trailer
-%%                        CRLF
-%%
-%%       chunk          = chunk-size [ chunk-extension ] CRLF
-%%                        chunk-data CRLF
-%%       chunk-size     = 1*HEX
-%%       last-chunk     = 1*("0") [ chunk-extension ] CRLF
-%%
-%%       chunk-extension= *( ";" chunk-ext-name [ "=" chunk-ext-val ] )
-%%       chunk-ext-name = token
-%%       chunk-ext-val  = token | quoted-string
-%%       chunk-data     = chunk-size(OCTET)
-%%       trailer        = *(entity-header CRLF)
-%%
+%%% [http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1]
+%%% ```
+%%%      Chunked-Body   = *chunk
+%%%                       last-chunk
+%%%                       trailer
+%%%                       CRLF
+%%%
+%%%      chunk          = chunk-size [ chunk-extension ] CRLF
+%%%                       chunk-data CRLF
+%%%      chunk-size     = 1*HEX
+%%%      last-chunk     = 1*("0") [ chunk-extension ] CRLF
+%%%
+%%%      chunk-extension= *( ";" chunk-ext-name [ "=" chunk-ext-val ] )
+%%%      chunk-ext-name = token
+%%%      chunk-ext-val  = token | quoted-string
+%%%      chunk-data     = chunk-size(OCTET)
+%%%      trailer        = *(entity-header CRLF)
+%%% '''
+%%%
 %%% For brevity in parsing, we consider 'token' to be any character not to
 %%% be a delimiter, whereas the RFC defines them as
-%%% '1*<any CHAR except CTLs or separators>', where CTL is defined as
+%%% `1*<any CHAR except CTLs or separators>', where CTL is defined as
 %%% (octets 0 - 31) and DEL (127).
 %%%
 %%% We also do not support extensions and will discard them:
@@ -26,6 +59,7 @@
 %% All HTTP/1.1 applications MUST be able to receive and decode the "chunked"
 %% transfer-coding, and MUST ignore chunk-extension extensions they do not
 %% understand.
+%% @end
 -module(vegur_chunked).
 -export([next_chunk/1, next_chunk/2,
          next_unchunk/1, next_unchunk/2,

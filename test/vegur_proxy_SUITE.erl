@@ -1,3 +1,32 @@
+%%% Copyright (c) 2013-2015, Heroku Inc <routing-feedback@heroku.com>.
+%%% All rights reserved.
+%%%
+%%% Redistribution and use in source and binary forms, with or without
+%%% modification, are permitted provided that the following conditions are
+%%% met:
+%%%
+%%% * Redistributions of source code must retain the above copyright
+%%%   notice, this list of conditions and the following disclaimer.
+%%%
+%%% * Redistributions in binary form must reproduce the above copyright
+%%%   notice, this list of conditions and the following disclaimer in the
+%%%   documentation and/or other materials provided with the distribution.
+%%%
+%%% * The names of its contributors may not be used to endorse or promote
+%%%   products derived from this software without specific prior written
+%%%   permission.
+%%%
+%%% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+%%% "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+%%% LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+%%% A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+%%% OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+%%% SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+%%% LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+%%% DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+%%% THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+%%% (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+%%% OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 -module(vegur_proxy_SUITE).
 -compile(export_all).
 -include_lib("common_test/include/ct.hrl").
@@ -53,13 +82,13 @@ end_per_suite(Config) ->
     Config.
 
 init_per_group(vegur_proxy_headers, Config) ->
-    DynoPort = 9555,
+    BackendPort = 9555,
     mock_backend(9555),
-    [{dyno_port, DynoPort} | Config];
+    [{backend_port, BackendPort} | Config];
 init_per_group(vegur_proxy_connect, Config) ->
-    DynoPort = 9555,
+    BackendPort = 9555,
     mock_backend(9555),
-    [{dyno_port, DynoPort} | Config].
+    [{backend_port, BackendPort} | Config].
 
 end_per_group(_, Config) ->
     meck:unload(),
@@ -68,28 +97,28 @@ end_per_group(_, Config) ->
 init_per_testcase(response_attributes, Config) ->
     %% Same as regular setup, but with custom cookies and
     %% headers to test
-    DynoPort = ?config(dyno_port, Config),
+    BackendPort = ?config(backend_port, Config),
     Self = self(),
     Headers = [{<<"Set-Cookie">>, <<"my=cookie;">>},
                {<<"remote-host">>, <<"localhost">>},
                {<<"X-Tst">>, <<"1337">>}],
-    Dyno = start_dyno(DynoPort, [{in_handle, fun(Req0) ->
+    Backend = start_backend(BackendPort, [{in_handle, fun(Req0) ->
                                                      {ok, Req} = cowboyku_req:reply(200, Headers, Req0),
                                                      Self ! {req, Req},
                                                      Req
                                              end}]),
-    [{dyno, Dyno} | Config];
+    [{backend, Backend} | Config];
 init_per_testcase(_TestCase, Config) ->
-    DynoPort = ?config(dyno_port, Config),
+    BackendPort = ?config(backend_port, Config),
     Self = self(),
-    Dyno = start_dyno(DynoPort, [{in_handle, fun(Req) ->
+    Backend = start_backend(BackendPort, [{in_handle, fun(Req) ->
                                                      Self ! {req, Req},
                                                      Req
                                              end}]),
-    [{dyno, Dyno} | Config].
+    [{backend, Backend} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    stop_dyno(),
+    stop_backend(),
     Config.
 
 %%%===================================================================
@@ -179,10 +208,10 @@ forwarded_for(Config) ->
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req3} ->
-            {<<"vegur_stub">>, _} = cowboyku_req:header(<<"heroku-hermes-instance-name">>, Req3),
-            {ConnectTime, _} = cowboyku_req:header(<<"heroku-connect-time">>, Req3),
+            {<<"vegur_stub">>, _} = cowboyku_req:header(<<"instance-name">>, Req3),
+            {ConnectTime, _} = cowboyku_req:header(<<"connect-time">>, Req3),
             true = is_integer(list_to_integer(binary_to_list(ConnectTime))),
-            {TotalRouteTime, _} = cowboyku_req:header(<<"heroku-total-route-time">>, Req3),
+            {TotalRouteTime, _} = cowboyku_req:header(<<"total-route-time">>, Req3),
             true = is_integer(list_to_integer(binary_to_list(TotalRouteTime)))
     after 5000 ->
             throw(timeout)
@@ -266,8 +295,8 @@ service_try_again(Config) ->
     Url = "http://127.0.0.1:" ++ integer_to_list(Port),
     meck:expect(vegur_stub, service_backend,
                 fun(_, Req, HandlerState) ->
-                        mock_backend(?config(dyno_port, Config)),
-                        {{{127,0,0,1}, ?config(dyno_port, Config)+1}, Req, HandlerState}
+                        mock_backend(?config(backend_port, Config)),
+                        {{{127,0,0,1}, ?config(backend_port, Config)+1}, Req, HandlerState}
                 end),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
@@ -423,12 +452,12 @@ custom_downstream_headers(Config) ->
 
 
 %% Helpers
-start_dyno(Port, Opts) ->
-    {ok, Pid} = vegur_dyno:start(Port, Opts),
+start_backend(Port, Opts) ->
+    {ok, Pid} = vegur_backend:start(Port, Opts),
     Pid.
 
-stop_dyno() ->
-    vegur_dyno:stop().
+stop_backend() ->
+    vegur_backend:stop().
 
 mock_through() ->
     meck:expect(vegur_stub, lookup_domain_name,

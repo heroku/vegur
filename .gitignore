@@ -10,3 +10,4 @@ c_src/*.o
 erl_crash.dump
 _build/
 erln8.config
+edoc/

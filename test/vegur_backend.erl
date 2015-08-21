@@ -27,12 +27,30 @@
 %%% THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 %%% (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 %%% OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-module(vegur_backend).
+-behaviour(cowboyku_http_handler).
 
--ifndef(logging_macros).
--define(logging_macros, true).
+-export([start/2, stop/0]).
+-export([init/3, handle/2, terminate/3]).
 
--define(LOG(Type, Fun, Req), vegur_request_log:log(Type, fun() ->
-                                                                 Fun
-                                                         end, Req)).
+start(Port, Opts) ->
+    Dispatch = cowboyku_router:compile([
+                                        {'_', [{"/ws", vegur_websockets_backend, []}
+                                              ,{'_', ?MODULE, Opts}]}
+                                       ]),
+    cowboyku:start_http(?MODULE, 100,
+                        [{port, Port}],
+                        [{env, [{dispatch, Dispatch}]}]).
 
--endif. %logging
+stop() ->
+    cowboyku:stop_listener(?MODULE).
+
+init(_Transport, Req, Opts) ->
+    {ok, Req, Opts}.
+
+handle(Req, Opts) ->
+    F = proplists:get_value(in_handle, Opts, fun(R) -> R end),
+    {ok, F(Req), Opts}.
+
+terminate(_Reason, _Req, _State) ->
+    ok.

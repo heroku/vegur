@@ -27,12 +27,28 @@
 %%% THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 %%% (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 %%% OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-module(vegur_websockets_backend).
+-behaviour(cowboyku_websocket_handler).
 
--ifndef(logging_macros).
--define(logging_macros, true).
+-export([init/3]).
+-export([websocket_init/3]).
+-export([websocket_handle/3]).
+-export([websocket_info/3]).
+-export([websocket_terminate/3]).
 
--define(LOG(Type, Fun, Req), vegur_request_log:log(Type, fun() ->
-                                                                 Fun
-                                                         end, Req)).
+init({tcp, http}, Req, Opts) ->
+    {upgrade, protocol, cowboyku_websocket}.
 
--endif. %logging
+websocket_init(TransportName, Req, _Opts) ->
+    {ok, Req, undefined_state}.
+
+websocket_handle({text, Msg}, Req, State) ->
+    {reply, {text, Msg}, Req, State};
+websocket_handle(_Data, Req, State) ->
+    {ok, Req, State}.
+
+websocket_info(_Info, Req, State) ->
+    {ok, Req, State}.
+
+websocket_terminate(_Reason, _Req, _State) ->
+    ok.

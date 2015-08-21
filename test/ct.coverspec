@@ -5,7 +5,7 @@
              vegur_bytepipe_SUITE,
              vegur_chunked_SUITE,
              vegur_client_SUITE,
-             vegur_dyno,
+             vegur_backend,
              vegur_proxy_SUITE,
              vegur_req_log_SUITE,
              vegur_request_SUITE,
@@ -13,5 +13,5 @@
              vegur_test_middleware,
              vegur_unchunked_SUITE,
              vegur_websocket_client,
-             vegur_websockets_dyno,
+             vegur_websockets_backend,
              vegur_interface]}.
