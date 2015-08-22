@@ -2,7 +2,6 @@
 
 -define(UPSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
 -define(DOWNSTREAM_BODY_BUFFER_LIMIT, 65536). % 64kb, in bytes
--define(POLL_INCREMENTS, 1000).
 
 -export([backend_connection/1
          ,send_headers/7
