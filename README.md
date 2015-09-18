@@ -9,11 +9,11 @@ And how do you pronounce vegur? Like [this](https://soundcloud.com/omarkj/vegur)
 
 ## Build
 
-    $ rebar get-deps compile
+    $ rebar3 compile
 
 ## Test
 
-    $ rebar ct
+    $ rebar3 ct
 
 ## Writing a Router
 
@@ -57,7 +57,7 @@ source module:
          checkin_service/6,
          service_backend/3,
          feature/2,
-         additional_headers/2,
+         additional_headers/4,
          error_page/4]).
 
 -record(state, {tries = [] :: list()}).
@@ -113,14 +113,14 @@ checkin_service(_Servers, _Pick, _Phase, _ServState, Upstream, State) ->
     {ok, Upstream, State}.
 ```
 
-We're also going to enable none of the features and add no headers because
-this is a basic demo:
+We're also going to enable none of the features and add no headers in either
+direction because this is a basic demo:
 
 ```erlang
 feature(_WhoCares, State) ->
     {disabled, State}.
 
-additional_headers(_Log, State) ->
+additional_headers(_Direction, _Log, _Upstream, State) ->
     {[], State}.
 ```
 
@@ -168,7 +168,7 @@ terminate(_, _, _) ->
 And then we're done. Compile all that stuff:
 
 ```bash
-$ rebar compile && erl -pa ebin demo deps/*/ebin
+$ rebar3 shell
 Erlang/OTP 17 [erts-6.0] [source] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false]
 
 Eshell V6.0  (abort with ^G)

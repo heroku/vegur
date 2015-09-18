@@ -36,7 +36,7 @@
          checkin_service/6,
          service_backend/3,
          feature/2,
-         additional_headers/2,
+         additional_headers/4,
          error_page/4]).
 
 -record(state, {tries = [] :: list()}).
@@ -73,7 +73,7 @@ checkin_service(_Servers, _Pick, _Phase, _ServState, Upstream, State) ->
 feature(_WhoCares, State) ->
     {disabled, State}.
 
-additional_headers(_Log, State) ->
+additional_headers(_Direction, _Log, _Upstream, State) ->
     {[], State}.
 
 %% Vegur-returned errors that should be handled no matter what.
