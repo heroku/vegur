@@ -91,7 +91,7 @@ init_per_suite(Config) ->
                               integer_to_list(D)]),
     {ok, Port} = gen_tcp:listen(0, [{ip,IP}]),
     {ok, [{recbuf, RecBuf}]} = inet:getopts(Port, [recbuf]),
-    ct:pal("BUF DEFAULT: ~p~n",[inet:getopts(Port, [buffer, recbuf, packet_size])]),
+    cthr:pal("BUF DEFAULT: ~p~n",[inet:getopts(Port, [buffer, recbuf, packet_size])]),
     application:load(vegur),
     meck:new(vegur_stub, [passthrough, no_link]),
     meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
@@ -162,10 +162,10 @@ pick_interface() ->
                      IPv4 =/= {127,0,0,1}],
     case IPv4s of
         [] -> % Fallback
-            ct:pal("Falling back to loopback interface"),
+            cthr:pal("Falling back to loopback interface"),
             {127,0,0,1};
         [H|_] ->
-            ct:pal("Using IP ~p for tests", [H]),
+            cthr:pal("Using IP ~p for tests", [H]),
             H
     end.
 
@@ -692,8 +692,8 @@ delete_hop_by_hop(Config) ->
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
     %% All hop by hop headers but proxy-authentication and trailers are gone
-    ct:pal("SRV:~p~n",[RecvServ]),
-    ct:pal("CLI:~p~n",[RecvClient]),
+    cthr:pal("SRV:~p~n",[RecvServ]),
+    cthr:pal("CLI:~p~n",[RecvClient]),
     nomatch = re:run(RecvServ, "^te:", [global,multiline,caseless]),
     {match,_} = re:run(RecvServ, "^trailer:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^keep-alive:", [global,multiline,caseless]),
@@ -753,7 +753,7 @@ response_header_line_limits(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
-    ct:pal("Rec: ~p",[RecvClient]),
+    cthr:pal("Rec: ~p",[RecvClient]),
     {match,_} = re:run(RecvClient, "502", [global,multiline]),
     wait_for_closed(Server, 500),
     wait_for_closed(Client, 500),
@@ -783,7 +783,7 @@ response_status_limits(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
-    ct:pal("Rec: ~p",[RecvClient]),
+    cthr:pal("Rec: ~p",[RecvClient]),
     {match,_} = re:run(RecvClient, "502", [global,multiline]),
     wait_for_closed(Server, 500),
     wait_for_closed(Client, 500),
@@ -880,8 +880,8 @@ preserve_case(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking, all headers keep their case
-    ct:pal("SRV: ~p",[RecvServ]),
-    ct:pal("CLI: ~p",[RecvClient]),
+    cthr:pal("SRV: ~p",[RecvServ]),
+    cthr:pal("CLI: ~p",[RecvClient]),
     nomatch = re:run(RecvServ, "^cONtENT-lEnGTH:", [global,multiline]),
     {match,_} = re:run(RecvServ, "^Content-Length:", [global,multiline]), % we rewrite this one
     {match,_} = re:run(RecvServ, "^Content-Type:", [global,multiline]),
@@ -1047,7 +1047,7 @@ passthrough(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match,_} = re:run(RecvServ, Chunks),
     {match,_} = re:run(RecvClient, Chunks),
     wait_for_closed(Server, 500).
@@ -1075,7 +1075,7 @@ passthrough_short_crlf(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match,_} = re:run(RecvServ, Chunks),
     0 = iolist_size(RecvClient),
     gen_tcp:close(Client), % we don't wait for a configured timeout
@@ -1106,7 +1106,7 @@ passthrough_early_0length(Config) ->
     {error, closed} = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     %% Detected the bad request early on and responded before the server could
     {match, _} = re:run(RecvServ, "3\r\nabc\r\n$"),
     {match, _} = re:run(RecvClient, "400 Bad Request"),
@@ -1141,7 +1141,7 @@ passthrough_partial_early_0length1(Config) ->
     RecvClient = recv_until_close(Client),
     RecvServ2 = recv_until_close(Server),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2],RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2],RecvClient]),
     {match, _} = re:run([RecvServ1,RecvServ2], "3\r\nabc\r\n$"),
     {match, _} = re:run(RecvClient, "400 Bad Request").
 
@@ -1176,7 +1176,7 @@ passthrough_partial_early_0length2(Config) ->
     RecvClient = recv_until_close(Client),
     RecvServ2 = recv_until_close(Server),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2], RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2], RecvClient]),
     {match, _} = re:run([RecvServ1,RecvServ2], "3\r\nabc\r\n$"),
     {match, _} = re:run(RecvClient, "400 Bad Request").
 
@@ -1210,7 +1210,7 @@ passthrough_partial_early_0length3(Config) ->
     ok = gen_tcp:send(Server, Chunks2),
     RecvClient2 = recv_until_close(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,[RecvClient1,RecvClient2]]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,[RecvClient1,RecvClient2]]),
     {match, _} = re:run(RecvServ, "3\r\nabc\r\n0\r\n\r\n$"),
     %% Content was down the line already
     nomatch = re:run([RecvClient1,RecvClient2], "400 Bad Request"),
@@ -1270,7 +1270,7 @@ interrupted_server(Config) ->
     CloseDetect = os:timestamp(),
     %% Connection closed and may or may not have reported partial chunks
     %% based on timing that would close the socket.
-    ct:pal("RecvClient: ~p",[RecvClient]),
+    cthr:pal("RecvClient: ~p",[RecvClient]),
     %% The detection of a termination takes place in less than 2 seconds.
     %% Note that on a loopback interface, this should always pass. Remote
     %% interfaces detect and propagate connection termination differently.
@@ -1299,7 +1299,7 @@ bad_chunk(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvClient, "200"),
     nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
     wait_for_closed(Server, 500).
@@ -1326,7 +1326,7 @@ trailers(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvServ, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head1:val1", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head2: val2", [global, multiline, caseless]),
@@ -1360,7 +1360,7 @@ trailers_close(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvServ, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head1:val1", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head2: val2", [global, multiline, caseless]),
@@ -1392,7 +1392,7 @@ trailers_client_err(Config) ->
     RecvServ = recv_until_close(Server),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     nomatch = re:run(RecvClient, "200 OK"),
     {match,_} = re:run(RecvClient, "400").
 
@@ -1417,7 +1417,7 @@ trailers_serv_err(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvClient, "200"),
     nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
     nomatch = re:run(RecvClient, "400"), % can't report an error halfway through
@@ -1444,7 +1444,7 @@ trailers_no_header(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvServ, Chunks),
     {match, _} = re:run(RecvServ, Trailers),
     {match, _} = re:run(RecvClient, Chunks),
@@ -1768,7 +1768,7 @@ status_chunked_204(Config) ->
     {ok, _} = gen_tcp:recv(Server, 0, 1000),
     ok = gen_tcp:send(Server, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
-    ct:pal("Recv: ~p",[Recv]),
+    cthr:pal("Recv: ~p",[Recv]),
     {match,_} = re:run(Recv, "chunked", [global,multiline,caseless]),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
@@ -1860,7 +1860,7 @@ large_body_stream(Config) ->
     RecvServ = recv_until_timeout(Server),
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
-    ct:pal("RecvServ: ~p", [RecvServ]),
+    cthr:pal("RecvServ: ~p", [RecvServ]),
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000),
     wait_for_closed(Server, 500),
@@ -1883,7 +1883,7 @@ large_body_close(Config) ->
     RecvServ = recv_until_timeout(Server),
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
-    ct:pal("RecvServ: ~p", [RecvServ]),
+    cthr:pal("RecvServ: ~p", [RecvServ]),
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000),
     wait_for_closed(Server, 500).
@@ -1906,7 +1906,7 @@ large_body_close_delimited(Config) ->
     ok = gen_tcp:send(Server, Resp),
     gen_tcp:close(Server),
     RecvClient = recv_until_close(Client),
-    ct:pal("RecvServ: ~p", [RecvServ]),
+    cthr:pal("RecvServ: ~p", [RecvServ]),
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000).
 
@@ -1938,7 +1938,7 @@ large_body_request_response_interrupt(Config) ->
     %% We should get a response back even if we didn't finish sending it
     Recv = recv_until_close(Client),
     %% Check results
-    ct:pal("Resp: ~p", [Recv]),
+    cthr:pal("Resp: ~p", [Recv]),
     {match,_} = re:run(Recv, "^HTTP/1.1 304 OK", [global,multiline,caseless]).
 
 large_chunked_request_response_interrupt(Config) ->
@@ -1970,7 +1970,7 @@ large_chunked_request_response_interrupt(Config) ->
     %% We should get a response back even if we didn't finish sending it
     Recv = recv_until_close_long(Client),
     %% Check results
-    ct:pal("Resp: ~p", [Recv]),
+    cthr:pal("Resp: ~p", [Recv]),
     {match,_} = re:run(Recv, "^HTTP/1.1 304 OK", [global,multiline,caseless]).
 
 large_close_request_response_interrupt(Config) ->
@@ -2486,6 +2486,6 @@ domain(Config) ->
 
 check_stub_error(Pattern) ->
     Local = [Args || {_, {vegur_stub, error_page, Args}, _Ret} <- meck:history(vegur_stub)],
-    ct:pal("Local: ~p~n", [Local]),
+    cthr:pal("Local: ~p~n", [Local]),
     Pattern = hd(lists:last(Local)).
 

@@ -317,7 +317,7 @@ request_statistics(Config) ->
         {req, _Req} ->
             receive
                 {stats, {successful, Upstream, _State}} ->
-                    ct:pal("Upstream: ~p~n",[Upstream]),
+                    cthr:pal("Upstream: ~p~n",[Upstream]),
                     {118, _} = vegur_req:bytes_recv(Upstream),
                     {273, _} = vegur_req:bytes_sent(Upstream),
                     {RT, _} = vegur_req:route_duration(Upstream),
@@ -349,7 +349,7 @@ response_attributes(Config) ->
         {req, _Req} ->
             receive
                 {stats, {successful, Upstream, _State}} ->
-                    ct:pal("Upstream: ~p~n",[Upstream]),
+                    cthr:pal("Upstream: ~p~n",[Upstream]),
                     {200, _} = vegur_req:response_code(Upstream),
                     {Headers, _} = vegur_req:response_headers(Upstream),
                     true = lists:member({<<"remote-host">>,<<"localhost">>}, Headers),

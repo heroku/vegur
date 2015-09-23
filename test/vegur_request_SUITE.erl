@@ -276,7 +276,7 @@ header_count_limits(Config) ->
     {ok, Socket1} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
     ok = gen_tcp:send(Socket1, Req1),
     Data1 = get_until_closed(Socket1, <<>>),
-    ct:pal("Data1: ~p", [Data1]),
+    cthr:pal("Data1: ~p", [Data1]),
     {_, _} = binary:match(Data1, <<"400">>),
     %% Accepted
     Req2 = ["GET / HTTP/1.1\r\nHost:localhost\r\nconnection:close\r\n",
@@ -285,7 +285,7 @@ header_count_limits(Config) ->
     {ok, Socket2} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
     ok = gen_tcp:send(Socket2, Req2),
     Data2 = get_until_closed(Socket2, <<>>),
-    ct:pal("Data2: ~p", [Data2]),
+    cthr:pal("Data2: ~p", [Data2]),
     nomatch = binary:match(Data2, <<"400">>),
     Config.
 
@@ -343,7 +343,7 @@ upgrade_websockets(Config) ->
                                                         {"connection", "Upgrade Keep-Alive"},
                                                         {"sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="}
                                                        ]}, [], []),
-    ct:pal("Request over"),
+    cthr:pal("Request over"),
     true = X < 300,
     Config.
 
