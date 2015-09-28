@@ -278,13 +278,13 @@ send({?MODULE,Conn}, IoData) ->
 %% This is a send call from the bytepipe, and represents the proxy making
 %% the call
 send(Port, IoData) ->
-    ct:pal("proxy send (through ~p): ~p", [Port, IoData]),
+    cthr:pal("proxy send (through ~p): ~p", [Port, IoData]),
     gen_tcp:send(Port, IoData).
 
 recv({?MODULE,Port}, Int, Timeout) -> % support in-suite calls
     recv(Port, Int, Timeout);
 recv(Port, Int, Timeout) ->
-    ct:pal("passive recv (through ~p)", [Port]),
+    cthr:pal("passive recv (through ~p)", [Port]),
     gen_tcp:recv(Port, Int, Timeout).
 
 setopts({?MODULE, Port}, Opts) -> % support in-suite calls
@@ -357,7 +357,7 @@ init(Parent, Port, Opts) ->
     end),
     Accept = receive {accept, Acc} -> Acc end,
     Conn = receive {conn, Con} -> Con end,
-    ct:pal("~p Acc:~p Conn~p",[Opts, Accept, Conn]),
+    cthr:pal("~p Acc:~p Conn~p",[Opts, Accept, Conn]),
     %% We keep in state the port defined by our role: 'client'
     %% keeps the Conn port (client-side) and exposes Accept (server-side).
     %% 'server' keeps the Accept port (endpoint-side) and exposes Conn
@@ -385,7 +385,7 @@ loop(Port, Log) ->
     receive
         %% API stuff
         {send, {Transport, _Sock}, Msg} ->
-            ct:pal("module send (~p -> ~p): ~p", [Port, _Sock, Msg]),
+            cthr:pal("module send (~p -> ~p): ~p", [Port, _Sock, Msg]),
             Transport:send(Port, Msg),
             loop(Port, [{send, Msg} | Log]);
         {close, {Transport, _Sock}} ->
@@ -395,7 +395,7 @@ loop(Port, Log) ->
             loop(Port, Log);
         %%  TCP handling
         {tcp, Port, Msg} ->
-            ct:pal("active recv (through ~p): ~p", [Port,Msg]),
+            cthr:pal("active recv (through ~p): ~p", [Port,Msg]),
             loop(Port, [{recv, Msg} | Log]);
         {tcp_closed, Port} ->
             exit(tcp_closed);
@@ -404,6 +404,6 @@ loop(Port, Log) ->
         {'DOWN', _Ref, process, _Parent, _Reason} ->
             exit(parent_down);
         OTHER ->
-            ct:pal("???: ~p", [OTHER]),
+            cthr:pal("???: ~p", [OTHER]),
             exit('WHAT THE HELL')
     end.
