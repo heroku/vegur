@@ -239,21 +239,22 @@ peer_ip_port(Req) ->
             {{PeerIp, Port}, Req4}
     end.
 
--spec connection_info(Req) -> {ok, list()} when
+-spec connection_info(Req) -> {list(), Req} when
       Req :: cowboyku_req:req().
 connection_info(Req) ->
     connection_info([protocol, cipher_suite, sni_hostname], Req).
 
--spec connection_info([protocol | cipher_suite | sni_hostname], Req) -> {ok, list()} when
+-spec connection_info([protocol | cipher_suite | sni_hostname], Req) -> {list(), Req} when
       Req :: cowboyku_req:req().
 connection_info(Items, Req) ->
     Transport = cowboyku_req:get(transport, Req),
     case Transport:name() of
         proxy_protocol_tcp ->
             ProxySocket = cowboyku_req:get(socket, Req),
-            Transport:connection_info(ProxySocket, Items);
+            {ok, Ret} = Transport:connection_info(ProxySocket, Items),
+            {Ret, Req};
         _ ->
-            {ok, []}
+            {[], Req}
     end.
 
 %% Get a cowboyku socket for a temporary operation, expected to be
