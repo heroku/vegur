@@ -24,7 +24,7 @@
   0},
  {<<"ranch_proxy_protocol">>,
   {git,"https://github.com/heroku/ranch_proxy_protocol.git",
-       {ref,"8dc8156665129b4f5016c11af5e8f272d8e3f692"}},
+       {ref,"c2a5855068651b2447633a257a48209f05888848"}},
   0},
  {<<"uuid">>,
   {git,"https://github.com/okeuday/uuid.git",

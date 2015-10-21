@@ -60,6 +60,8 @@
          ,header/2
          ,response_code/1
          ,response_headers/1
+         ,connection_info/1
+         ,connection_info/2
         ]).
 
 -spec start_time(Req) -> {StartTime, Req} when
@@ -206,6 +208,15 @@ response_code(Req) ->
 response_headers(Req) ->
     cowboyku_req:meta(response_headers, Req, []).
 
+-spec connection_info(Req) -> {list(), Req} when
+      Req :: cowboyku_req:req().
+connection_info(Req) ->
+    vegur_utils:connection_info(Req).
+
+-spec connection_info([protocol | cipher_suite | sni_hostname], Req) -> {list(), Req} when
+      Req :: cowboyku_req:req().
+connection_info(Items, Req) ->
+    vegur_utils:connection_info(Items, Req).
 
 %% Internal
 timestamp_diff(FromKey, ToKey, Req) ->

@@ -326,6 +326,11 @@ request_statistics(Config) ->
                     {SH, _} = vegur_req:send_headers_duration(Upstream),
                     {QP, _} = vegur_req:request_proxy_duration(Upstream),
                     {RP, _} = vegur_req:response_proxy_duration(Upstream),
+                    {[], _} = vegur_req:connection_info(Upstream),
+                    {[], _} = vegur_req:connection_info([protocol], Upstream),
+                    {[], _} = vegur_req:connection_info([cipher_suite], Upstream),
+                    {[], _} = vegur_req:connection_info([sni_hostname], Upstream),
+                    {[], _} = vegur_req:connection_info([protocol, sni_hostname], Upstream),
                     {<<"/?abc=d">>, _} = vegur_req:raw_path(Upstream),
                     true = lists:all(fun(X) -> is_integer(X) end,
                                      [RT, CT, TT, SH, QP, RP])

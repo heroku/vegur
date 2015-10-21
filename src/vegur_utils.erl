@@ -46,6 +46,8 @@
          ,add_interface_headers/3
          ,handle_error/2
          ,peer_ip_port/1
+         ,connection_info/1
+         ,connection_info/2
          ,borrow_cowboyku_socket/1
          ,raw_cowboyku_socket/1
          ,raw_cowboyku_sockbuf/1
@@ -237,6 +239,24 @@ peer_ip_port(Req) ->
             {{PeerIp, Port}, Req4}
     end.
 
+-spec connection_info(Req) -> {list(), Req} when
+      Req :: cowboyku_req:req().
+connection_info(Req) ->
+    connection_info([protocol, cipher_suite, sni_hostname], Req).
+
+-spec connection_info([protocol | cipher_suite | sni_hostname], Req) -> {list(), Req} when
+      Req :: cowboyku_req:req().
+connection_info(Items, Req) ->
+    Transport = cowboyku_req:get(transport, Req),
+    case Transport:name() of
+        proxy_protocol_tcp ->
+            ProxySocket = cowboyku_req:get(socket, Req),
+            {ok, Ret} = Transport:connection_info(ProxySocket, Items),
+            {Ret, Req};
+        _ ->
+            {[], Req}
+    end.
+
 %% Get a cowboyku socket for a temporary operation, expected to be
 %% non-destructive and non-terminal (more data to be sent by the
 %% regular cowboyku code path after).
@@ -307,4 +327,3 @@ config(Key) ->
 -spec get_via_value() -> binary().
 get_via_value() ->
     <<"1.1 vegur">>.
-
