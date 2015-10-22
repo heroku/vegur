@@ -1,7 +1,7 @@
 # Vegur
 
 Heroku's proxy library based on a forked Cowboy frontend (Cowboyku). This
-libary handles proxying in Heroku's routing stack
+library handles proxying in Heroku's routing stack
 
 ![Illfær vegur](http://i.imgur.com/lwRxWDz.jpg)
 
