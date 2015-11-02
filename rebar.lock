@@ -16,7 +16,7 @@
   0},
  {<<"quickrand">>,
   {git,"https://github.com/okeuday/quickrand.git",
-       {ref,"b4db3b4483b73107682fc593c2bc94be922ddcda"}},
+       {ref,"36bc75ac538430f6858453576850ea088d22c183"}},
   1},
  {<<"ranch">>,
   {git,"https://github.com/ninenines/ranch.git",
@@ -28,5 +28,5 @@
   0},
  {<<"uuid">>,
   {git,"https://github.com/okeuday/uuid.git",
-       {ref,"d4459ce944260e53c8a661dabff9b59177dfc7f4"}},
+       {ref,"24325ae6309d03897735c3a320aab6f74b189ab7"}},
   0}].
