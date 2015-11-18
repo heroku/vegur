@@ -213,34 +213,30 @@ ext_quoted_string_esc(<<>>, S=#state{}) ->
 ext_quoted_string_esc(<<_, Rest/binary>>, S=#state{}) ->
     ext_quoted_string(Rest, S).
 
-%% instead of buffering byte by byte, keep a reference to the original
-%% binary, iterate through using a cursor, and only buffer (hopefully
-%% larger) binaries when you must.
-chunk_data(Bin, S=#state{}) ->
-    Sz = byte_size(Bin),
-    %% binaries count from 0
-    chunk_data(Bin, S#state{}, 0, Sz).
-
-%% read beyond the anticipated end of the chunk, error out
-chunk_data(Bin, #state{length=L, buffer=Buf}, P, _len) when P > L ->
-    {error, {bad_chunk, {0, [Buf,Bin]}}};
-%% P = L  means we've run out of binary without a match, go back for
-%% more data.
-chunk_data(Bin, S=#state{buffer=Buf, length=Len}, P, P) ->
-    Bin1 = <<Buf/binary, Bin/binary>>,
-    {more, {fun chunk_data/2, S#state{buffer=Bin1,length=Len-P}}};
-%% otherwise, look for \r
-chunk_data(Bin, S=#state{buffer=Buf, length=Len}, P, L) ->
-    case binary:at(Bin, P) of
-        $\r when Len =:= P ->
-            %% add one because at/2 is 0-indexed
-            Pos = P + 1,
+chunk_data(Bin, S=#state{buffer=Buf, length=Len}) ->
+    case binary:match(Bin, <<"\r">>) of
+        %% expected match
+        {MatchPos, _} when MatchPos =:= Len ->
+            Pos = MatchPos + 1,
             <<Bin1:Pos/binary, Rest/binary>> = Bin,
             Buf1 = <<Buf/binary, Bin1/binary>>,
             chunk_data_cr(Rest, S#state{buffer=Buf1,
-                                        length=Len-P});
-        _ ->
-            chunk_data(Bin, S, P + 1, L)
+                                        length=Len-MatchPos});
+        %% embedded \r
+        {MatchPos, _} when MatchPos < Len -> %andalso
+                           %MatchPos =:= byte_size(Bin) ->
+            Pos = MatchPos + 1,
+            <<Bin1:Pos/binary, Rest/binary>> = Bin,
+            Buf1 = <<Buf/binary, Bin1/binary>>,
+            chunk_data(Rest,
+                       S#state{buffer=Buf1,
+                               length=Len-Pos});
+        %% bad chunk
+        {_MatchPos, _} ->
+            {error, {bad_chunk, {_MatchPos, [Buf, Bin]}}};
+        nomatch ->
+            {more, {fun chunk_data/2, S#state{buffer= <<Buf/binary, Bin/binary>>,
+                                             length=Len - byte_size(Bin)}}}
     end.
 
 chunk_data_cr(<<>>, S=#state{}) ->
