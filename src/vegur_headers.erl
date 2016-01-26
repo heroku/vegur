@@ -32,7 +32,7 @@
 -define(APP, vegur).
 
 %% High-level interface
--export([request_headers/2,
+-export([request_headers/3,
          response_headers/1,
          upgrade_response_headers/1]).
 
@@ -48,12 +48,17 @@
          add_via/1]).
 
 %% Strip Connection header on request.
-request_headers(Headers0, Type) ->
+request_headers(Headers0, Type, Keepalive) ->
     HeaderFuns = case Type of
         [upgrade] ->
             [fun delete_host_header/1
             ,fun delete_hop_by_hop/1
             ,fun add_connection_upgrade_header/1
+            ,fun delete_content_length_header/1];
+        _ when Keepalive ->
+            [fun delete_host_header/1
+            ,fun delete_hop_by_hop/1
+            ,fun add_connection_keepalive_header/1
             ,fun delete_content_length_header/1];
         _ ->
             [fun delete_host_header/1
