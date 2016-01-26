@@ -50,6 +50,26 @@
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
 backend_connection({IpAddress, Port}) ->
+    %% We track the last connection details to avoid a case where disjoint
+    %% backends exist with various host, and where two follow-up requests
+    %% may end up on different backends. In such cases, we want to
+    %% avoid keepalive from taking place
+    case {get(last_backend), get(reuse)} of
+        {_, undefined} ->
+            put(last_backend, {IpAddress, Port}),
+            start_backend_connection({IpAddress, Port});
+        {{IpAddress, Port}, Client} ->
+            %% Set the delta on a new connection so that moving forwards,
+            %% metrics are accurate
+            {connected, vegur_client:reset_log(vegur_client:set_delta(Client))};
+        {_, Client} ->
+            erase(reuse),
+            put(last_backend, {IpAddress, Port}),
+            backend_close(Client),
+            start_backend_connection({IpAddress, Port})
+    end.
+
+start_backend_connection({IpAddress, Port}) ->
     TcpBufSize = vegur_utils:config(client_tcp_buffer_limit),
     {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
                                       {recbuf, TcpBufSize}]),
@@ -80,9 +100,8 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% vegur_client:request_to_iolist will return a partial request with the
     %% correct headers in place, and the body can be sent later with sequential
     %% raw_request calls.
-    {Type, _} = cowboyku_req:meta(request_type, Req, []),
     IoHeaders = vegur_client:request_to_headers_iolist(Method,
-                                                       request_headers(Headers, Type),
+                                                       request_headers(Headers, Req),
                                                        Body,
                                                        'HTTP/1.1',
                                                        Url,
@@ -726,15 +745,35 @@ wait_for_body(_, Req) ->
     end.
 
 backend_close(Client) ->
-    vegur_client:close(Client).
+    case vegur_utils:config(reuse_backend_conn, false) of
+        false ->
+            vegur_client:close(Client);
+        true ->
+            case vegur_client:connection(Client) of
+                keepalive ->
+                    put(reuse, Client),
+                    Client; % do not set delta here -- stats can be fetched after reqs are done
+                close ->
+                    erase(reuse),
+                    vegur_client:close(Client)
+            end
+    end.
 
 %% Strip Connection header on request.
-request_headers(Headers0, Type) ->
+request_headers(Headers0, Req) ->
+    {Type, _} = cowboyku_req:meta(request_type, Req, []),
+    Keepalive = vegur_utils:config(reuse_backend_conn, false)
+                andalso cowboyku_req:get(connection, Req) =:= keepalive,
     HeaderFuns = case Type of
         [upgrade] ->
             [fun delete_host_header/1
             ,fun delete_hop_by_hop/1
             ,fun add_connection_upgrade_header/1
+            ,fun delete_content_length_header/1];
+        _ when Keepalive ->
+            [fun delete_host_header/1
+            ,fun delete_hop_by_hop/1
+            ,fun add_connection_keepalive_header/1
             ,fun delete_content_length_header/1];
         _ ->
             [fun delete_host_header/1
