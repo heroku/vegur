@@ -57,6 +57,7 @@
 -export([append_to_buffer/2]).
 
 -export([body_type/1]).
+-export([connection/1]).
 -export([version/1]).
 
 -export([headers_to_iolist/1]).
@@ -67,8 +68,10 @@
 -export([auth_header/1]).
 
 -export([set_stats/1]).
+-export([set_delta/1]).
 -export([byte_counts/1]).
 -export([log/1]).
+-export([reset_log/1]).
 
 -define(REASON_MISSING, <<"">>). %% "EBADDEVELOPER"
 
@@ -87,6 +90,8 @@
           response_body = undefined :: chunked | undefined | non_neg_integer(),
           bytes_sent :: non_neg_integer() | undefined, % Bytes sent downstream
           bytes_recv :: non_neg_integer() | undefined, % Bytes recv from downstream
+          bytes_sent_offset=0 :: integer(), % Bytes sent downstream modification
+          bytes_recv_offset=0 :: integer(), % Bytes recv from downstream modification
           first_packet_recv :: undefined | erlang:timestamp(),
           last_packet_recv :: undefined | erlang:timestamp(),
           first_packet_sent :: undefined | erlang:timestamp(),
@@ -366,6 +371,10 @@ body_type(#client{state=response_body, response_body=Length}) -> {content_size, 
 body_type(#client{state=request, status=204, response_body=undefined}) -> no_body;
 body_type(#client{state=request, status=304, response_body=undefined}) -> no_body;
 body_type(#client{state=request}) -> stream_close.
+
+%% @doc Returns the HTTP connection type
+-spec connection(client()) -> keepalive | close.
+connection(#client{connection=Connection}) -> Connection.
 
 %% @doc Returns the HTTP version of the response (if any), otherwise always
 %% returns the default of `HTTP/1.1'.
@@ -826,8 +835,9 @@ encode_auth_header(User, Pass)
       BytesSent :: non_neg_integer() | undefined,
       BytesRecv :: non_neg_integer() | undefined.
 byte_counts(Client) ->
-    #client{bytes_sent=BytesSent, bytes_recv=BytesRecv} = set_stats(Client),
-    {BytesSent, BytesRecv}.
+    #client{bytes_sent=BytesSent, bytes_sent_offset=BytesSentOffset,
+            bytes_recv=BytesRecv, bytes_recv_offset=BytesRecvOffset} = set_stats(Client),
+    {BytesSent+BytesSentOffset, BytesRecv+BytesRecvOffset}.
 
 %% @doc Updates statistics about bytes shuttled in and out of the client.
 %% Stats are obtained from the inets functionality on sockets and is
@@ -839,6 +849,12 @@ set_stats(Client=#client{bytes_sent=BytesSent, bytes_recv=BytesRecv,
                          socket=Socket}) ->
     {Sent, Recv} = get_stats(Socket, BytesSent, BytesRecv),
     Client#client{bytes_sent=Sent, bytes_recv=Recv}.
+
+%% @private
+set_delta(Client=#client{socket=undefined}) ->
+    Client;
+set_delta(Client=#client{bytes_sent=BytesSent, bytes_recv=BytesRecv}) ->
+    Client#client{bytes_sent_offset= -BytesSent, bytes_recv_offset= -BytesRecv}.
 
 %% @private
 get_stats(Socket, DefaultSent, DefaultRecv) when is_port(Socket) ->
@@ -864,6 +880,14 @@ log(#client{first_packet_recv=RecvFirst, last_packet_recv=RecvLast,
                                    {SentFirst, client_first_packet_sent},
                                    {SentLast, client_last_packet_sent}])),
     vegur_req_log:merge([Log, Log2]).
+
+%% @private
+reset_log(C=#client{log=_Log}) ->
+    Now = os:timestamp(),
+    NewLog = vegur_req_log:stamp(client_connect, Now, vegur_req_log:new(Now)),
+    C#client{first_packet_recv=undefined, last_packet_recv=undefined,
+             first_packet_sent=undefined, last_packet_sent=undefined,
+             log = NewLog}.
 
 %% @private
 stamp_sent(Client=#client{first_packet_sent=First}) ->
