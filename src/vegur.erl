@@ -49,7 +49,7 @@
          ,stop_proxy/1
         ]).
 
--export([default_middlewares/0]).
+-export([default_middlewares/0, defaults/0]).
 
 -type ms() :: non_neg_integer().
 -type middleware() :: module().

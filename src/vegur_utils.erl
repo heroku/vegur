@@ -253,6 +253,10 @@ connection_info(Items, Req) ->
             ProxySocket = cowboyku_req:get(socket, Req),
             {ok, Ret} = Transport:connection_info(ProxySocket, Items),
             {Ret, Req};
+        ssl ->
+            SSLSocket = cowboyku_req:get(socket, Req),
+            {ok, Ret} = ssl:connection_information(SSLSocket, Items),
+            {Ret, Req};
         _ ->
             {[], Req}
     end.
