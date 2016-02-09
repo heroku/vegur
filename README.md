@@ -537,3 +537,8 @@ The proxy is then split into 5 major parts maintained in this directory:
 * [Key differences between HTTP/1.0 and 1.1](http://www8.org/w8-papers/5c-protocols/key/key.html)
 * [What Proxies Must Do](https://www.mnot.net/blog/2011/07/11/what_proxies_must_do)
 * [Heroku's HTTP Routing](https://devcenter.heroku.com/articles/http-routing)
+
+## Changelog
+
+- 1.1.0: initial support for PROXY protocol v2
+- 1.0.0: first stable release
