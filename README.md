@@ -81,11 +81,11 @@ init(AcceptTime, Upstream) ->
     random:seed(AcceptTime), % RNGs require per-process seeding
     {ok, Upstream, #state{}}. % state initialization here.
 
-lookup_domain_name(_ReqDomain, _Upstream, State) ->
+lookup_domain_name(_ReqDomain, Upstream, State) ->
     %% hardcoded values, we don't care about the domain
     Servers = [{1, {127,0,0,1}, 8081},
                {2, {127,0,0,1}, 8082}],
-    {ok, Servers, State}.
+    {ok, Servers, Upstream, State}.
 ```
 
 From there on, we then can fill in the checkin/checkout logic. We technically
@@ -101,7 +101,7 @@ checkout_service(Servers, Upstream, State=#state{tries=Tried}) ->
         _ ->
             N = random:uniform(length(Available)),
             Pick = lists:nth(N, Available),
-            {service, Pick, State#state{tries=[Pick | Tried]}}
+            {service, Pick, Upstream, State#state{tries=[Pick | Tried]}}
     end.
 
 service_backend({_Id, IP, Port}, Upstream, State) ->
