@@ -193,8 +193,13 @@ request(Method, URL, Headers, Client) ->
 %% connected following a keepalive request sent with this function.
 %% Do not pass in a pre-connected client here as you risk getting connection
 %% leaks.
--spec request(iodata(), binary(), [{binary(), binary()}], iodata(), client()) ->
-        {ok, client()} | {error, term()}.
+-spec request(Method, URL, [{HeaderName, HeaderVal}], Body, client()) ->
+        {ok, client()} | {error, term()} when
+    Method :: iodata(),
+    URL :: binary(),
+    HeaderName :: binary(),
+    HeaderVal :: binary(),
+    Body :: iodata().
 request(Method, URL, Headers, Body, Client=#client{state=response_body}) ->
     {done, Client2} = skip_body(Client),
     request(Method, URL, Headers, Body, Client2);
@@ -215,9 +220,14 @@ request(Method, URL, Headers, Body, Client=#client{
 %% must be passed or known in order to set a given content length.
 %% A caveat is that no length is generated for a chunked transfer; remember
 %% to set the transfer encoding yourself.
--spec request_to_headers_iolist(iodata(), [{binary(), binary()}],
-                                iodata() | {stream, non_neg_integer() | chunked},
-                                cowboyku:http_version(), iodata(), iodata()) -> iodata().
+-spec request_to_headers_iolist(Method, [{HeaderName, HeaderVal}], Body,
+                                cowboyku:http_version(), FullHost, Path) -> iodata() when
+    Method :: iodata(),
+    HeaderName :: binary(),
+    HeaderVal :: binary(),
+    Body :: iodata() | {stream, non_neg_integer() | chunked},
+    FullHost :: iodata(),
+    Path :: iodata().
 request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     VersionBin = atom_to_binary(Version, latin1),
     %% @todo do keepalive too, allow override...
@@ -247,8 +257,14 @@ headers_to_iolist(Headers) ->
 
 %% @doc Takes a the components of a request and returns an `iodata()' that
 %% represents the full request and can be sent over the network.
--spec request_to_iolist(iodata(), [{binary(), binary()}], iodata(), cowboyku:http_version(),
-                        iodata(), iodata()) -> iodata().
+-spec request_to_iolist(Method, [{HeaderName, HeaderVal}], Body,
+                        cowboyku:http_version(), FullHost, Path) -> iodata() when
+    Method :: iodata(),
+    HeaderName :: binary(),
+    HeaderVal :: binary(),
+    Body :: iodata() | {stream, non_neg_integer() | chunked},
+    FullHost :: iodata(),
+    Path :: iodata().
 request_to_iolist(Method, Headers, Body, Version, FullHost, Path) ->
     [request_to_headers_iolist(Method, Headers, Body, Version, FullHost, Path),
      Body].
@@ -271,7 +287,7 @@ raw_socket(Client=#client{transport=T, socket=S, buffer=Buf}) ->
 %% be used for temporary or transient use that will not read from the socket
 %% (as the buffer is kept internal to the client). This function can be useful
 %% to sneak in data over the line (for example TCP PROXY protocol, or manually
-%% negotiation 100-Continue), but it is expected that the connection is still
+%% negotiating a 100-Continue), but it is expected that the connection is still
 %% owned and managed by vegur_client. Therefore, the caller must be careful
 %% not to break these promises. Safe usage tends to include obtaining metadata
 %% from the socket, and possibly flushing data down the line.
@@ -312,7 +328,12 @@ parse_peer(Peer, Transport) ->
 
 %% @doc Fetches the response headers to the current request. If the body of
 %% a prior request was left on the line, this tries to skip it.
--spec response(client()) -> {ok, 100..999, binary(), [{binary(), binary()}], client()} | {error, term()}.
+-spec response(client()) ->
+    {ok, Status, StatusStr, [{HeaderName, HeaderVal}], client()} | {error, term()} when
+      Status :: 100..999,
+      StatusStr :: binary(),
+      HeaderName :: binary(),
+      HeaderVal :: binary().
 response(Client=#client{state=response_body}) ->
     case skip_body(Client) of
         {done, Client2} ->
@@ -524,7 +545,10 @@ skip_body(Client=#client{state=response_body}) ->
 
 %% @doc Returns the status of the request along with the description it
 %% came with.
--spec stream_status(client()) -> {ok, 100..999, binary(), client()} | {error, term()}.
+-spec stream_status(client()) ->
+    {ok, Status, StatusStr, client()} | {error, term()} when
+      Status :: 100..999,
+      StatusStr :: binary().
 stream_status(Client=#client{state=State, buffer=Buffer})
         when State =:= request ->
     case binary:split(Buffer, <<"\r\n">>) of
