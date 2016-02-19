@@ -38,7 +38,7 @@
          ,read_backend_response/2
          ,upgrade/3
          ,relay/5
-	 ,reps_left/0]).
+         ,reps_left/0]).
 
 -type error_blame() :: 'undefined' % either/unknown
                      | 'upstream' % client
@@ -81,8 +81,9 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% correct headers in place, and the body can be sent later with sequential
     %% raw_request calls.
     {Type, _} = cowboyku_req:meta(request_type, Req, []),
+    Headers1 = vegur_headers:request_headers(Headers, Type),
     IoHeaders = vegur_client:request_to_headers_iolist(Method,
-                                                       request_headers(Headers, Type),
+                                                       Headers1,
                                                        Body,
                                                        'HTTP/1.1',
                                                        Url,
@@ -277,7 +278,9 @@ upgrade_init(Headers, Req, BackendClient) ->
     {Server={TransVeg,SockVeg}, BufVeg, _NewClient} = vegur_client:raw_socket(BackendClient),
     {Client={TransCow,SockCow}, BufCow, Req2} = vegur_utils:raw_cowboyku_sockbuf(Req),
     %% Send the response to the caller
-    Headers1 = vegur_client:headers_to_iolist(upgrade_response_headers(Headers)),
+    Headers1 = vegur_client:headers_to_iolist(
+                 vegur_headers:upgrade_response_headers(Headers)
+                ),
     TransCow:send(SockCow,
                   [<<"HTTP/1.1 101 Switching Protocols\r\n">>,
                    Headers1, <<"\r\n">>,
@@ -305,13 +308,17 @@ relay(Code, Status, HeadersRaw, Req, Client) ->
         {keepalive, Req0} ->
             vegur_utils:add_interface_headers(
                 downstream,
-                add_connection_keepalive_header(response_headers(HeadersRaw)),
+                vegur_headers:add_connection_keepalive_header(
+                  vegur_headers:response_headers(HeadersRaw)
+                 ),
                 Req0
             );
         {close, Req0} ->
             vegur_utils:add_interface_headers(
                 downstream,
-                add_connection_close_header(response_headers(HeadersRaw)),
+                vegur_headers:add_connection_close_header(
+                  vegur_headers:response_headers(HeadersRaw)
+                 ),
                 Req0
             )
     end,
@@ -442,8 +449,10 @@ relay_chunked('HTTP/1.0', Code, Status, Headers, Req, Client) ->
     %% stream the data as-is, but use no `content-length' header *AND* a
     %% `connection: close' header to implicitly delimit the request
     %% as streaming unknown-size HTTP.
-    relay_stream_body(Code, Status, delete_transfer_encoding_header(Headers),
+    relay_stream_body(Code, Status,
+                      vegur_headers:delete_transfer_encoding_header(Headers),
                       undefined, fun stream_unchunked/2, Req, Client).
+
 
 relay_chunked_init(Status, Headers, Req) ->
     %% Set the chunked reply type, then we can just stream later on.
@@ -727,82 +736,6 @@ wait_for_body(_, Req) ->
 
 backend_close(Client) ->
     vegur_client:close(Client).
-
-%% Strip Connection header on request.
-request_headers(Headers0, Type) ->
-    HeaderFuns = case Type of
-        [upgrade] ->
-            [fun delete_host_header/1
-            ,fun delete_hop_by_hop/1
-            ,fun add_connection_upgrade_header/1
-            ,fun delete_content_length_header/1];
-        _ ->
-            [fun delete_host_header/1
-            ,fun delete_hop_by_hop/1
-            ,fun add_connection_close_header/1
-            ,fun delete_content_length_header/1]
-    end,
-    lists:foldl(fun (F, H) -> F(H) end, Headers0, HeaderFuns).
-
-%% Strip Hop-by-hop headers on a response that is being
-%% upgraded
-upgrade_response_headers(Headers) ->
-    lists:foldl(fun (F, H) -> F(H) end,
-                Headers,
-                [fun delete_hop_by_hop/1,
-                 fun add_connection_upgrade_header/1,
-                 fun add_via/1
-                ]).
-
-%% Strip Hop-by-hop headers on response
-response_headers(Headers) ->
-    lists:foldl(fun (F, H) -> F(H) end,
-                Headers,
-                [fun delete_hop_by_hop/1,
-                 fun add_via/1
-                ]).
-
-delete_host_header(Hdrs) ->
-    vegur_utils:delete_all_headers(<<"host">>, Hdrs).
-
-delete_content_length_header(Hdrs) ->
-    vegur_utils:delete_all_headers(<<"content-length">>, Hdrs).
-
-delete_transfer_encoding_header(Hdrs) ->
-    vegur_utils:delete_all_headers(<<"transfer-encoding">>, Hdrs).
-
-%% Hop by Hop Headers we care about removing. We remove most of them but
-%% "Proxy-Authentication" for historical reasons, "Upgrade" because we pass
-%% it through, "Transfer-Encoding" because we restrict to 'chunked' and pass
-%% it through.
-delete_hop_by_hop([]) -> [];
-delete_hop_by_hop([{<<"connection">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"te">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"keep-alive">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([{<<"proxy-authorization">>, _} | Hdrs]) -> delete_hop_by_hop(Hdrs);
-delete_hop_by_hop([Hdr|Hdrs]) -> [Hdr | delete_hop_by_hop(Hdrs)].
-
-add_connection_close_header(Hdrs) ->
-    case lists:keymember(<<"connection">>, 1, Hdrs) of
-        true -> Hdrs;
-        false -> [{<<"connection">>, <<"close">>} | Hdrs]
-    end.
-
-add_connection_keepalive_header(Hdrs) ->
-    case lists:keymember(<<"connection">>, 1, Hdrs) of
-        true -> Hdrs;
-        false -> [{<<"connection">>, <<"keep-alive">>} | Hdrs]
-    end.
-
-add_connection_upgrade_header(Hdrs) ->
-    case lists:keymember(<<"connection">>, 1, Hdrs) of
-        true -> Hdrs;
-        false -> [{<<"connection">>, <<"Upgrade">>} | Hdrs]
-    end.
-
-add_via(Headers) ->
-    Via = vegur_utils:get_via_value(),
-    vegur_utils:add_or_append_header(<<"via">>, Via, Headers).
 
 %% When sending data in passive mode, it is usually impossible to be notified
 %% of connections being closed. For this to be done, we need to poll the socket
