@@ -69,7 +69,7 @@
       HandlerState :: handler_state().
 
 -callback lookup_domain_name(Domain, Upstream, HandlerState) ->
-    {error, not_found, Upstream, HandlerState} |
+    {error, atom(), Upstream, HandlerState} |
     {redirect, Reason, DomainGroup, Domain, Upstream, HandlerState} |
     {ok, DomainGroup, Upstream, HandlerState} when
       Domain :: binary(),
