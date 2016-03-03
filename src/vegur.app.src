@@ -10,7 +10,7 @@
      ,cowboyku
      ,midjan
      ,erequest_id
-     ,uuid     
+     ,uuid
     ]}
   ,{env, [{acceptors, 1024}
           ,{max_connections, 100000}

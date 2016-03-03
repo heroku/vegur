@@ -540,5 +540,6 @@ The proxy is then split into 5 major parts maintained in this directory:
 
 ## Changelog
 
+- 1.1.1: minor refactoring, typespecs and documentation changes
 - 1.1.0: initial support for PROXY protocol v2
 - 1.0.0: first stable release
