@@ -47,6 +47,7 @@
          ,stop_proxy/0
          ,stop_http/1
          ,stop_proxy/1
+         ,defaults/0
         ]).
 
 -export([default_middlewares/0]).
@@ -117,6 +118,18 @@ default_middlewares() ->
 set_config(Key, Val) ->
     application:set_env(vegur, Key, Val).
 
+-spec defaults() -> [proplists:property()].
+defaults() ->
+    [{middlewares, [vegur_midjan_middleware]}
+     ,{max_request_line_length, 8192}
+     ,{max_header_name_length, 1000}
+     ,{max_header_value_length, 8192}
+     ,{max_headers, 1000}
+     ,{timeout, timer:seconds(60)}
+     ,{onrequest, fun vegur_request_log:new/1}
+     ,{onresponse, fun vegur_request_log:done/4}
+    ].
+
 %% Internal
 -spec start(Type, Ref, Port, Interface, Config) -> {ok, pid()} | {error, badarg} when
     Type :: http | proxy,
@@ -186,14 +199,3 @@ merge_options([{Key, _}=DefaultPair|Rest], Config) ->
 
 extra_socket_options() ->
     vegur_utils:config(extra_socket_options, []).
-
-defaults() ->
-    [{middlewares, [vegur_midjan_middleware]}
-     ,{max_request_line_length, 8192}
-     ,{max_header_name_length, 1000}
-     ,{max_header_value_length, 8192}
-     ,{max_headers, 1000}
-     ,{timeout, timer:seconds(60)}
-     ,{onrequest, fun vegur_request_log:new/1}
-     ,{onresponse, fun vegur_request_log:done/4}
-    ].
