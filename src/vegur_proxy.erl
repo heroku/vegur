@@ -766,7 +766,7 @@ check(Transport, Sock) ->
         true -> % no check after buffer is full, let the kernel handle it.
             ok;
         false ->
-            case Transport:recv(Sock, 0, 0) of
+            case Transport:recv(Sock, 0, 1) of
                 {error, timeout} -> % connection still alive, but no data
                     ok;
                 {error, Reason} ->
