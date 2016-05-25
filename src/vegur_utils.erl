@@ -233,6 +233,10 @@ peer_ip_port(Req) ->
             ProxySocket = cowboyku_req:get(socket, Req),
             {ok, {{PeerIp, PeerPort}, {_, DestPort}}} = Transport:proxyname(ProxySocket),
             {{PeerIp, PeerPort, DestPort}, Req};
+        proxy_protocol_ssl ->
+            ProxySocket = cowboyku_req:get(socket, Req),
+            {ok, {{PeerIp, PeerPort}, {_, DestPort}}} = Transport:proxyname(ProxySocket),
+            {{PeerIp, PeerPort, DestPort}, Req};
         _ ->
             {{PeerIp, _}, Req3} = cowboyku_req:peer(Req),
             {Port, Req4} = cowboyku_req:port(Req3),
