@@ -30,18 +30,22 @@
 -module(vegur_proxy_SUITE).
 -compile(export_all).
 -include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %%%===================================================================
 %%% Common Test callbacks
 %%%===================================================================
 
 all() ->
-    [{group, vegur_proxy_headers}
-     ,{group, vegur_proxy_connect}
+    [{group, http}
+    ,{group, https}
     ].
 
 groups() ->
-    [
+    [{http, [], [{group, vegur_proxy_headers},
+                 {group, vegur_proxy_connect}]},
+     {https, [], [{group, vegur_proxy_headers},
+                  {group, vegur_proxy_connect}]},
      {vegur_proxy_headers, [], [request_id
                                 ,forwarded_for
                                 ,via
@@ -68,19 +72,27 @@ init_per_suite(Config) ->
     {ok, Cowboyku} = application:ensure_all_started(cowboyku),
     {ok, Inets} = application:ensure_all_started(inets),
     {ok, Meck} = application:ensure_all_started(meck),
-    VegurPort = 9333,
-    {ok, _} = vegur:start_http(VegurPort, vegur_stub, []),
-    mock_through(),
-    [{started, Cowboyku++Inets++Meck},
-     {vegur_port, VegurPort} | Config].
+    [{started, Cowboyku++Inets++Meck}|Config].
 
 end_per_suite(Config) ->
-    vegur:stop_http(),
     application:unload(vegur),
     application:unload(websocket_client),
     [application:stop(App) || App <- ?config(started, Config)],
     Config.
 
+init_per_group(http, Config) ->
+    VegurPort = 9333,
+    {ok, _} = vegur:start_http(VegurPort, vegur_stub, []),
+    mock_through(),
+    [{vegur_port, VegurPort}, {scheme, "http"} | Config];
+init_per_group(https, Config) ->
+    VegurPort = 9333,
+    SSLOptions = [{certfile, ?config(data_dir, Config) ++ "/localhost.crt"},
+                  {keyfile,  ?config(data_dir, Config) ++ "/localhost.key"},
+                  {versions, ['tlsv1.2']}],
+    {ok, _} = vegur:start_https(VegurPort, vegur_stub, [], SSLOptions),
+    mock_through(),
+    [{vegur_port, VegurPort}, {scheme, "https"} | Config];
 init_per_group(vegur_proxy_headers, Config) ->
     BackendPort = 9555,
     mock_backend(9555),
@@ -90,6 +102,12 @@ init_per_group(vegur_proxy_connect, Config) ->
     mock_backend(9555),
     [{backend_port, BackendPort} | Config].
 
+end_per_group(http, Config) ->
+    vegur:stop_http(),
+    Config;
+end_per_group(https, Config) ->
+    vegur:stop_https(),
+    Config;
 end_per_group(_, Config) ->
     meck:unload(),
     Config.
@@ -121,12 +139,16 @@ end_per_testcase(_TestCase, Config) ->
     stop_backend(),
     Config.
 
+url(Config) ->
+    ?config(scheme, Config) ++
+        "://127.0.0.1:" ++
+        integer_to_list(?config(vegur_port, Config)).
+
 %%%===================================================================
 %%% Test cases
 %%%===================================================================
 request_id(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
@@ -170,7 +192,7 @@ forwarded_for(Config) ->
                                              {disabled, S}
                                      end),
     Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost:"++integer_to_list(Port)}]}, [], []),
     receive
         {req, Req} ->
@@ -187,8 +209,14 @@ forwarded_for(Config) ->
     receive
         {req, Req1} ->
             {<<"10.0.0.1, 127.0.0.1">>, _} = cowboyku_req:header(<<"x-forwarded-for">>, Req1),
-            {<<"80">>, _} = cowboyku_req:header(<<"x-forwarded-port">>, Req1),
-            {<<"http">>, _} = cowboyku_req:header(<<"x-forwarded-proto">>, Req1)
+            case ?config(scheme, Config) of
+                "http" ->
+                    {<<"80">>, _} = cowboyku_req:header(<<"x-forwarded-port">>, Req1),
+                    {<<"http">>, _} = cowboyku_req:header(<<"x-forwarded-proto">>, Req1);
+                "https" ->
+                    {<<"443">>, _} = cowboyku_req:header(<<"x-forwarded-port">>, Req1),
+                    {<<"https">>, _} = cowboyku_req:header(<<"x-forwarded-proto">>, Req1)
+            end
     after 5000 ->
             throw(timeout)
     end,
@@ -232,8 +260,7 @@ forwarded_for(Config) ->
     Config.
 
 via(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
@@ -252,8 +279,7 @@ via(Config) ->
     Config.
 
 start_time_header(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
@@ -265,8 +291,7 @@ start_time_header(Config) ->
     Config.
 
 connect_time_header(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
@@ -278,8 +303,7 @@ connect_time_header(Config) ->
     Config.
 
 route_time_header(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
@@ -291,8 +315,7 @@ route_time_header(Config) ->
     Config.
 
 service_try_again(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     meck:expect(vegur_stub, service_backend,
                 fun(_, Req, HandlerState) ->
                         mock_backend(?config(backend_port, Config)),
@@ -309,8 +332,7 @@ service_try_again(Config) ->
     Config.
 
 request_statistics(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/?abc=d",
+    Url = url(Config) ++ "/?abc=d",
     mock_terminate(self()),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
@@ -319,7 +341,17 @@ request_statistics(Config) ->
                 {stats, {successful, Upstream, _State}} ->
                     cthr:pal("Upstream: ~p~n",[Upstream]),
                     {118, _} = vegur_req:bytes_recv(Upstream),
-                    {273, _} = vegur_req:bytes_sent(Upstream),
+                    case ?config(scheme, Config) of
+                        "http" ->
+                            {273, _} = vegur_req:bytes_sent(Upstream);
+                        "https" ->
+                            %% The total payload is 2 bytes longer for
+                            %% https requests. One byte is the "s" in
+                            %% "https", the other is the 3 digit port
+                            %% number "443" instead of a two digit
+                            %% port number "80"
+                            {275, _} = vegur_req:bytes_sent(Upstream)
+                        end,
                     {RT, _} = vegur_req:route_duration(Upstream),
                     {CT, _} = vegur_req:connect_duration(Upstream),
                     {TT, _} = vegur_req:total_duration(Upstream),
@@ -346,8 +378,7 @@ response_attributes(Config) ->
     %% Test vegur_req attributes that have to do with the response
     %% from the back-end to the client. These so far include the
     %% status code and the HTTP headers.
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/?abc=d",
+    Url = url(Config),
     mock_terminate(self()),
     {ok, {{_, 200, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
@@ -372,7 +403,11 @@ websockets(Config) ->
     Msg = <<"Test Msg!">>,
     Port = ?config(vegur_port, Config),
     Host = "127.0.0.1",
-    Url = "ws://"++Host++":"++integer_to_list(Port)++"/ws",
+    Scheme = case ?config(scheme, Config) of
+                 "http" -> "ws";
+                 "https" -> "wss"
+             end,
+    Url = Scheme++"://"++Host++":"++integer_to_list(Port)++"/ws",
     {ok, Pid} = vegur_websocket_client:start_link(Url, self(), Msg),
     receive
         {msg, Msg} ->
@@ -384,8 +419,7 @@ websockets(Config) ->
     Config.
 
 host(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
@@ -396,11 +430,11 @@ host(Config) ->
     Config.
 
 query_string(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "?test=foo&bar=car#fragment=ding",
+    Url = url(Config) ++ "?test=foo&bar=car#fragment=ding",
     {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
         {req, Req} ->
+            ?assertMatch({<<"test=foo&bar=car">>, _}, cowboyku_req:qs(Req)),
             {<<"test=foo&bar=car">>, _} = cowboyku_req:qs(Req)
     after 5000 ->
             throw(timeout)
@@ -411,13 +445,17 @@ content_length(Config) ->
     Port = ?config(vegur_port, Config),
     Body = <<"This is a test.">>,
     Length = iolist_to_binary(integer_to_list(byte_size(Body))),
-    {ok, S} = gen_tcp:connect({127,0,0,1}, Port, []),
-    gen_tcp:send(S,[<<"GET / HTTP/1.1\r\n"
-                      "Content-Type: text/plain\r\n"
-                      "Host: localhost\r\n"
-                      "Content-Length: ", Length/binary, "\r\n"
-                      "\r\n",
-                      Body/binary>>]),
+    Transport = case ?config(scheme, Config) of
+                    "http" -> gen_tcp;
+                    "https" -> ssl
+                end,
+    {ok, S} = Transport:connect({127,0,0,1}, Port, []),
+    Transport:send(S,[<<"GET / HTTP/1.1\r\n"
+                        "Content-Type: text/plain\r\n"
+                        "Host: localhost\r\n"
+                        "Content-Length: ", Length/binary, "\r\n"
+                        "\r\n",
+                        Body/binary>>]),
     receive
         {req, Req} ->
             {Length, _} = cowboyku_req:header(<<"content-length">>, Req)
@@ -427,8 +465,7 @@ content_length(Config) ->
     Config.
 
 no_content_length(Config) ->
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Url = url(Config),
     {ok, {{_, 204, _}, _, _}} =
         httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     receive
@@ -448,8 +485,7 @@ custom_downstream_headers(Config) ->
                    (downstream, _, _, HandlerState) ->
                     {[{<<"custom-header">>,<<"custom-value">>}], HandlerState}
                 end),
-    Port = ?config(vegur_port, Config),
-    Url = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/?abc=d",
+    Url = url(Config),
     mock_terminate(self()),
     {ok, {{_, 204, _}, Headers, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
     {"custom-header", "custom-value"} = lists:keyfind("custom-header", 1, Headers),

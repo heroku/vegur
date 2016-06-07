@@ -79,7 +79,7 @@
       Options :: options().
 start_http(Port, Interface, Config) ->
     HttpRef = proplists:get_value(ref, Config, ?HTTP_REF),
-    start(http, HttpRef, Port, Interface, Config).
+    start(http, HttpRef, Port, Interface, Config, []).
 
 -spec start_https(PortNumber, Interface, Options, SSLOptions) ->
                         {ok, pid()}|no_return() when
@@ -88,9 +88,9 @@ start_http(Port, Interface, Config) ->
       Options :: options(),
       SSLOptions :: [ssl:ssloption()].
 start_https(Port, Interface, Config, SSLOptions) ->
-    ok = set_config(extra_socket_options, SSLOptions ++ extra_socket_options()),
     HttpsRef = proplists:get_value(ref, Config, ?HTTPS_REF),
-    start(https, HttpsRef, Port, Interface, Config).
+    start(https, HttpsRef, Port, Interface,
+          Config, SSLOptions).
 
 -spec start_proxy(PortNumber, Interface, Options) ->
                          {ok, pid()}|no_return() when
@@ -99,7 +99,7 @@ start_https(Port, Interface, Config, SSLOptions) ->
       Options :: options().
 start_proxy(Port, Interface, Config) ->
     ProxyRef = proplists:get_value(ref, Config, ?PROXY_REF),
-    start(proxy, ProxyRef, Port, Interface, Config).
+    start(proxy, ProxyRef, Port, Interface, Config, []).
 
 -spec stop_http() -> ok.
 stop_http() ->
@@ -149,18 +149,21 @@ defaults() ->
     ].
 
 %% Internal
--spec start(Type, Ref, Port, Interface, Config) -> {ok, pid()} | {error, badarg} when
-    Type :: http | proxy,
-    Ref :: atom(),
-    Port :: inet:port_number(),
-    Interface :: module(),
-    Config :: proplists:proplists().
-start(Type, Ref, Port, Interface, Config) ->
+-spec start(Type, Ref, Port, Interface, Config, SocketOptions)
+           -> {ok, pid()} | {error, badarg} when
+      Type :: http | https | proxy,
+      Ref :: atom(),
+      Port :: inet:port_number(),
+      Interface :: module(),
+      Config :: proplists:proplists(),
+      SocketOptions :: proplists:proplists().
+start(Type, Ref, Port, Interface, Config, SocketOptions) ->
     { Acceptors,
       MaxConnections,
       NewConfig } = prestart_config(Config),
     ok = set_config(interface_module, Interface),
-    start_listener(Type, Ref, Port, Acceptors, MaxConnections, NewConfig).
+    start_listener(Type, Ref, Port, Acceptors,
+                   MaxConnections, NewConfig, SocketOptions).
 
 -spec prestart_config(Config :: proplists:proplists()) ->
                              { Acceptors :: pos_integer(),
@@ -205,32 +208,37 @@ prestart_config(Config) ->
        max_connections
       ]).
 
--spec start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config) ->
-      {ok, pid()} | {error, badarg} when
-    Type :: http | https | proxy,
-    Ref :: atom(),
-    Port :: inet:port_number(),
-    Acceptors :: pos_integer(),
-    MaxConnections :: pos_integer(),
-    Config :: proplists:proplists().
-start_listener(http, Ref, Port, Acceptors, MaxConnections, Config) ->
+-spec start_listener(Type, Ref, Port, Acceptors,
+                     MaxConnections, Config, SocketOptions) ->
+                            {ok, pid()} | {error, badarg} when
+      Type :: http | https | proxy,
+      Ref :: atom(),
+      Port :: inet:port_number(),
+      Acceptors :: pos_integer(),
+      MaxConnections :: pos_integer(),
+      Config :: proplists:proplists(),
+      SocketOptions :: proplists:proplists().
+start_listener(http, Ref, Port, Acceptors,
+               MaxConnections, Config, SocketOptions) ->
     cowboyku:start_http(Ref, Acceptors,
                         [{port, Port},
                          {max_connections, MaxConnections}
-                         | extra_socket_options()],
+                         | SocketOptions ] ++ extra_socket_options(),
                         merge_options(defaults(), Config));
-start_listener(https, Ref, Port, Acceptors, MaxConnections, Config) ->
+start_listener(https, Ref, Port, Acceptors,
+               MaxConnections, Config, SocketOptions) ->
     cowboyku:start_https(Ref, Acceptors,
                         [{port, Port},
                          {max_connections, MaxConnections}
-                         | extra_socket_options()],
+                         | SocketOptions ] ++ extra_socket_options(),
                         merge_options(defaults(), Config));
-start_listener(proxy, Ref, Port, Acceptors, MaxConnections, Config) ->
+start_listener(proxy, Ref, Port, Acceptors,
+               MaxConnections, Config, SocketOptions) ->
     ranch:start_listener(Ref, Acceptors,
                          ranch_proxy,
                          [{port, Port},
                           {max_connections, MaxConnections}
-                          | extra_socket_options()],
+                         | SocketOptions ] ++ extra_socket_options(),
                          cowboyku_protocol,
                          merge_options(defaults(), Config)).
 
