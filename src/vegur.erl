@@ -38,16 +38,19 @@
 
 -module(vegur).
 -define(HTTP_REF, vegur_http).
+-define(HTTPS_REF, vegur_https).
 -define(PROXY_REF, vegur_proxy).
 
 %% API
 -export([start_http/3
-         ,start_proxy/3
-         ,stop_http/0
-         ,stop_proxy/0
-         ,stop_http/1
-         ,stop_proxy/1
-         ,defaults/0
+        ,start_https/4
+        ,start_proxy/3
+        ,stop_http/0
+        ,stop_https/0
+        ,stop_proxy/0
+        ,stop_http/1
+        ,stop_proxy/1
+        ,defaults/0
         ]).
 
 -export([default_middlewares/0]).
@@ -78,6 +81,17 @@ start_http(Port, Interface, Config) ->
     HttpRef = proplists:get_value(ref, Config, ?HTTP_REF),
     start(http, HttpRef, Port, Interface, Config).
 
+-spec start_https(PortNumber, Interface, Options, SSLOptions) ->
+                        {ok, pid()}|no_return() when
+      PortNumber :: inet:port_number(),
+      Interface :: module(),
+      Options :: options(),
+      SSLOptions :: [ssl:ssloption()].
+start_https(Port, Interface, Config, SSLOptions) ->
+    ok = set_config(extra_socket_options, SSLOptions ++ extra_socket_options()),
+    HttpsRef = proplists:get_value(ref, Config, ?HTTPS_REF),
+    start(https, HttpsRef, Port, Interface, Config).
+
 -spec start_proxy(PortNumber, Interface, Options) ->
                          {ok, pid()}|no_return() when
       PortNumber :: inet:port_number(),
@@ -90,6 +104,10 @@ start_proxy(Port, Interface, Config) ->
 -spec stop_http() -> ok.
 stop_http() ->
     stop_http(?HTTP_REF).
+
+-spec stop_https() -> ok.
+stop_https() ->
+    stop_http(?HTTPS_REF).
 
 -spec stop_proxy() -> ok.
 stop_proxy() ->
@@ -121,13 +139,13 @@ set_config(Key, Val) ->
 -spec defaults() -> [proplists:property()].
 defaults() ->
     [{middlewares, [vegur_midjan_middleware]}
-     ,{max_request_line_length, 8192}
-     ,{max_header_name_length, 1000}
-     ,{max_header_value_length, 8192}
-     ,{max_headers, 1000}
-     ,{timeout, timer:seconds(60)}
-     ,{onrequest, fun vegur_request_log:new/1}
-     ,{onresponse, fun vegur_request_log:done/4}
+    ,{max_request_line_length, 8192}
+    ,{max_header_name_length, 1000}
+    ,{max_header_value_length, 8192}
+    ,{max_headers, 1000}
+    ,{timeout, timer:seconds(60)}
+    ,{onrequest, fun vegur_request_log:new/1}
+    ,{onresponse, fun vegur_request_log:done/4}
     ].
 
 %% Internal
@@ -138,31 +156,58 @@ defaults() ->
     Interface :: module(),
     Config :: proplists:proplists().
 start(Type, Ref, Port, Interface, Config) ->
-    {Acceptors, Config1} = get_default(acceptors, Config, vegur_utils:config(acceptors)),
-    {MaxConnections, Config2} = get_default(max_connections, Config1, vegur_utils:config(max_connections)),
-    {Middlewares, Config3} = get_default(middlewares, Config2, default_middlewares()),
-    {RequestIdName, Config4} = get_default(request_id_header, Config3,
-                                           vegur_utils:config(request_id_name)),
-    {ConnectTime, Config5} = get_default(connect_time_header, Config4,
-                                         vegur_utils:config(connect_time_header)),
-    {RouteTimeHeader, Config6} = get_default(route_time_header, Config5,
-                                             vegur_utils:config(route_time_header)),
-    {RequestIdMaxSize, Config7} = get_default(request_id_max_size, Config6,
-                                              vegur_utils:config(request_id_max_size)),
-    {DownstreamConnectTimeout, Config8} = get_default(downstream_connect_timeout, Config7,
-                                                      vegur_utils:config(downstream_connect_timeout)),
-    ok = set_config(middleware_stack, Middlewares),
+    { Acceptors,
+      MaxConnections,
+      NewConfig } = prestart_config(Config),
     ok = set_config(interface_module, Interface),
-    ok = set_config(request_id_name, RequestIdName),
-    ok = set_config(connect_time_header, ConnectTime),
-    ok = set_config(route_time_header, RouteTimeHeader),
-    ok = set_config(request_id_max_size, RequestIdMaxSize),
-    ok = set_config(downstream_connect_timeout, DownstreamConnectTimeout),
-    start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config8).
+    start_listener(Type, Ref, Port, Acceptors, MaxConnections, NewConfig).
+
+-spec prestart_config(Config :: proplists:proplists()) ->
+                             { Acceptors :: pos_integer(),
+                               MaxConnections :: pos_integer(),
+                               NewConfig :: proplists:proplists() }.
+prestart_config(Config) ->
+    lists:foldl(
+      fun({ConfigName, AppConfigName, Default},
+          {Acceptors, MaxConnections, ConfigIn}) ->
+              {Value, ConfigOut} = get_default(ConfigName, ConfigIn, Default),
+              ok = set_config(AppConfigName, Value),
+              {Acceptors, MaxConnections, ConfigOut};
+         (acceptors, {_, MaxConnections, ConfigIn}) ->
+              {Acceptors, ConfigOut} =
+                  get_default(acceptors,
+                              ConfigIn,
+                              vegur_utils:config(acceptors)),
+              {Acceptors, MaxConnections, ConfigOut};
+         (max_connections, {Acceptors, _, ConfigIn}) ->
+              {MaxConnections, ConfigOut} =
+                  get_default(max_connections,
+                              ConfigIn,
+                              vegur_utils:config(max_connections)),
+              {Acceptors, MaxConnections, ConfigOut}
+      end,
+      %% Defaults
+      {vegur_utils:config(acceptors), vegur_utils:config(max_connections), Config},
+      [
+       {middlewares, middleware_stack, default_middlewares()},
+       {request_id_header, request_id_name,
+        vegur_utils:config(request_id_name)},
+       {connect_time_header, connect_time_header,
+        vegur_utils:config(connect_time_header)},
+       {route_time_header, route_time_header,
+        vegur_utils:config(route_time_header)},
+       {request_id_max_size, request_id_max_size,
+        vegur_utils:config(request_id_max_size)},
+       {downstream_connect_timeout,
+        downstream_connect_timeout,
+        vegur_utils:config(downstream_connect_timeout)},
+       acceptors,
+       max_connections
+      ]).
 
 -spec start_listener(Type, Ref, Port, Acceptors, MaxConnections, Config) ->
       {ok, pid()} | {error, badarg} when
-    Type :: http | proxy,
+    Type :: http | https | proxy,
     Ref :: atom(),
     Port :: inet:port_number(),
     Acceptors :: pos_integer(),
@@ -170,6 +215,12 @@ start(Type, Ref, Port, Interface, Config) ->
     Config :: proplists:proplists().
 start_listener(http, Ref, Port, Acceptors, MaxConnections, Config) ->
     cowboyku:start_http(Ref, Acceptors,
+                        [{port, Port},
+                         {max_connections, MaxConnections}
+                         | extra_socket_options()],
+                        merge_options(defaults(), Config));
+start_listener(https, Ref, Port, Acceptors, MaxConnections, Config) ->
+    cowboyku:start_https(Ref, Acceptors,
                         [{port, Port},
                          {max_connections, MaxConnections}
                          | extra_socket_options()],
