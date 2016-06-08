@@ -1,3 +1,3 @@
 :name "hstub"
 :node-sname "edts-hstub"
-:lib-dirs '("deps")
+:lib-dirs '("deps" "_build/default/lib")
