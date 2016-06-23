@@ -837,7 +837,12 @@ encode_auth_header(User, Pass)
 byte_counts(Client) ->
     #client{bytes_sent=BytesSent, bytes_sent_offset=BytesSentOffset,
             bytes_recv=BytesRecv, bytes_recv_offset=BytesRecvOffset} = set_stats(Client),
-    {BytesSent+BytesSentOffset, BytesRecv+BytesRecvOffset}.
+    case {BytesSent, BytesRecv} of
+        {undefined, undefined} -> {undefined, undefined};
+        {undefined, _} -> {undefined, BytesRecv+BytesRecvOffset};
+        {_, undefined} -> {BytesSent + BytesSentOffset};
+        {_, _} -> {BytesSent+BytesSentOffset, BytesRecv+BytesRecvOffset}
+    end.
 
 %% @doc Updates statistics about bytes shuttled in and out of the client.
 %% Stats are obtained from the inets functionality on sockets and is
