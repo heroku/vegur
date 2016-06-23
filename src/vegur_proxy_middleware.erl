@@ -136,12 +136,12 @@ store_byte_counts(Req, Client) ->
     {BytesSent, Req2} = cowboyku_req:meta(bytes_sent, Req),
     {BytesRecv, Req3} = cowboyku_req:meta(bytes_recv, Req2),
     Sent = case {BytesSent, SentNew} of
-        {_, undefined} -> BytesSent;
+        %{_, undefined} -> BytesSent; % dialyzer says this can't happen
         {undefined, _} -> SentNew;
         {_,_} -> max(BytesSent, SentNew)
     end,
     Recv = case {BytesRecv, RecvNew} of
-        {_, undefined} -> BytesRecv;
+        %{_, undefined} -> BytesRecv; % dialyzer says this can't happen
         {undefined, _} -> RecvNew;
         {_,_} -> max(BytesRecv, RecvNew)
     end,
