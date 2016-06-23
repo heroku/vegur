@@ -114,7 +114,6 @@ end_per_group(_, Config) ->
     Config.
 
 init_per_testcase(request_keepalive_statistics, Config) ->
-    application:set_env(vegur, reuse_backend_conn, true),
     %% force jitter on some operation to ensure stats vary between reqs
     meck:new(vegur_headers, [passthrough]),
     meck:expect(vegur_headers, request_headers,
@@ -122,6 +121,7 @@ init_per_testcase(request_keepalive_statistics, Config) ->
                         timer:sleep(rand:uniform(20)),
                         meck:passthrough([A,B,C])
                 end),
+    mock_keepalive_backend(?config(backend_port, Config)),
     init_per_testcase(make_ref(), Config);
 init_per_testcase(response_attributes, Config) ->
     %% Same as regular setup, but with custom cookies and
@@ -147,8 +147,8 @@ init_per_testcase(_TestCase, Config) ->
     [{backend, Backend} | Config].
 
 end_per_testcase(request_keepalive_statistics, Config) ->
-    application:set_env(vegur, reuse_backend_conn, false),
     meck:unload(vegur_headers),
+    mock_backend(?config(backend_port, Config)),
     end_per_testcase(make_ref(), Config);
 end_per_testcase(_TestCase, Config) ->
     stop_backend(),
@@ -599,6 +599,12 @@ mock_backend(Port) ->
     meck:expect(vegur_stub, service_backend,
                 fun(_, Upstream, HandlerState) ->
                         {{{127,0,0,1}, Port}, Upstream, HandlerState}
+                end).
+
+mock_keepalive_backend(Port) ->
+    meck:expect(vegur_stub, service_backend,
+                fun(_, Upstream, HandlerState) ->
+                        {{keepalive, {default, {{127,0,0,1}, Port}}}, Upstream, HandlerState}
                 end).
 
 mock_terminate(Test) ->

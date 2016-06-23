@@ -129,13 +129,11 @@ end_per_suite(Config) ->
     Config.
 
 init_per_group(backend_keepalive, Config) ->
-    application:set_env(vegur, reuse_backend_conn, true),
-    Config;
+    [{keepalive, true} | Config];
 init_per_group(_, Config) ->
-    Config.
+    [{keepalive, false} | Config].
 
 end_per_group(backend_keepalive, Config) ->
-    application:set_env(vegur, reuse_backend_conn, false),
     Config;
 end_per_group(_, Config) ->
     Config.
@@ -161,7 +159,15 @@ init_per_testcase(_, Config) ->
     TxtIP = ?config(txt_ip, Config),
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list, {ip, IP}]),
     {ok, LPort} = inet:port(Listen),
-    meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{TxtIP, LPort}, Req, HandlerState} end),
+    meck:expect(vegur_stub, service_backend,
+                fun(_, Req, HandlerState) ->
+                        case ?config(keepalive, Config) of
+                            true ->
+                                {{keepalive, {default, {TxtIP, LPort}}}, Req, HandlerState};
+                            _ ->
+                                {{TxtIP, LPort}, Req, HandlerState}
+                        end
+                end),
     {ok, _} = vegur:start_http(9880, vegur_stub, []),
     [{server_port, LPort},
      {proxy_port, 9880},
