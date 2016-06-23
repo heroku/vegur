@@ -118,7 +118,7 @@ init_per_testcase(request_keepalive_statistics, Config) ->
     meck:new(vegur_headers, [passthrough]),
     meck:expect(vegur_headers, request_headers,
                 fun(A,B,C) ->
-                        timer:sleep(rand:uniform(20)),
+                        timer:sleep(random:uniform(20)),
                         meck:passthrough([A,B,C])
                 end),
     mock_keepalive_backend(?config(backend_port, Config)),
