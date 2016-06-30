@@ -50,14 +50,26 @@ merge(Config) ->
     N = tuple_size(Logs),
     EventCount = 5000,
     Events = [list_to_atom(integer_to_list(X)) || X <- lists:seq(1,EventCount)],
-    Logs2 = lists:foldl(fun(Ev, AllLogs) ->
-            timer:sleep(1),
-            Pos = random:uniform(N),
-            Log = element(Pos, AllLogs),
-            erlang:setelement(Pos, AllLogs, vegur_req_log:stamp(Ev, Log))
-        end,
-        Logs,
-        Events),
+    Logs2 = lists:foldl(
+              fun(Ev, AllLogs) ->
+                      timer:sleep(1),
+                      Pos = random:uniform(N),
+                      Log = element(Pos, AllLogs),
+                      F = fun() -> timer:sleep(2) end,
+                      case random:uniform(10) of
+                          1 ->
+                              {_, Log1} = vegur_req_log:log(Ev, F, Log),
+                              erlang:setelement(Pos,
+                                                AllLogs,
+                                                Log1);
+                          _ ->
+                              erlang:setelement(Pos,
+                                                AllLogs,
+                                                vegur_req_log:stamp(Ev, Log))
+                      end
+              end,
+              Logs,
+              Events),
     Merged = vegur_req_log:merge(tuple_to_list(Logs2)),
     %% All events kept in the right order
     AllStamps = [vegur_req_log:event(Ev, Merged) || Ev <- Events],
