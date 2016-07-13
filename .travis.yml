@@ -6,7 +6,7 @@ cache:
   directories:
   - $HOME/.cache/rebar3/
 install: "true" # don't let travis run get-deps
-script: "./rebar3 do update, ct, dialyzer"
+script: "./rebar3 do update, ct --readable=false, dialyzer"
 otp_release:
 - 18.3
 - 17.5
