@@ -91,6 +91,7 @@ groups() -> [{continue, [], [
                 keepalive_default_default, keepalive_close_keepalive,
                 keepalive_keepalive_close,
                 %% different tests, assuming keepalive is end to end
+                keepalive_reset,
                 keepalive_http_1_0, keepalive_upgrade_close_server,
                 keepalive_upgrade_close_client,
                 keepalive_chunked, keepalive_close_delimited,
@@ -154,6 +155,9 @@ init_per_testcase(response_status_limits, Config0) ->
     [{default_tcp, Default} | Config];
 init_per_testcase(nohost_1_0, _Config) ->
     {skip, "Host header required for HTTP/1.0 even with an absolute path."};
+init_per_testcase(keepalive_reset, Config) ->
+    init_per_testcase(just_fall_through_for_default,
+                      [{keepalive,twice}|Config]);
 init_per_testcase(_, Config) ->
     IP = ?config(ip, Config),
     TxtIP = ?config(txt_ip, Config),
@@ -164,6 +168,19 @@ init_per_testcase(_, Config) ->
                         case ?config(keepalive, Config) of
                             true ->
                                 {{keepalive, {default, {TxtIP, LPort}}}, Req, HandlerState};
+                            twice ->
+                                % oh this is hacky. We want keepalive only twice every time!
+                                case get(mock_keepalive) of
+                                    undefined ->
+                                        put(mock_keepalive, 1),
+                                        {{keepalive, {default, {TxtIP, LPort}}}, Req, HandlerState};
+                                    1 ->
+                                        put(mock_keepalive, 0),
+                                        {{keepalive, {default, {TxtIP, LPort}}}, Req, HandlerState};
+                                    0 ->
+                                        put(mock_keepalive, 1),
+                                        {{keepalive, {new, {TxtIP, LPort}}}, Req, HandlerState}
+                                end;
                             _ ->
                                 {{TxtIP, LPort}, Req, HandlerState}
                         end
@@ -2411,6 +2428,62 @@ keepalive_keepalive_close(Config) ->
     {match,_} = re:run(RecvClient2, "^connection: ?keep-alive", [global,multiline,caseless]),
     wait_for_closed(Server2, 500),
     ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+keepalive_reset(Config) ->
+    %% When a Keepalive connection hits a 'new' tuple instead of 'default', the
+    %% old connection is dropped and the new one is kept as a keepalive.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_keepalive(Config),
+    Resp = resp_custom_headers("connection", "keep-alive"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref1 = make_ref(),
+    start_acceptor(Ref1, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server1 = get_accepted(Ref1),
+    %% Exchange all the data
+    RecvServ1 = recv_until_timeout(Server1),
+    ok = gen_tcp:send(Server1, Resp),
+    RecvClient1 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %% Second round of calls, everything is still up
+    ok = gen_tcp:send(Client, Req),
+    RecvServ2 = recv_until_timeout(Server1),
+    ok = gen_tcp:send(Server1, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %?assertError(not_closed, wait_for_closed(Server, 500)),
+    %?assertError(not_closed, wait_for_closed(Client, 500)),
+    % Start a new acceptor as the next connection should be fresh but also keepalive!
+    Ref2 = make_ref(),
+    start_acceptor(Ref2, Config),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server2 = get_accepted(Ref2),
+    wait_for_closed(Server1, 500),
+    %% Exchange all the data
+    RecvServ3 = recv_until_timeout(Server2),
+    ok = gen_tcp:send(Server2, Resp),
+    RecvClient3 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ3, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient3, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %% Second round of calls, everything is still up
+    ok = gen_tcp:send(Client, Req),
+    RecvServ4 = recv_until_timeout(Server2),
+    ok = gen_tcp:send(Server2, Resp),
+    RecvClient4 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ4, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient4, "^connection: ?keep-alive", [global,multiline,caseless]),
+    ?assertError(not_closed, wait_for_closed(Server2, 500)),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
 
 keepalive_http_1_0(Config) ->
     %% By default, all connections are keepalive, and we respect that

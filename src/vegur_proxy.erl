@@ -57,24 +57,28 @@
                                 {error, any()} when
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
-backend_connection({keepalive, {default, {IpAddress, Port}}}) ->
+backend_connection({keepalive, {Type, {IpAddress, Port}}}) ->
     %% Reuse the connection if told to and if one exists and has been
     %% stored. If a connection exists, the `default' value provided is
     %% ignored; if a connection does not exist, then the value will
     %% be used instead.
     put(should_keepalive, true),
-    case {get(last_backend), get(reuse)} of
-        {_, undefined} ->
+    case {get(last_backend), get(reuse), Type} of
+        {_, undefined, _} ->
             put(last_backend, {IpAddress, Port}),
             start_backend_connection({IpAddress, Port});
-        {{_OldAddress, _OldPort}, Client} ->
+        {{_OldAddress, _OldPort}, Client, default} ->
             %% Set the delta on a new connection so that moving forwards,
             %% metrics are accurate
             {connected, vegur_client:reset_log(vegur_client:set_delta(Client))};
-        {_, Client} ->
+        {_, Client, _} -> % `new' Type falls through here also; acts like fresh
             erase(reuse),
             put(last_backend, {IpAddress, Port}),
+            %% force close the connection
+            put(should_keepalive, false),
             backend_close(Client),
+            put(should_keepalive, true),
+            %% start the new one
             start_backend_connection({IpAddress, Port})
     end;
 backend_connection({IpAddress, Port}) ->
