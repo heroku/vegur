@@ -855,7 +855,11 @@ set_stats(Client=#client{bytes_sent=BytesSent, bytes_recv=BytesRecv,
     {Sent, Recv} = get_stats(Socket, BytesSent, BytesRecv),
     Client#client{bytes_sent=Sent, bytes_recv=Recv}.
 
-%% @private
+%% @private Takes the current value of data sent and received in bytes
+%% and stores it as an offset. This allows individual requests over
+%% keepalive connections to maintain independent statistics despite
+%% the ever-incrementing byte counts returned by the socket.
+-spec set_delta(client()) -> client().
 set_delta(Client=#client{socket=undefined}) ->
     Client;
 set_delta(Client=#client{bytes_sent=BytesSent, bytes_recv=BytesRecv}) ->
