@@ -105,7 +105,12 @@ checkout_service(Servers, Upstream, State=#state{tries=Tried}) ->
     end.
 
 service_backend({_Id, IP, Port}, Upstream, State) ->
-    %% extract the IP:PORT from the chosen server.
+    %% Extract the IP:PORT from the chosen server.
+    %% To enable keep-alive, use:
+    %% `{{keepalive, {default, {IP,Port}}}, Upstream, State}'
+    %% To force the use of a new keepalive connection, use:
+    %% `{{keepalive, {new, {IP,Port}}}, Upstream, State}'
+    %% Otherwise, no keepalive is done to the back-end:
     {{IP, Port}, Upstream, State}.
 
 checkin_service(_Servers, _Pick, _Phase, _ServState, Upstream, State) ->
@@ -419,8 +424,10 @@ Other details:
   it after it receives the final response. Note however, that because
   `Connection: close` is a hop-by-hop mechanism, the proxy will not necessarily
   close the connection to the client, and may not forward it.
-- The proxy will close all connections to the back-ends after each request, but
-  will honor keep-alive to the client when possible.
+- By default, the proxy will close all connections to the back-ends after each
+  request, but will honor keep-alive to the client when possible. Support
+  for keep-alive to the back-end can be enabled by returning the right values
+  out of the `service_backend` callback.
 - The proxy will return a configurable error code if the server returns a `100
   Continue` following an initial `100 Continue` response. The proxy does not
   yet support infinite `1xx` streams.

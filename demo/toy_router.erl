@@ -64,6 +64,11 @@ checkout_service(Servers, Upstream, State=#state{tries=Tried}) ->
 
 service_backend({_Id, IP, Port}, Upstream, State) ->
     %% extract the IP:PORT from the chosen server.
+    %% To enable keep-alive, use:
+    %% `{{keepalive, {default, {IP,Port}}}, Upstream, State}'
+    %% To force the use of a new keepalive connection, use:
+    %% `{{keepalive, {new, {IP,Port}}}, Upstream, State}'
+    %% Otherwise, no keepalive is done to the back-end:
     {{IP, Port}, Upstream, State}.
 
 checkin_service(_Servers, _Pick, _Phase, _ServState, Upstream, State) ->
