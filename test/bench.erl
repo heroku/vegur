@@ -61,7 +61,7 @@ make_chunks(N, Len, ChunkLen) ->
 
 
 make_chunked(Len, ChunkLen) ->
-    random:seed(now()),
+    rand:seed(now()),
     Chunks =
         [make_chunk(ChunkLen)
          || _ <- lists:seq(1, Len)],
@@ -80,9 +80,9 @@ make_strs(N, L) ->
      || _ <- lists:seq(1, N)].
 
 rand_letter() ->
-    case random:uniform(2) of
+    case rand:uniform(2) of
         1 ->
-            random:uniform($z - $a) + $a;
+            rand:uniform($z - $a) + $a;
         _ ->
-            random:uniform($Z - $A) + $A
+            rand:uniform($Z - $A) + $A
     end.

@@ -35,7 +35,6 @@
 all() -> [merge].
 
 init_per_testcase(merge, Config) ->
-    random:seed(now()),
     Logs = [vegur_req_log:new(now()) || _ <- lists:seq(1,5)],
     [{logs, list_to_tuple(Logs)} | Config].
 
@@ -52,7 +51,7 @@ merge(Config) ->
     Events = [list_to_atom(integer_to_list(X)) || X <- lists:seq(1,EventCount)],
     Logs2 = lists:foldl(fun(Ev, AllLogs) ->
             timer:sleep(1),
-            Pos = random:uniform(N),
+            Pos = rand:uniform(N),
             Log = element(Pos, AllLogs),
             erlang:setelement(Pos, AllLogs, vegur_req_log:stamp(Ev, Log))
         end,

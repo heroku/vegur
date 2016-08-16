@@ -77,8 +77,7 @@ Now for the implementation of specific callbacks, documented in
 `src/vegur_stub.erl`:
 
 ```erlang
-init(AcceptTime, Upstream) ->
-    random:seed(AcceptTime), % RNGs require per-process seeding
+init(_AcceptTime, Upstream) ->
     {ok, Upstream, #state{}}. % state initialization here.
 
 lookup_domain_name(_ReqDomain, Upstream, State) ->
@@ -99,7 +98,7 @@ checkout_service(Servers, Upstream, State=#state{tries=Tried}) ->
         [] ->
             {error, all_blocked, Upstream, State};
         _ ->
-            N = random:uniform(length(Available)),
+            N = rand:uniform(length(Available)),
             Pick = lists:nth(N, Available),
             {service, Pick, Upstream, State#state{tries=[Pick | Tried]}}
     end.
