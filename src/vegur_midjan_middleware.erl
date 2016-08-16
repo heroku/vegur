@@ -32,6 +32,9 @@
 
 -export([execute/2]).
 
+%% Starting in OTP 19 dialyzer is kind of mad at this for no good reason
+%% only complaining about 'no_return'.
+-dialyzer({nowarn_function, execute/2}).
 -spec execute(Req, Env) ->
                      {ok, Req, Env}|
                      {halt, Req}|
