@@ -10,7 +10,6 @@ script: "./rebar3 do update, ct, dialyzer"
 otp_release:
 - 19.0
 - 18.3
-- 17.5
 notifications:
   email: false
   hipchat:
