@@ -546,6 +546,7 @@ The proxy is then split into 5 major parts maintained in this directory:
 
 ## Changelog
 
+- 2.0.1: enable `SO_REUSEADDR` on connections to backend to support more connections
 - 2.0.0: adding support for keepalive to the backend, dropping support for OTP 16 and 17
 - 1.1.1: minor refactoring, typespecs and documentation changes
 - 1.1.0: initial support for PROXY protocol v2
