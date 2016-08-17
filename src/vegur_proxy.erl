@@ -96,7 +96,8 @@ backend_connection({IpAddress, Port}) ->
 
 start_backend_connection({IpAddress, Port}) ->
     TcpBufSize = vegur_utils:config(client_tcp_buffer_limit),
-    {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
+    {ok, Client} = vegur_client:init([{reuseaddr, true},
+                                      {packet_size, TcpBufSize},
                                       {recbuf, TcpBufSize}]),
     case vegur_client:connect(ranch_tcp, IpAddress, Port, Client) of
         {ok, Client1} ->
