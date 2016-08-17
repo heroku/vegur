@@ -33,7 +33,8 @@
 -compile(export_all).
 
 all() -> [{group, continue}, {group, headers}, {group, http_1_0},
-          {group, chunked}, {group, body_less}, {group, large_body}].
+          {group, chunked}, {group, body_less}, {group, large_body},
+          {group, backend_close}, {group, backend_keepalive}].
 
 groups() -> [{continue, [], [
                 back_and_forth, body_timeout, non_terminal,
@@ -76,7 +77,25 @@ groups() -> [{continue, [], [
                 large_body_request_response_interrupt,
                 large_chunked_request_response_interrupt,
                 large_close_request_response_interrupt,
-                large_close_request_response_interrupt_undetected
+                large_close_request_response_interrupt_undetected,
+                weird_content_length
+             ]},
+             {backend_close, [], [
+                %% test names go <option>_<client-conn-header>-<backend-conn-header>[_<suffix>]
+                close_close_close, close_keepalive_keepalive, close_default_default,
+                close_close_keepalive, close_keepalive_close
+             ]},
+             {backend_keepalive, [], [
+                %% test names go <option>_<client-conn-header>-<backend-conn-header>[_<suffix>]
+                keepalive_close_close, keepalive_keepalive_keepalive,
+                keepalive_default_default, keepalive_close_keepalive,
+                keepalive_keepalive_close,
+                %% different tests, assuming keepalive is end to end
+                keepalive_reset,
+                keepalive_http_1_0, keepalive_upgrade_close_server,
+                keepalive_upgrade_close_client,
+                keepalive_chunked, keepalive_close_delimited,
+                keepalive_large_body
              ]}
             ].
 
@@ -91,7 +110,7 @@ init_per_suite(Config) ->
                               integer_to_list(D)]),
     {ok, Port} = gen_tcp:listen(0, [{ip,IP}]),
     {ok, [{recbuf, RecBuf}]} = inet:getopts(Port, [recbuf]),
-    cthr:pal("BUF DEFAULT: ~p~n",[inet:getopts(Port, [buffer, recbuf, packet_size])]),
+    ct:pal("BUF DEFAULT: ~p~n",[inet:getopts(Port, [buffer, recbuf, packet_size])]),
     application:load(vegur),
     meck:new(vegur_stub, [passthrough, no_link]),
     meck:expect(vegur_stub, lookup_domain_name, fun(_, Req, HandlerState) -> {ok, test_domain, Req, HandlerState} end),
@@ -110,6 +129,16 @@ end_per_suite(Config) ->
     application:unload(vegur),
     Config.
 
+init_per_group(backend_keepalive, Config) ->
+    [{keepalive, true} | Config];
+init_per_group(_, Config) ->
+    [{keepalive, false} | Config].
+
+end_per_group(backend_keepalive, Config) ->
+    Config;
+end_per_group(_, Config) ->
+    Config.
+
 init_per_testcase(bypass, Config0) ->
     Config = init_per_testcase(default, Config0),
     meck:expect(vegur_stub, feature, fun(deep_continue, S) -> {disabled, S}; (_, S) -> {disabled, S} end),
@@ -126,12 +155,36 @@ init_per_testcase(response_status_limits, Config0) ->
     [{default_tcp, Default} | Config];
 init_per_testcase(nohost_1_0, _Config) ->
     {skip, "Host header required for HTTP/1.0 even with an absolute path."};
+init_per_testcase(keepalive_reset, Config) ->
+    init_per_testcase(just_fall_through_for_default,
+                      [{keepalive,twice}|Config]);
 init_per_testcase(_, Config) ->
     IP = ?config(ip, Config),
     TxtIP = ?config(txt_ip, Config),
     {ok, Listen} = gen_tcp:listen(0, [{active, false},list, {ip, IP}]),
     {ok, LPort} = inet:port(Listen),
-    meck:expect(vegur_stub, service_backend, fun(_, Req, HandlerState) -> {{TxtIP, LPort}, Req, HandlerState} end),
+    meck:expect(vegur_stub, service_backend,
+                fun(_, Req, HandlerState) ->
+                        case ?config(keepalive, Config) of
+                            true ->
+                                {{keepalive, {default, {TxtIP, LPort}}}, Req, HandlerState};
+                            twice ->
+                                % oh this is hacky. We want keepalive only twice every time!
+                                case get(mock_keepalive) of
+                                    undefined ->
+                                        put(mock_keepalive, 1),
+                                        {{keepalive, {default, {TxtIP, LPort}}}, Req, HandlerState};
+                                    1 ->
+                                        put(mock_keepalive, 0),
+                                        {{keepalive, {default, {TxtIP, LPort}}}, Req, HandlerState};
+                                    0 ->
+                                        put(mock_keepalive, 1),
+                                        {{keepalive, {new, {TxtIP, LPort}}}, Req, HandlerState}
+                                end;
+                            _ ->
+                                {{TxtIP, LPort}, Req, HandlerState}
+                        end
+                end),
     {ok, _} = vegur:start_http(9880, vegur_stub, []),
     [{server_port, LPort},
      {proxy_port, 9880},
@@ -162,10 +215,10 @@ pick_interface() ->
                      IPv4 =/= {127,0,0,1}],
     case IPv4s of
         [] -> % Fallback
-            cthr:pal("Falling back to loopback interface"),
+            ct:pal("Falling back to loopback interface"),
             {127,0,0,1};
         [H|_] ->
-            cthr:pal("Using IP ~p for tests", [H]),
+            ct:pal("Using IP ~p for tests", [H]),
             H
     end.
 
@@ -692,8 +745,8 @@ delete_hop_by_hop(Config) ->
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
     %% All hop by hop headers but proxy-authentication and trailers are gone
-    cthr:pal("SRV:~p~n",[RecvServ]),
-    cthr:pal("CLI:~p~n",[RecvClient]),
+    ct:pal("SRV:~p~n",[RecvServ]),
+    ct:pal("CLI:~p~n",[RecvClient]),
     nomatch = re:run(RecvServ, "^te:", [global,multiline,caseless]),
     {match,_} = re:run(RecvServ, "^trailer:", [global,multiline,caseless]),
     nomatch = re:run(RecvServ, "^keep-alive:", [global,multiline,caseless]),
@@ -753,7 +806,7 @@ response_header_line_limits(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
-    cthr:pal("Rec: ~p",[RecvClient]),
+    ct:pal("Rec: ~p",[RecvClient]),
     {match,_} = re:run(RecvClient, "502", [global,multiline]),
     wait_for_closed(Server, 500),
     wait_for_closed(Client, 500),
@@ -783,7 +836,7 @@ response_status_limits(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking
-    cthr:pal("Rec: ~p",[RecvClient]),
+    ct:pal("Rec: ~p",[RecvClient]),
     {match,_} = re:run(RecvClient, "502", [global,multiline]),
     wait_for_closed(Server, 500),
     wait_for_closed(Client, 500),
@@ -880,8 +933,8 @@ preserve_case(Config) ->
     ok = gen_tcp:send(Server, Resp),
     {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
     %% Final response checking, all headers keep their case
-    cthr:pal("SRV: ~p",[RecvServ]),
-    cthr:pal("CLI: ~p",[RecvClient]),
+    ct:pal("SRV: ~p",[RecvServ]),
+    ct:pal("CLI: ~p",[RecvClient]),
     nomatch = re:run(RecvServ, "^cONtENT-lEnGTH:", [global,multiline]),
     {match,_} = re:run(RecvServ, "^Content-Length:", [global,multiline]), % we rewrite this one
     {match,_} = re:run(RecvServ, "^Content-Type:", [global,multiline]),
@@ -1047,7 +1100,7 @@ passthrough(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match,_} = re:run(RecvServ, Chunks),
     {match,_} = re:run(RecvClient, Chunks),
     wait_for_closed(Server, 500).
@@ -1075,7 +1128,7 @@ passthrough_short_crlf(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match,_} = re:run(RecvServ, Chunks),
     0 = iolist_size(RecvClient),
     gen_tcp:close(Client), % we don't wait for a configured timeout
@@ -1106,7 +1159,7 @@ passthrough_early_0length(Config) ->
     {error, closed} = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     %% Detected the bad request early on and responded before the server could
     {match, _} = re:run(RecvServ, "3\r\nabc\r\n$"),
     {match, _} = re:run(RecvClient, "400 Bad Request"),
@@ -1141,7 +1194,7 @@ passthrough_partial_early_0length1(Config) ->
     RecvClient = recv_until_close(Client),
     RecvServ2 = recv_until_close(Server),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2],RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2],RecvClient]),
     {match, _} = re:run([RecvServ1,RecvServ2], "3\r\nabc\r\n$"),
     {match, _} = re:run(RecvClient, "400 Bad Request").
 
@@ -1176,7 +1229,7 @@ passthrough_partial_early_0length2(Config) ->
     RecvClient = recv_until_close(Client),
     RecvServ2 = recv_until_close(Server),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2], RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[[RecvServ1,RecvServ2], RecvClient]),
     {match, _} = re:run([RecvServ1,RecvServ2], "3\r\nabc\r\n$"),
     {match, _} = re:run(RecvClient, "400 Bad Request").
 
@@ -1210,7 +1263,7 @@ passthrough_partial_early_0length3(Config) ->
     ok = gen_tcp:send(Server, Chunks2),
     RecvClient2 = recv_until_close(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,[RecvClient1,RecvClient2]]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,[RecvClient1,RecvClient2]]),
     {match, _} = re:run(RecvServ, "3\r\nabc\r\n0\r\n\r\n$"),
     %% Content was down the line already
     nomatch = re:run([RecvClient1,RecvClient2], "400 Bad Request"),
@@ -1270,7 +1323,7 @@ interrupted_server(Config) ->
     CloseDetect = os:timestamp(),
     %% Connection closed and may or may not have reported partial chunks
     %% based on timing that would close the socket.
-    cthr:pal("RecvClient: ~p",[RecvClient]),
+    ct:pal("RecvClient: ~p",[RecvClient]),
     %% The detection of a termination takes place in less than 2 seconds.
     %% Note that on a loopback interface, this should always pass. Remote
     %% interfaces detect and propagate connection termination differently.
@@ -1299,7 +1352,7 @@ bad_chunk(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvClient, "200"),
     nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
     wait_for_closed(Server, 500).
@@ -1326,7 +1379,7 @@ trailers(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvServ, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head1:val1", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head2: val2", [global, multiline, caseless]),
@@ -1360,7 +1413,7 @@ trailers_close(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvServ, "^trailer: ?head1, ?head2", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head1:val1", [global, multiline, caseless]),
     {match, _} = re:run(RecvServ, "head2: val2", [global, multiline, caseless]),
@@ -1392,7 +1445,7 @@ trailers_client_err(Config) ->
     RecvServ = recv_until_close(Server),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     nomatch = re:run(RecvClient, "200 OK"),
     {match,_} = re:run(RecvClient, "400").
 
@@ -1417,7 +1470,7 @@ trailers_serv_err(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvClient, "200"),
     nomatch = re:run(RecvClient, "502"), % can't report an error halfway through
     nomatch = re:run(RecvClient, "400"), % can't report an error halfway through
@@ -1444,7 +1497,7 @@ trailers_no_header(Config) ->
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
     %% Check final connection status
-    cthr:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
+    ct:pal("RecvServ: ~p~nRecvClient: ~p",[RecvServ,RecvClient]),
     {match, _} = re:run(RecvServ, Chunks),
     {match, _} = re:run(RecvServ, Trailers),
     {match, _} = re:run(RecvClient, Chunks),
@@ -1768,7 +1821,7 @@ status_chunked_204(Config) ->
     {ok, _} = gen_tcp:recv(Server, 0, 1000),
     ok = gen_tcp:send(Server, Resp),
     {ok, Recv} = gen_tcp:recv(Client, 0, 1000),
-    cthr:pal("Recv: ~p",[Recv]),
+    ct:pal("Recv: ~p",[Recv]),
     {match,_} = re:run(Recv, "chunked", [global,multiline,caseless]),
     {match,_} = re:run(Recv, "^connection: keep-alive", [global,multiline,caseless]),
     wait_for_closed(Server, 500).
@@ -1860,7 +1913,7 @@ large_body_stream(Config) ->
     RecvServ = recv_until_timeout(Server),
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_timeout(Client),
-    cthr:pal("RecvServ: ~p", [RecvServ]),
+    ct:pal("RecvServ: ~p", [RecvServ]),
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000),
     wait_for_closed(Server, 500),
@@ -1883,7 +1936,7 @@ large_body_close(Config) ->
     RecvServ = recv_until_timeout(Server),
     ok = gen_tcp:send(Server, Resp),
     RecvClient = recv_until_close(Client),
-    cthr:pal("RecvServ: ~p", [RecvServ]),
+    ct:pal("RecvServ: ~p", [RecvServ]),
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000),
     wait_for_closed(Server, 500).
@@ -1906,7 +1959,7 @@ large_body_close_delimited(Config) ->
     ok = gen_tcp:send(Server, Resp),
     gen_tcp:close(Server),
     RecvClient = recv_until_close(Client),
-    cthr:pal("RecvServ: ~p", [RecvServ]),
+    ct:pal("RecvServ: ~p", [RecvServ]),
     ?assert(iolist_size(RecvServ) > 8000),
     ?assert(iolist_size(RecvClient) > 8000).
 
@@ -1938,7 +1991,7 @@ large_body_request_response_interrupt(Config) ->
     %% We should get a response back even if we didn't finish sending it
     Recv = recv_until_close(Client),
     %% Check results
-    cthr:pal("Resp: ~p", [Recv]),
+    ct:pal("Resp: ~p", [Recv]),
     {match,_} = re:run(Recv, "^HTTP/1.1 304 OK", [global,multiline,caseless]).
 
 large_chunked_request_response_interrupt(Config) ->
@@ -1970,7 +2023,7 @@ large_chunked_request_response_interrupt(Config) ->
     %% We should get a response back even if we didn't finish sending it
     Recv = recv_until_close_long(Client),
     %% Check results
-    cthr:pal("Resp: ~p", [Recv]),
+    ct:pal("Resp: ~p", [Recv]),
     {match,_} = re:run(Recv, "^HTTP/1.1 304 OK", [global,multiline,caseless]).
 
 large_close_request_response_interrupt(Config) ->
@@ -2051,6 +2104,573 @@ large_close_request_response_interrupt_undetected(Config) ->
     %% we can't know how much we received except that it was >= than
     %% the max buffer size
     ?assert(65536 =< byte_size(iolist_to_binary(Recv))).
+
+weird_content_length(Config) ->
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = [resp_headers("208062 "), lists:duplicate(208062, $a)],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_close(Client),
+    ct:pal("RecvServ: ~p", [RecvServ]),
+    ct:pal("RecvClient: ~p", [RecvClient]),
+    check_stub_error({downstream, content_length}),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% KEEPALIVE TO THE BACKENDS BEHAVIOUR %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+close_close_close(Config) ->
+    %% By default, all connections are closed after each request,
+    %% doubly do if requested by the back-end.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_close(Config),
+    Resp = resp_custom_headers("connection", "close"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ, "^connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^connection: ?close", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500),
+    Config.
+
+close_keepalive_keepalive(Config) ->
+    %% When specified, all connections are closed after each request, despite
+    %% everyone asking for a keepalive.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_keepalive(Config),
+    Resp = resp_custom_headers("connection", "keep-alive"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    %% We relay a closed connection to the back-end
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    %% The headers to the client can remain keepalive, but those to
+    %% the backend have to be closed.
+    {match,_} = re:run(RecvServ, "^connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^connection: ?keep-alive", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+close_default_default(Config) ->
+    %% By default, all connections are closed after each request. this remains
+    %% true when connection are implicitly keep-alive (by not specifying
+    %% anything)
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    %% We relay a closed connection to the back-end
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    %% The headers to the client can remain keepalive, but those to
+    %% the backend have to be closed.
+    {match,_} = re:run(RecvServ, "^connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^connection: ?keep-alive", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+close_close_keepalive(Config) ->
+    %% When specified, all connections are closed after each request, despite
+    %% everyone asking for a keepalive.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_close(Config),
+    Resp = resp_custom_headers("connection", "keep-alive"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    %% We relay a closed connection to the back-end
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    %% The headers to the client are closed as requested,
+    %% those to the backend have to be closed.
+    {match,_} = re:run(RecvServ, "^connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^connection: ?close", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
+
+close_keepalive_close(Config) ->
+    %% When specified, all connections are closed after each request, despite
+    %% everyone asking for a keepalive.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_keepalive(Config),
+    Resp = resp_custom_headers("connection", "close"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ} = gen_tcp:recv(Server, 0, 1000),
+    %% We relay a closed connection to the back-end
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    %% The headers to the client are keepalive as requested,
+    %% those to the backend are closed as requested
+    {match,_} = re:run(RecvServ, "^connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^connection: ?keep-alive", [global,multiline,caseless]),
+    wait_for_closed(Server, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+keepalive_close_close(Config) ->
+    %% By default, all connections are keepalive after each request,
+    %% but if they're requested closed, they will be so.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_close(Config),
+    Resp = resp_custom_headers("connection", "close"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient = recv_until_close(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ, "^connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient, "^connection: ?close", [global,multiline,caseless]),
+    wait_for_closed(Server, 500).
+
+keepalive_keepalive_keepalive(Config) ->
+    %% By default, all connections are keepalive, and we respect that
+    %% when all parties request so.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_keepalive(Config),
+    Resp = resp_custom_headers("connection", "keep-alive"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ1 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient1 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %% Second round of calls, everything is still up
+    ok = gen_tcp:send(Client, Req),
+    RecvServ2 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    ?assertError(not_closed, wait_for_closed(Server, 500)),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+keepalive_default_default(Config) ->
+    %% By default, all connections are keepalive, and we respect that
+    %% when all parties request so implicitly through default HTTP
+    %% header values
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req(Config),
+    Resp = resp(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ1 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient1 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %% Second round of calls, everything is still up
+    ok = gen_tcp:send(Client, Req),
+    RecvServ2 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    ?assertError(not_closed, wait_for_closed(Server, 500)),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+keepalive_close_keepalive(Config) ->
+    %% By default, all connections are keepalive, but if the client requests
+    %% it as closed, we obliged down to the back-end.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_close(Config),
+    Resp = resp_custom_headers("connection", "keep-alive"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    {ok, RecvServ1} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, Resp),
+    {ok, RecvClient1} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ1, "^connection: ?close", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient1, "^connection: ?close", [global,multiline,caseless]),
+    %% Second round of calls, everything is closed
+    wait_for_closed(Server, 500),
+    wait_for_closed(Client, 500).
+
+keepalive_keepalive_close(Config) ->
+    %% By default, all connections are keepalive, but whenever the backend
+    %% asks for a closed connection, only the connection to the front-end
+    %% client remains active.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_keepalive(Config),
+    Resp = resp_custom_headers("connection", "close"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref1 = make_ref(),
+    start_acceptor(Ref1, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server1 = get_accepted(Ref1),
+    %% Exchange all the data
+    {ok, RecvServ1} = gen_tcp:recv(Server1, 0, 1000),
+    ok = gen_tcp:send(Server1, Resp),
+    {ok, RecvClient1} = gen_tcp:recv(Client, 0, 1000),
+    %% Check final connection status
+    %% The server received a keep-alive message, sent back a close header. Vegur
+    %% middlemans the hell out of this and shows a keep-alive to the client.
+    {match,_} = re:run(RecvServ1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    wait_for_closed(Server1, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)),
+    %% Second round of calls, frontend is still up, but the back-end connection
+    %% has been closed. We reopen a new back-end connection but keep the
+    %% front-end going for similar results.
+    ct:pal("round 2!"),
+    Ref2 = make_ref(),
+    start_acceptor(Ref2, Config),
+    ok = gen_tcp:send(Client, Req),
+    Server2 = get_accepted(Ref2),
+    %% re-exchange data
+    {ok, RecvServ2} = gen_tcp:recv(Server2, 0, 1000),
+    ok = gen_tcp:send(Server2, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    wait_for_closed(Server2, 500),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+keepalive_reset(Config) ->
+    %% When a Keepalive connection hits a 'new' tuple instead of 'default', the
+    %% old connection is dropped and the new one is kept as a keepalive.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_keepalive(Config),
+    Resp = resp_custom_headers("connection", "keep-alive"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref1 = make_ref(),
+    start_acceptor(Ref1, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server1 = get_accepted(Ref1),
+    %% Exchange all the data
+    RecvServ1 = recv_until_timeout(Server1),
+    ok = gen_tcp:send(Server1, Resp),
+    RecvClient1 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %% Second round of calls, everything is still up
+    ok = gen_tcp:send(Client, Req),
+    RecvServ2 = recv_until_timeout(Server1),
+    ok = gen_tcp:send(Server1, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %?assertError(not_closed, wait_for_closed(Server, 500)),
+    %?assertError(not_closed, wait_for_closed(Client, 500)),
+    % Start a new acceptor as the next connection should be fresh but also keepalive!
+    Ref2 = make_ref(),
+    start_acceptor(Ref2, Config),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server2 = get_accepted(Ref2),
+    wait_for_closed(Server1, 500),
+    %% Exchange all the data
+    RecvServ3 = recv_until_timeout(Server2),
+    ok = gen_tcp:send(Server2, Resp),
+    RecvClient3 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ3, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient3, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %% Second round of calls, everything is still up
+    ok = gen_tcp:send(Client, Req),
+    RecvServ4 = recv_until_timeout(Server2),
+    ok = gen_tcp:send(Server2, Resp),
+    RecvClient4 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ4, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient4, "^connection: ?keep-alive", [global,multiline,caseless]),
+    ?assertError(not_closed, wait_for_closed(Server2, 500)),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+
+keepalive_http_1_0(Config) ->
+    %% By default, all connections are keepalive, and we respect that
+    %% when all parties request so.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = [http_1_0_keepalive_headers(Config), req_body()],
+    Resp = resp_custom_headers("connection", "keep-alive"),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ1 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient1 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient1, "^connection: ?keep-alive", [global,multiline,caseless]),
+    %% Second round of calls, everything is still up
+    ok = gen_tcp:send(Client, Req),
+    RecvServ2 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    {match,_} = re:run(RecvServ2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    {match,_} = re:run(RecvClient2, "^connection: ?keep-alive", [global,multiline,caseless]),
+    ?assertError(not_closed, wait_for_closed(Server, 500)),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
+
+keepalive_upgrade_close_server(Config) ->
+    %% Even with all settings going for keepalive, upgraded connections close
+    %% on both ends of the proxy
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ReqHeaders = upgrade_headers(Config),
+    ReqBody = req_body(),
+    Resp100 = resp_100(),
+    Resp101 = resp_101(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, ReqHeaders),
+    Server = get_accepted(Ref),
+    _ReqHeaders = recv_until_timeout(Server),
+    %% Send the 100 Continue, then the body
+    ok = gen_tcp:send(Server, Resp100),
+    ok = gen_tcp:send(Client, ReqBody),
+    ReqBody = lists:flatten(recv_until_timeout(Server)),
+    %% Send the 101 back
+    ok = gen_tcp:send(Server, Resp101),
+    %% match more broadly -- headers can be added here
+    {ok, "HTTP/1.1 100 "++_} = gen_tcp:recv(Client, 0, 1000),
+    {ok, "HTTP/1.1 101 "++_} = gen_tcp:recv(Client, 0, 1000),
+    %% Now we're in free roam (screw websockets har har!)
+    ok = gen_tcp:send(Client, "ping"),
+    {ok, "ping"} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, "pong"),
+    {ok, "pong"} = gen_tcp:recv(Client, 0, 1000),
+    gen_tcp:close(Server),
+    wait_for_closed(Client, 5000).
+
+keepalive_upgrade_close_client(Config) ->
+    %% Even with all settings going for keepalive, upgraded connections close
+    %% on both ends of the proxy
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    ReqHeaders = upgrade_headers(Config),
+    ReqBody = req_body(),
+    Resp100 = resp_100(),
+    Resp101 = resp_101(),
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, ReqHeaders),
+    Server = get_accepted(Ref),
+    _ReqHeaders = recv_until_timeout(Server),
+    %% Send the 100 Continue, then the body
+    ok = gen_tcp:send(Server, Resp100),
+    ok = gen_tcp:send(Client, ReqBody),
+    ReqBody = lists:flatten(recv_until_timeout(Server)),
+    %% Send the 101 back
+    ok = gen_tcp:send(Server, Resp101),
+    %% match more broadly -- headers can be added here
+    {ok, "HTTP/1.1 100 "++_} = gen_tcp:recv(Client, 0, 1000),
+    {ok, "HTTP/1.1 101 "++_} = gen_tcp:recv(Client, 0, 1000),
+    %% Now we're in free roam (screw websockets har har!)
+    ok = gen_tcp:send(Client, "ping"),
+    {ok, "ping"} = gen_tcp:recv(Server, 0, 1000),
+    ok = gen_tcp:send(Server, "pong"),
+    {ok, "pong"} = gen_tcp:recv(Client, 0, 1000),
+    gen_tcp:close(Client),
+    wait_for_closed(Server, 5000).
+
+keepalive_chunked(Config) ->
+    %% Keepalive works with chunked requests and responses
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Chunks = "3\r\nabc\r\n5\r\ndefgh\r\ne\r\nijklmnopqrstuv\r\n0\r\n\r\n",
+    Req = [chunked_keepalive_headers(Config), Chunks],
+    Resp = [resp_headers(chunked_keepalive), Chunks],
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ1 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient1 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ1, Chunks),
+    {match,_} = re:run(RecvClient1, Chunks),
+    %% Exchange all the data AGAIN
+    ok = gen_tcp:send(Client, Req),
+    RecvServ2 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    %% Check final connection status
+    {match,_} = re:run(RecvServ2, Chunks),
+    {match,_} = re:run(RecvClient2, Chunks).
+
+keepalive_close_delimited(Config) ->
+    %% Close-delimited answers force both ends of the connection
+    %% to be closed no matter the keepalive settings.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_large(Config, 8000), % implicit keepalive
+    Resp = resp_large_close_delimited(8000), % explicit close
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref),
+    %% Exchange all the data
+    RecvServ = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    gen_tcp:close(Server),
+    RecvClient = recv_until_close(Client),
+    ?assert(iolist_size(RecvServ) > 8000),
+    ?assert(iolist_size(RecvClient) > 8000),
+    wait_for_closed(Server, 500).
+
+keepalive_large_body(Config) ->
+    %% Keepalive to the backend works with large body streams
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = req_large(Config, 8000), % implicit keepalive
+    Resp = resp_large(8000), % implicit keepalive
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref1 = make_ref(),
+    start_acceptor(Ref1, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Fetch the server socket
+    Server = get_accepted(Ref1),
+    %% Exchange all the data
+    RecvServ1 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient1 = recv_until_timeout(Client),
+    ?assert(iolist_size(RecvServ1) > 8000),
+    ?assert(iolist_size(RecvClient1) > 8000),
+    %% Round 2
+    ct:pal("round 2"),
+    %% Exchange all the data
+    ok = gen_tcp:send(Client, Req),
+    RecvServ2 = recv_until_timeout(Server),
+    ok = gen_tcp:send(Server, Resp),
+    RecvClient2 = recv_until_timeout(Client),
+    ?assert(iolist_size(RecvServ2) > 8000),
+    ?assert(iolist_size(RecvClient2) > 8000),
+    ?assertError(not_closed, wait_for_closed(Server, 500)),
+    ?assertError(not_closed, wait_for_closed(Client, 500)).
 
 %%%%%%%%%%%%%%%
 %%% Helpers %%%
@@ -2135,6 +2755,15 @@ chunked_headers(Config) ->
     "Content-Length: 10\r\n" % should be ignored for chunked
     "Transfer-encoding: chunked\r\n"
     "Content-Type: text/plain\r\n"
+    "\r\n".
+
+chunked_keepalive_headers(Config) ->
+    "POST /chunked HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 10\r\n" % should be ignored for chunked
+    "Transfer-encoding: chunked\r\n"
+    "Content-Type: text/plain\r\n"
+    "Connection: keep-alive\r\n"
     "\r\n".
 
 chunked_headers_trailers(Config, Trailers) ->
@@ -2222,6 +2851,15 @@ req_close(Config) ->
     "Content-Length: 5\r\n"
     "Content-Type: text/plain\r\n"
     "Connection: close\r\n"
+    "\r\n"
+    "12345".
+
+req_keepalive(Config) ->
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "Content-Length: 5\r\n"
+    "Content-Type: text/plain\r\n"
+    "Connection: keep-alive\r\n"
     "\r\n"
     "12345".
 
@@ -2326,6 +2964,13 @@ resp_headers(chunked) ->
     "HTTP/1.1 200 OK\r\n"
     "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
     "Content-Type: text/plain\r\n"
+    "Transfer-Encoding: chunked\r\n"
+    "\r\n";
+resp_headers(chunked_keepalive) ->
+    "HTTP/1.1 200 OK\r\n"
+    "Date: Fri, 31 Dec 1999 23:59:59 GMT\r\n"
+    "Content-Type: text/plain\r\n"
+    "Connection: keep-alive\r\n"
     "Transfer-Encoding: chunked\r\n"
     "\r\n";
 resp_headers({trailers,Trailers}) ->
@@ -2486,6 +3131,6 @@ domain(Config) ->
 
 check_stub_error(Pattern) ->
     Local = [Args || {_, {vegur_stub, error_page, Args}, _Ret} <- meck:history(vegur_stub)],
-    cthr:pal("Local: ~p~n", [Local]),
+    ct:pal("Local: ~p~n", [Local]),
     Pattern = hd(lists:last(Local)).
 

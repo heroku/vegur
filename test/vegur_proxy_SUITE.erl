@@ -59,8 +59,9 @@ groups() ->
                                 ,custom_downstream_headers
                                ]}
      ,{vegur_proxy_connect, [], [service_try_again
-                                ,request_statistics
                                 ,response_attributes
+                                ,request_statistics
+                                ,request_keepalive_statistics
                                 ,websockets
                                 ]}
     ].
@@ -112,6 +113,16 @@ end_per_group(_, Config) ->
     meck:unload(),
     Config.
 
+init_per_testcase(request_keepalive_statistics, Config) ->
+    %% force jitter on some operation to ensure stats vary between reqs
+    meck:new(vegur_headers, [passthrough]),
+    meck:expect(vegur_headers, request_headers,
+                fun(A,B,C) ->
+                        timer:sleep(rand:uniform(20)),
+                        meck:passthrough([A,B,C])
+                end),
+    mock_keepalive_backend(?config(backend_port, Config)),
+    init_per_testcase(make_ref(), Config);
 init_per_testcase(response_attributes, Config) ->
     %% Same as regular setup, but with custom cookies and
     %% headers to test
@@ -135,6 +146,10 @@ init_per_testcase(_TestCase, Config) ->
                                              end}]),
     [{backend, Backend} | Config].
 
+end_per_testcase(request_keepalive_statistics, Config) ->
+    meck:unload(vegur_headers),
+    mock_backend(?config(backend_port, Config)),
+    end_per_testcase(make_ref(), Config);
 end_per_testcase(_TestCase, Config) ->
     stop_backend(),
     Config.
@@ -339,7 +354,7 @@ request_statistics(Config) ->
         {req, _Req} ->
             receive
                 {stats, {successful, Upstream, _State}} ->
-                    cthr:pal("Upstream: ~p~n",[Upstream]),
+                    ct:pal("Upstream: ~p~n",[Upstream]),
                     {118, _} = vegur_req:bytes_recv(Upstream),
                     case ?config(scheme, Config) of
                         "http" ->
@@ -374,6 +389,76 @@ request_statistics(Config) ->
     end,
     Config.
 
+request_keepalive_statistics(Config) ->
+    Url = url(Config) ++ "/?abc=d",
+    mock_terminate(self()),
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive {req, _} -> ok after 5000 -> throw(timeout) end,
+    SchemeSize = case ?config(scheme, Config) of
+        "http" ->
+            278;
+        "https" ->
+            %% The total payload is 2 bytes longer for
+            %% https requests. One byte is the "s" in
+            %% "https", the other is the 3 digit port
+            %% number "443" instead of a two digit
+            %% port number "80"
+            280
+    end,
+    Stats1 = receive
+        {stats, {successful, Upstream1, _}} ->
+            {123, _} = vegur_req:bytes_recv(Upstream1),
+            {SchemeSize, _} = vegur_req:bytes_sent(Upstream1),
+            {[], _} = vegur_req:connection_info(Upstream1),
+            {[], _} = vegur_req:connection_info([protocol], Upstream1),
+            {[], _} = vegur_req:connection_info([cipher_suite], Upstream1),
+            {[], _} = vegur_req:connection_info([sni_hostname], Upstream1),
+            {[], _} = vegur_req:connection_info([protocol, sni_hostname], Upstream1),
+            [X || {X, _} <- [
+             {_, _} = vegur_req:route_duration(Upstream1),
+             {_, _} = vegur_req:total_duration(Upstream1),
+             {_, _} = vegur_req:send_headers_duration(Upstream1),
+             {_, _} = vegur_req:request_proxy_duration(Upstream1),
+             {_, _} = vegur_req:response_proxy_duration(Upstream1)
+            ]]
+    after 5000 ->
+        throw(timeout)
+    end,
+    %% Second Req
+    {ok, {{_, 204, _}, _, _}} = httpc:request(get, {Url, [{"host", "localhost"}]}, [], []),
+    receive {req, _} -> ok after 5000 -> throw(timeout) end,
+    Stats2 = receive
+        {stats, {successful, Upstream2, _}} ->
+            {123, _} = vegur_req:bytes_recv(Upstream2),
+            {SchemeSize, _} = vegur_req:bytes_sent(Upstream2),
+            {0, _} = vegur_req:connect_duration(Upstream2), % keepalive got no connect
+            {[], _} = vegur_req:connection_info(Upstream2),
+            {[], _} = vegur_req:connection_info([protocol], Upstream2),
+            {[], _} = vegur_req:connection_info([cipher_suite], Upstream2),
+            {[], _} = vegur_req:connection_info([sni_hostname], Upstream2),
+            {[], _} = vegur_req:connection_info([protocol, sni_hostname], Upstream2),
+            [X || {X, _} <- [
+             {_, _} = vegur_req:route_duration(Upstream2),
+             {_, _} = vegur_req:total_duration(Upstream2),
+             {_, _} = vegur_req:send_headers_duration(Upstream2),
+             {_, _} = vegur_req:request_proxy_duration(Upstream2),
+             {_, _} = vegur_req:response_proxy_duration(Upstream2)
+            ]]
+    after 5000 ->
+        throw(timeout)
+    end,
+    ComparativeStats = lists:zip(Stats1, Stats2),
+    ct:pal("comparative stats: ~p", [ComparativeStats]),
+    %% make sure some of them are different across runs, and not always
+    %% increasing. This is sadly not a deterministic test, but ought to be
+    %% good enough.
+    ?assert(lists:any(fun({X,Y}) -> X =/= Y end, ComparativeStats)),
+    ?assert(lists:any(fun({X,Y}) -> X >= Y end, ComparativeStats)),
+    ?assert(lists:all(fun({X,Y}) -> is_integer(X) andalso is_integer(Y) end,
+                      ComparativeStats)),
+    Config.
+
+
 response_attributes(Config) ->
     %% Test vegur_req attributes that have to do with the response
     %% from the back-end to the client. These so far include the
@@ -385,7 +470,7 @@ response_attributes(Config) ->
         {req, _Req} ->
             receive
                 {stats, {successful, Upstream, _State}} ->
-                    cthr:pal("Upstream: ~p~n",[Upstream]),
+                    ct:pal("Upstream: ~p~n",[Upstream]),
                     {200, _} = vegur_req:response_code(Upstream),
                     {Headers, _} = vegur_req:response_headers(Upstream),
                     true = lists:member({<<"remote-host">>,<<"localhost">>}, Headers),
@@ -514,6 +599,12 @@ mock_backend(Port) ->
     meck:expect(vegur_stub, service_backend,
                 fun(_, Upstream, HandlerState) ->
                         {{{127,0,0,1}, Port}, Upstream, HandlerState}
+                end).
+
+mock_keepalive_backend(Port) ->
+    meck:expect(vegur_stub, service_backend,
+                fun(_, Upstream, HandlerState) ->
+                        {{keepalive, {default, {{127,0,0,1}, Port}}}, Upstream, HandlerState}
                 end).
 
 mock_terminate(Test) ->

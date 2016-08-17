@@ -8,9 +8,8 @@ cache:
 install: "true" # don't let travis run get-deps
 script: "./rebar3 do update, ct, dialyzer"
 otp_release:
+- 19.0
 - 18.3
-- 17.5
-- R16B02
 notifications:
   email: false
   hipchat:

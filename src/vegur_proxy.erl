@@ -44,12 +44,57 @@
                      | 'upstream' % client
                      | 'downstream'. % back-end
 
+%% @doc
+%% Open up a connection to the service backend.
+%% @end
+%% This function requires cheating and using the process dictionary
+%% a lot because we cannot have a stored connection-long piece of
+%% data in cowboyku as is. Patching it would require modifying
+%% cowboyku_protocol to extract and pass some data around many
+%% iterations of cowboyku_req.
 -spec backend_connection(ServiceBackend) ->
                                 {connected, Client} |
                                 {error, any()} when
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
+backend_connection({keepalive, {Type, {IpAddress, Port}}}) ->
+    %% Reuse the connection if told to and if one exists and has been
+    %% stored. If a connection exists, the `default' value provided is
+    %% ignored; if a connection does not exist, then the value will
+    %% be used instead.
+    put(should_keepalive, true),
+    case {get(last_backend), get(reuse), Type} of
+        {_, undefined, _} ->
+            put(last_backend, {IpAddress, Port}),
+            start_backend_connection({IpAddress, Port});
+        {{_OldAddress, _OldPort}, Client, default} ->
+            %% Set the delta on a new connection so that moving forwards,
+            %% metrics are accurate
+            {connected, vegur_client:reset_log(vegur_client:set_delta(Client))};
+        {_, Client, _} -> % `new' Type falls through here also; acts like fresh
+            erase(reuse),
+            put(last_backend, {IpAddress, Port}),
+            %% force close the connection
+            put(should_keepalive, false),
+            backend_close(Client),
+            put(should_keepalive, true),
+            %% start the new one
+            start_backend_connection({IpAddress, Port})
+    end;
 backend_connection({IpAddress, Port}) ->
+    %% Close any previously keepalive req we may have had
+    case get(reuse) of
+        undefined -> ok;
+        Client ->
+            erase(reuse),
+            backend_close(Client)
+    end,
+    %% Set all values to mandate not reusing keepalive.
+    put(should_keepalive, false),
+    erase(last_backend),
+    start_backend_connection({IpAddress, Port}).
+
+start_backend_connection({IpAddress, Port}) ->
     TcpBufSize = vegur_utils:config(client_tcp_buffer_limit),
     {ok, Client} = vegur_client:init([{packet_size, TcpBufSize},
                                       {recbuf, TcpBufSize}]),
@@ -81,7 +126,9 @@ send_headers(Method, Headers, Body, Path, Url, Req, Client) ->
     %% correct headers in place, and the body can be sent later with sequential
     %% raw_request calls.
     {Type, _} = cowboyku_req:meta(request_type, Req, []),
-    Headers1 = vegur_headers:request_headers(Headers, Type),
+    ShouldKeepalive = get(should_keepalive) =:= true
+                      andalso cowboyku_req:get(connection, Req) =:= keepalive,
+    Headers1 = vegur_headers:request_headers(Headers, Type, ShouldKeepalive),
     IoHeaders = vegur_client:request_to_headers_iolist(Method,
                                                        Headers1,
                                                        Body,
@@ -735,7 +782,19 @@ wait_for_body(_, Req) ->
     end.
 
 backend_close(Client) ->
-    vegur_client:close(Client).
+    case get(should_keepalive) of
+        true ->
+            case vegur_client:connection(Client) of
+                keepalive ->
+                    put(reuse, Client),
+                    Client; % do not set delta here -- stats can be fetched after reqs are done
+                close ->
+                    erase(reuse),
+                    vegur_client:close(Client)
+            end;
+        _ ->
+            vegur_client:close(Client)
+    end.
 
 %% When sending data in passive mode, it is usually impossible to be notified
 %% of connections being closed. For this to be done, we need to poll the socket
