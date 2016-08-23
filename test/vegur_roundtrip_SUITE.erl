@@ -49,7 +49,8 @@ groups() -> [{continue, [], [
                 duplicate_identical_lengths_resp,
                 delete_hop_by_hop, response_cookie_limits,
                 response_header_line_limits, response_status_limits,
-                via, via_chain, bad_status, preserve_case, header_order
+                via, via_chain, bad_status, preserve_case, header_order,
+                host_nofold, host_conflict
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
@@ -975,6 +976,32 @@ header_order(Config) ->
     {match, [{S3, _}]} = re:run(RecvClient, "test-header: 3",
                                 [multiline, caseless]),
     true = S1 < S2 andalso S2 < S3.
+
+host_nofold(Config) ->
+    %% If >=2 Host values exist but they are the same,
+    %% still be angry and error out. See https://tools.ietf.org/html/rfc7230#page-45
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = multi_host_headers(Config, domain(Config), domain(Config)) ++ req_body(),
+    %% Send data to the proxy right away.
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Without making it to the server, we get a 400 back. for bad request
+    {ok, Resp} = gen_tcp:recv(Client, 0, 1000),
+    {match, _} = re:run(Resp, "400").
+
+host_conflict(Config) ->
+    %% If >=2 Host values exist and are different, be
+    %% angry and error out.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req = multi_host_headers(Config, domain(Config), "bad."++domain(Config)) ++ req_body(),
+    %% Send data to the proxy right away.
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    %% Without making it to the server, we get a 400 back. for bad request
+    {ok, Resp} = gen_tcp:recv(Client, 0, 1000),
+    {match, _} = re:run(Resp, "400").
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
@@ -2816,6 +2843,14 @@ no_expect_headers(Config) ->
     "POST /continue-1 HTTP/1.1\r\n"
     "Host: "++domain(Config)++"\r\n"
     "Content-Length: 10\r\n"
+    "Content-Type: text/plain\r\n"
+    "\r\n".
+
+multi_host_headers(_Config, Domain1, Domain2) ->
+    "POST /continue-1 HTTP/1.1\r\n"
+    "Host: "++Domain1++"\r\n"
+    "Content-Length: 10\r\n"
+    "Host: "++Domain2++"\r\n"
     "Content-Type: text/plain\r\n"
     "\r\n".
 
