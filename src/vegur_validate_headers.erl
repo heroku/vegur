@@ -50,7 +50,21 @@ validate_host(<<>>, Req, _Env) ->
     {HttpCode, Req1} = vegur_utils:handle_error(empty_host, Req),
     {error, HttpCode, Req1};
 validate_host(_Host, Req, Env) ->
-    {ok, Req, Env}.
+    %% We have a host, but we can't allow duplicates!
+    {Headers, Req2} = cowboyku_req:headers(Req),
+    case valid_host_count(Headers, 0) of
+        ok ->
+            {ok, Req2, Env};
+        error ->
+            {error, 400, Req}
+    end.
+
+%% more or less than 1 header field is bad
+valid_host_count([], 1) -> ok;
+valid_host_count([], _) -> error;
+valid_host_count([{<<"host">>, _} | _], 1) -> error;
+valid_host_count([{<<"host">>, _} | Rest], 0) -> valid_host_count(Rest, 1);
+valid_host_count([_|T], N) -> valid_host_count(T, N).
 
 %% We can't allow duplicate content-length headers with varying values,
 %% or content-lengths where the values are separated by commas.
