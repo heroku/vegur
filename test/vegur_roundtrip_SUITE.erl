@@ -50,7 +50,7 @@ groups() -> [{continue, [], [
                 delete_hop_by_hop, response_cookie_limits,
                 response_header_line_limits, response_status_limits,
                 via, via_chain, bad_status, preserve_case, header_order,
-                host_nofold, host_conflict
+                host_nofold, host_conflict, drop_forwarded_host
              ]},
              {http_1_0, [], [
                 advertise_1_1, conn_close_default, conn_keepalive_opt,
@@ -1002,6 +1002,31 @@ host_conflict(Config) ->
     %% Without making it to the server, we get a 400 back. for bad request
     {ok, Resp} = gen_tcp:recv(Client, 0, 1000),
     {match, _} = re:run(Resp, "400").
+
+drop_forwarded_host(Config) ->
+    %% Drop the X-Forwarded-Host headers because we never cared about them
+    %% before and some apps we proxy to can get nasty injection attacks from
+    %% them.
+    IP = ?config(server_ip, Config),
+    Port = ?config(proxy_port, Config),
+    Req =
+    "POST / HTTP/1.1\r\n"
+    "Host: "++domain(Config)++"\r\n"
+    "x-forwArded-Host: "++domain(Config)++"\r\n"
+    "Content-Type: text/plain\r\n"
+    "X-Forwarded-Host: "++domain(Config)++"\r\n"
+    "\r\n"
+    "0123456789",
+    %% Open the server to listening. We then need to send data for the
+    %% proxy to get the request and contact a back-end
+    Ref = make_ref(),
+    start_acceptor(Ref, Config),
+    {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
+    ok = gen_tcp:send(Client, Req),
+    Server = get_accepted(Ref),
+    %% receive the request, x-forwarded-host is no longer there.
+    {ok, Proxied} = gen_tcp:recv(Server, 0, 1000),
+    nomatch = re:run(Proxied, "x-forwarded-host:", [{capture, all}, global, caseless]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
