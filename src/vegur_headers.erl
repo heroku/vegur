@@ -91,7 +91,9 @@ response_headers(Headers) ->
                 ]).
 
 delete_host_header(Hdrs) ->
-    vegur_utils:delete_all_headers(<<"host">>, Hdrs).
+    NewHdrs = vegur_utils:delete_all_headers(<<"host">>, Hdrs),
+    %% And now for safety of proxied apps:
+    vegur_utils:delete_all_headers(<<"x-forwarded-host">>, NewHdrs).
 
 delete_content_length_header(Hdrs) ->
     vegur_utils:delete_all_headers(<<"content-length">>, Hdrs).
