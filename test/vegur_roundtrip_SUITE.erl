@@ -1005,7 +1005,7 @@ host_conflict(Config) ->
 
 drop_forwarded_host(Config) ->
     %% Drop the X-Forwarded-Host headers because we never cared about them
-    %% before and some apps we proxy too can get nasty injection attacks from
+    %% before and some apps we proxy to can get nasty injection attacks from
     %% them.
     IP = ?config(server_ip, Config),
     Port = ?config(proxy_port, Config),
@@ -1024,9 +1024,9 @@ drop_forwarded_host(Config) ->
     {ok, Client} = gen_tcp:connect(IP, Port, [{active,false},list],1000),
     ok = gen_tcp:send(Client, Req),
     Server = get_accepted(Ref),
-    %% receive the request, content-length of 10 is there once only.
+    %% receive the request, x-forwarded-host is no longer there.
     {ok, Proxied} = gen_tcp:recv(Server, 0, 1000),
-    nomatch = re:run(Proxied, "[xX]-[fF]orwarded-[hH]ost:", [{capture, all}, global]).
+    nomatch = re:run(Proxied, "x-forwarded-host:", [{capture, all}, global, caseless]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% HTTP 1.0 BEHAVIOUR %%%
