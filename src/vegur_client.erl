@@ -679,9 +679,15 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                         error:case_clause -> {error, content_length}
                     end;
                 <<"transfer-encoding">> ->
-                    case lists:member(<<"chunked">>, header_list_values(Value)) of
-                        true -> Client#client{response_body=chunked};
-                        false -> Client
+                    case header_list_values(Value) of
+                        {error, badarg} ->
+                            invalid_transfer_encoding(Value),
+                            {error, invalid_transfer_encoding};
+                        Values ->
+                            case lists:member(<<"chunked">>, Values) of
+                                true -> Client#client{response_body=chunked};
+                                false -> Client
+                            end
                     end;
                 <<"connection">> ->
                     Values = header_list_values(Value),
@@ -757,6 +763,13 @@ stream_body(Client=#client{state=response_body, buffer=Buffer,
     end.
 
 %% @private
+
+%% TODO: This function exists to do some production tracing to get a
+%% sampling of invalid transfer encodings we might be seeing in
+%% production. Can safely be removed when the investigation is over.
+invalid_transfer_encoding(X)->
+    X.
+
 recv(#client{socket=Socket, transport=Transport, first_read_timeout=undefined, read_timeout=Timeout}) ->
     Transport:recv(Socket, 0, Timeout);
 recv(#client{socket=Socket, transport=Transport, first_read_timeout=Timeout}) ->
