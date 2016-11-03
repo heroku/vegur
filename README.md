@@ -546,6 +546,7 @@ The proxy is then split into 5 major parts maintained in this directory:
 
 ## Changelog
 
+- 2.0.4: vegur_client returns error on invalid encoding types
 - 2.0.3: reinstate `X-Forwarded-Host` as too much stuff breaks without it
 - 2.0.2: drop duplicate `Host` headers and `X-Forwarded-Host` for cache issues
 - 2.0.1: enable `SO_REUSEADDR` on connections to backend to support more connections
