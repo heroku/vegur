@@ -1,6 +1,6 @@
 [{<<"cowboyku">>,
   {git,"https://github.com/heroku/cowboyku.git",
-       {ref,"4acffec2be36d2ac66b79d4e9782de1213d1de4a"}},
+       {ref,"60de3bca9909b59305cc69ea39b2c4e2a7e12c06"}},
   0},
  {<<"cowlib">>,
   {git,"https://github.com/ninenines/cowlib.git",
