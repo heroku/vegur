@@ -50,6 +50,9 @@ execute(Req, Env) ->
         {ok, {[undefined], Req1}} ->
             %% no Expect header
             {ok, Req1, Env};
+        {ok, {[], Req1}} ->
+            %% Empty Expect header
+            {ok, Req1, Env};
         {ok, _} ->
             %% Any other value for expect headers
             {HttpCode, Req1} = vegur_utils:handle_error(expectation_failed, Req),

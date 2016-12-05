@@ -46,6 +46,7 @@ groups() ->
     [
      {vegur_request_handling, [], [no_host
                                    ,empty_host
+                                   ,empty_expect
                                    ,url_limits
                                    ,header_line_limits
                                    ,header_count_limits
@@ -213,6 +214,17 @@ empty_host(Config) ->
     Data = get_until_closed(Socket, <<>>),
     M = binary:match(Data, <<"400">>),
     true = is_tuple(M),
+    Config.
+
+empty_expect(Config) ->
+    % Send a request with a empty Expect header, expect anything but 400 or 417 back.
+    Port = ?config(vegur_port, Config),
+    Req = "GET / HTTP/1.1\r\nHost:localhost\r\nExpect:\r\n\r\n",
+    {ok, Socket} = gen_tcp:connect({127,0,0,1}, Port, [{active,false}, binary]),
+    ok = gen_tcp:send(Socket, Req),
+    Data = get_until_closed(Socket, <<>>),
+    nomatch = binary:match(Data, <<"400">>),
+    nomatch = binary:match(Data, <<"417">>),
     Config.
 
 url_limits(Config) ->
