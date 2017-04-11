@@ -1,5 +1,7 @@
 # Vegur
 
+[![Build Status](https://travis-ci.org/heroku/vegur.svg?branch=master)](https://travis-ci.org/heroku/vegur)
+
 Heroku's proxy library based on a forked Cowboy frontend (Cowboyku). This
 library handles proxying in Heroku's routing stack
 
