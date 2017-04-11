@@ -61,7 +61,7 @@ make_chunks(N, Len, ChunkLen) ->
 
 
 make_chunked(Len, ChunkLen) ->
-    rand:seed(now()),
+    rand:seed(erlang:timestamp()),
     Chunks =
         [make_chunk(ChunkLen)
          || _ <- lists:seq(1, Len)],

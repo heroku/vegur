@@ -35,7 +35,7 @@
 all() -> [merge].
 
 init_per_testcase(merge, Config) ->
-    Logs = [vegur_req_log:new(now()) || _ <- lists:seq(1,5)],
+    Logs = [vegur_req_log:new(erlang:timestamp()) || _ <- lists:seq(1,5)],
     [{logs, list_to_tuple(Logs)} | Config].
 
 end_per_testcase(merge, _Config) ->
