@@ -38,8 +38,8 @@ To set up a reverse-proxy that does load balancing locally, we'll first set up
 two toy servers:
 
 ```bash
-$ while true ; do  echo -e "HTTP/1.1 200 OK\r\nConnection:close\r\nContent-Length: ${#$(date)}\r\n\r\n$(date)" | nc -l -p 8081 ; done
-$ while true ; do  echo -e "HTTP/1.1 200 OK\r\nConnection:close\r\nContent-Length: ${#$(date)}\r\n\r\n$(date)" | nc -l -p 8082 ; done
+$ while true; do ( BODY=$(date); echo -e "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ${#BODY}\r\n\r\n$BODY" | nc -l -p 8081 ); done
+$ while true; do ( BODY=$(date); echo -e "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ${#BODY}\r\n\r\n$BODY" | nc -l -p 8082 ); done
 ```
 
 These have the same behaviour and will do the exact same thing, except one is
