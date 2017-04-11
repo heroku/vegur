@@ -36,10 +36,10 @@
 -export([websocket_info/3]).
 -export([websocket_terminate/3]).
 
-init({tcp, http}, Req, Opts) ->
+init({tcp, http}, _Req, _Opts) ->
     {upgrade, protocol, cowboyku_websocket}.
 
-websocket_init(TransportName, Req, _Opts) ->
+websocket_init(_TransportName, Req, _Opts) ->
     {ok, Req, undefined_state}.
 
 websocket_handle({text, Msg}, Req, State) ->
