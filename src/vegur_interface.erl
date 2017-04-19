@@ -35,7 +35,9 @@
 -type queue_length() :: non_neg_integer().
 -type wait_time() :: non_neg_integer().
 -type service_backend() :: {inet:ip_address(), inet:port_number()}
-                         | {keepalive, {default|new, {inet:ip_address(), inet:port_number()}}}.
+                         | {module(), inet:ip_address(), inet:port_number()}
+                         | {keepalive, {default|new, {inet:ip_address(), inet:port_number()}}}
+                         | {keepalive, {default|new, {module(), inet:ip_address(), inet:port_number()}}}.
 -type phase() :: lookup | checkout | connecting | connected.
 -type service_state() :: normal|term().
 -type handler_state() :: term().

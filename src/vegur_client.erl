@@ -78,7 +78,7 @@
 -record(client, {
           state = wait :: wait | request | response | response_body | raw,
           opts = [] :: [any()],
-          socket = undefined :: undefined | inet:socket(),
+          socket = undefined :: undefined | inet:socket() | ssl:sslsocket(),
           transport = undefined :: module() | tuple(), % tuple for tuple calls
           connect_timeout = vegur_utils:config(downstream_connect_timeout) :: timeout(),
           first_read_timeout = timer:seconds(vegur_utils:config(downstream_first_read_timeout)) :: timeout() | undefined,
@@ -879,6 +879,14 @@ set_delta(Client=#client{bytes_sent=BytesSent, bytes_recv=BytesRecv}) ->
     Client#client{bytes_sent_offset= -BytesSent, bytes_recv_offset= -BytesRecv}.
 
 %% @private
+get_stats(Socket = {sslsocket, _, _Pid}, DefaultSent, DefaultRecv) ->
+    case ssl:getstat(Socket, [recv_oct, send_oct]) of
+        {error, _} ->
+            {DefaultSent, DefaultRecv};
+        {ok, [{recv_oct, RecvTotal},
+              {send_oct, SentTotal}]} ->
+            {SentTotal, RecvTotal}
+    end;
 get_stats(Socket, DefaultSent, DefaultRecv) when is_port(Socket) ->
     case inet:getstat(Socket, [recv_oct, send_oct]) of
         {error, _} ->

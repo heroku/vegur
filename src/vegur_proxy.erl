@@ -58,6 +58,8 @@
       ServiceBackend :: vegur_interface:service_backend(),
       Client :: vegur_client:client().
 backend_connection({keepalive, {Type, {IpAddress, Port}}}) ->
+    backend_connection({keepalive, {Type, {ranch_tcp, IpAddress, Port}}});
+backend_connection({keepalive, {Type, {Transport,IpAddress, Port}}}) ->
     %% Reuse the connection if told to and if one exists and has been
     %% stored. If a connection exists, the `default' value provided is
     %% ignored; if a connection does not exist, then the value will
@@ -66,7 +68,7 @@ backend_connection({keepalive, {Type, {IpAddress, Port}}}) ->
     case {get(last_backend), get(reuse), Type} of
         {_, undefined, _} ->
             put(last_backend, {IpAddress, Port}),
-            start_backend_connection({IpAddress, Port});
+            start_backend_connection({Transport, IpAddress, Port});
         {{_OldAddress, _OldPort}, Client, default} ->
             %% Set the delta on a new connection so that moving forwards,
             %% metrics are accurate
@@ -79,9 +81,11 @@ backend_connection({keepalive, {Type, {IpAddress, Port}}}) ->
             backend_close(Client),
             put(should_keepalive, true),
             %% start the new one
-            start_backend_connection({IpAddress, Port})
+            start_backend_connection({Transport, IpAddress, Port})
     end;
 backend_connection({IpAddress, Port}) ->
+    backend_connection({ranch_tcp, IpAddress, Port});
+backend_connection({Transport, IpAddress, Port}) ->
     %% Close any previously keepalive req we may have had
     case get(reuse) of
         undefined -> ok;
@@ -92,14 +96,14 @@ backend_connection({IpAddress, Port}) ->
     %% Set all values to mandate not reusing keepalive.
     put(should_keepalive, false),
     erase(last_backend),
-    start_backend_connection({IpAddress, Port}).
+    start_backend_connection({Transport, IpAddress, Port}).
 
-start_backend_connection({IpAddress, Port}) ->
+start_backend_connection({Transport, IpAddress, Port}) ->
     TcpBufSize = vegur_utils:config(client_tcp_buffer_limit),
     {ok, Client} = vegur_client:init([{reuseaddr, true},
                                       {packet_size, TcpBufSize},
                                       {recbuf, TcpBufSize}]),
-    case vegur_client:connect(ranch_tcp, IpAddress, Port, Client) of
+    case vegur_client:connect(Transport, IpAddress, Port, Client) of
         {ok, Client1} ->
             {connected, Client1};
         {error, Reason} ->
