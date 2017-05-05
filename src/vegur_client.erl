@@ -679,7 +679,8 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                         error:case_clause -> {error, content_length}
                     end;
                 <<"transfer-encoding">> ->
-                    case header_list_values(Value) of
+                    Values = cowboyku_http:nonempty_list(Value, fun cowboyku_http:token_ci/2),
+                    case Values of
                         {error, badarg} ->
                             invalid_transfer_encoding(Value),
                             {error, invalid_transfer_encoding};
@@ -690,7 +691,8 @@ stream_header(Client=#client{state=State, buffer=Buffer,
                             end
                     end;
                 <<"connection">> ->
-                    Values = header_list_values(Value),
+                    %% Allow empty list
+                    Values = cowboyku_http:list(Value, fun cowboyku_http:token_ci/2),
                     case lists:member(<<"close">>, Values) of
                         true -> Client#client{connection=close};
                         false ->
@@ -815,8 +817,6 @@ append_to_buffer(Data, Client=#client{buffer = Buffer}) ->
     Client#client{buffer = <<Buffer/binary, Data/binary>>}.
 
 %% @private
-header_list_values(Value) ->
-    cowboyku_http:nonempty_list(Value, fun cowboyku_http:token_ci/2).
 
 %% @doc Generates an authorization header from a string of the form
 %% `"User:Pass"' or `"User"'.
