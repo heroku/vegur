@@ -533,6 +533,8 @@ stream_close(Client=#client{buffer=Buffer, response_body=undefined, bytes_recv=B
                      })};
                 {error, closed} ->
                     {done, Client};
+                {error, enotconn} -> % for OTP-21
+                    {done, Client};
                 {error, Reason} ->
                     {error, Reason}
             end;
