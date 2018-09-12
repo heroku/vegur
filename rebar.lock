@@ -1,6 +1,7 @@
+{"1.1.0",
 [{<<"cowboyku">>,
-  {git,"https://github.com/heroku/cowboyku.git",
-       {ref,"60de3bca9909b59305cc69ea39b2c4e2a7e12c06"}},
+  {git,"https://github.com/ferd/cowboyku.git",
+       {ref,"f3d3857cdef7c8b94ce8fbcc592f1c54b9e97882"}},
   0},
  {<<"cowlib">>,
   {git,"https://github.com/ninenines/cowlib.git",
@@ -20,13 +21,16 @@
   1},
  {<<"ranch">>,
   {git,"https://github.com/ninenines/ranch.git",
-       {ref,"741bfb73ca663394ecf7a73410506d66f01985a6"}},
+       {ref,"8eaae552ec520605b7f4b0e5943256d2b5e3621c"}},
   0},
  {<<"ranch_proxy_protocol">>,
-  {git,"https://github.com/heroku/ranch_proxy_protocol.git",
-       {ref,"0129227305a5b41f0875b337ac75f02f613f81c1"}},
+  {pkg,<<"ranch_proxy_protocol">>,<<"2.1.0-rc.1">>},
   0},
  {<<"uuid">>,
   {git,"https://github.com/okeuday/uuid.git",
        {ref,"4b705b22f5d095970558d904e43c4354bd0e0a7f"}},
-  0}].
+  0}]}.
+[
+{pkg_hash,[
+ {<<"ranch_proxy_protocol">>, <<"E39D5F2B42C1599AC5604E8BC420D7BF00D0FEF0E272DFD3321660770A909211">>}]}
+].
