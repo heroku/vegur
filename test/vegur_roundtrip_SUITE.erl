@@ -2157,7 +2157,7 @@ weird_content_length(Config) ->
     ct:pal("RecvClient: ~p", [RecvClient]),
     check_stub_error({downstream, content_length}),
     wait_for_closed(Server, 500),
-    ?assertEqual(ok, wait_for_closed(Client, 500)), % client already closed
+    % client already closed as per 'recv_until_close'
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
