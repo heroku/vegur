@@ -19,10 +19,7 @@
   {git,"https://github.com/okeuday/quickrand.git",
        {ref,"8b6810b73427745bb6d4f10ae9bfc66983b3b2a1"}},
   1},
- {<<"ranch">>,
-  {git,"https://github.com/ninenines/ranch.git",
-       {ref,"8eaae552ec520605b7f4b0e5943256d2b5e3621c"}},
-  0},
+ {<<"ranch">>,{pkg,<<"ranch">>,<<"1.6.1">>},0},
  {<<"ranch_proxy_protocol">>,
   {pkg,<<"ranch_proxy_protocol">>,<<"2.1.0-rc.1">>},
   0},
@@ -32,5 +29,6 @@
   0}]}.
 [
 {pkg_hash,[
+ {<<"ranch">>, <<"2609724C9A7E163CA716A46C9087E037DB4262935F5D866122BA158ED917C233">>},
  {<<"ranch_proxy_protocol">>, <<"E39D5F2B42C1599AC5604E8BC420D7BF00D0FEF0E272DFD3321660770A909211">>}]}
 ].
