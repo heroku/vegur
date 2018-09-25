@@ -41,7 +41,10 @@ execute(Req, Env) ->
             handle_error(Reason, Req4, Env);
         {redirect, Reason, DomainGroup, Domain, Req3, HandlerState1} ->
             Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
-            handle_redirect(Reason, DomainGroup, Domain, Req4, Env);
+            handle_redirect(Reason, 301, DomainGroup, Domain, Req4, Env);
+        {redirect, Code, Reason, DomainGroup, Domain, Req3, HandlerState1} ->
+            Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
+            handle_redirect(Reason, Code, DomainGroup, Domain, Req4, Env);
         {ok, DomainGroup, Req3, HandlerState1} ->
             Req4 = vegur_utils:set_handler_state(HandlerState1, Req3),
             Req5 = cowboyku_req:set_meta(domain_group, DomainGroup, Req4),
@@ -58,18 +61,19 @@ handle_error(Reason, Req, _Env) ->
     {HttpCode, Req1} = vegur_utils:handle_error(Reason, Req),
     {error, HttpCode, Req1}.
 
--spec handle_redirect(Reason, DomainGroup, Domain, Req, Env) ->
+-spec handle_redirect(Reason, Code, DomainGroup, Domain, Req, Env) ->
                              {halt, HttpCode, Req} when
       Reason :: any(),
+      Code :: 300..399,
       DomainGroup :: vegur_interface:domain_group(),
       Domain :: vegur_interface:domain(),
       Req :: cowboyku_req:req(),
       HttpCode :: cowboyku:http_status(),
       Env :: cowboyku_middleware:env().
-handle_redirect(_Reason, _DomainGroup, RedirectTo, Req, _Env) ->
+handle_redirect(_Reason, Code, _DomainGroup, RedirectTo, Req, _Env) ->
     {FullLocation, Req2} = build_redirect_uri(RedirectTo, Req),
-    {ok, Req3} = cowboyku_req:reply(301, [{<<"location">>, FullLocation}], Req2),
-    {halt, 301, Req3}.
+    {ok, Req3} = cowboyku_req:reply(Code, [{<<"location">>, FullLocation}], Req2),
+    {halt, Code, Req3}.
 
 % Internal
 

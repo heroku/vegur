@@ -72,9 +72,11 @@
 -callback lookup_domain_name(Domain, Upstream, HandlerState) ->
     {error, atom(), Upstream, HandlerState} |
     {redirect, Reason, DomainGroup, Domain, Upstream, HandlerState} |
+    {redirect, Code, Reason, DomainGroup, Domain, Upstream, HandlerState} |
     {ok, DomainGroup, Upstream, HandlerState} when
       Domain :: binary(),
       Reason :: atom(),
+      Code :: 300..399,
       DomainGroup :: domain_group(),
       Upstream :: upstream(),
       HandlerState :: handler_state().
