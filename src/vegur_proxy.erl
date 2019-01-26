@@ -640,7 +640,7 @@ stream_request(Buffer, Req, Client, DownBuffer, N) ->
                     {error, upstream, Err}
             end;
         {error, Err} when Err == closed orelse Err == enotconn,
-                          byte_size(DownBuffer) > 0 ->
+                          byte_size(NewDownBuffer) > 0 ->
             %% we have a buffer accumulated, it's likely an early response came
             %% while streaming the body. We must however force the connection
             %% to be closed because we won't wait until the full body is read.

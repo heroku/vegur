@@ -41,8 +41,7 @@
 
 -record(state, {tries = [] :: list()}).
 
-init(AcceptTime, Upstream) ->
-    random:seed(AcceptTime), % RNGs require per-process seeding
+init(_AcceptTime, Upstream) ->
     {ok, Upstream, #state{}}. % state initialization here.
 
 lookup_domain_name(_AllDomains, Upstream, State) ->
@@ -57,7 +56,7 @@ checkout_service(Servers, Upstream, State=#state{tries=Tried}) ->
         [] ->
             {error, all_blocked, Upstream, State};
         _ ->
-            N = random:uniform(length(Available)),
+            N = rand:uniform(length(Available)),
             Pick = lists:nth(N, Available),
             {service, Pick, Upstream, State#state{tries=[Pick | Tried]}}
     end.
@@ -88,7 +87,7 @@ error_page({upstream, _Reason}, _DomainGroup, Upstream, HandlerState) ->
     {{400, [], <<>>}, Upstream, HandlerState};
 error_page({downstream, _Reason}, _DomainGroup, Upstream, HandlerState) ->
     %% Blame the server
-    {{500, [], <<>>}, Upstream, HandlerState};
+    {{500, [], io_lib:format("Reason: ~p", [_Reason])}, Upstream, HandlerState};
 error_page({undefined, _Reason}, _DomainGroup, Upstream, HandlerState) ->
     %% Who knows who was to blame!
     {{500, [], <<>>}, Upstream, HandlerState};
