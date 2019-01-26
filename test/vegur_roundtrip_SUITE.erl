@@ -463,8 +463,9 @@ no_expect_continue(Config) ->
     ok = gen_tcp:send(Server, Resp),
     %% Result is a 200, the 100 Continue should also show up. Wait a bit
     %% for all packets to come in.
-    timer:sleep(100),
+    timer:sleep(500),
     {ok, Response} = gen_tcp:recv(Client, 0, 1000),
+    ct:pal("Response: ~p", [Response]),
     {match, _} = re:run(Response, "100 Continue"),
     {match, _} = re:run(Response, "200 OK"),
     {match, _} = re:run(Response, "abcdefghijklmnoprstuvwxyz1234567890abcdef\r\n"),
@@ -1190,7 +1191,8 @@ passthrough_early_0length(Config) ->
     %% Detected the bad request early on and responded before the server could
     {match, _} = re:run(RecvServ, "3\r\nabc\r\n$"),
     {match, _} = re:run(RecvClient, "400 Bad Request"),
-    wait_for_closed(Server, 500).
+    wait_for_closed(Server, 500),
+    ok.
 
 passthrough_partial_early_0length1(Config) ->
     %% Chunked data can move through the stack without being modified.
@@ -1355,7 +1357,9 @@ interrupted_server(Config) ->
     %% Note that on a loopback interface, this should always pass. Remote
     %% interfaces detect and propagate connection termination differently.
     ?assert(timer:seconds(2) > timer:now_diff(CloseDetect,CloseTime)/1000),
-    check_stub_error({downstream, closed}).
+    %% OTP-21 may return enotconn as an error after being closed once.
+    check_stub_errors([{downstream, closed}, {downstream, enotconn}]),
+    ok.
 
 bad_chunk(Config) ->
     %% A bad chunk from the server cannot be reported on via error codes
@@ -2153,7 +2157,8 @@ weird_content_length(Config) ->
     ct:pal("RecvClient: ~p", [RecvClient]),
     check_stub_error({downstream, content_length}),
     wait_for_closed(Server, 500),
-    ?assertError(not_closed, wait_for_closed(Client, 500)).
+    % client already closed as per 'recv_until_close'
+    ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% KEEPALIVE TO THE BACKENDS BEHAVIOUR %%%
@@ -2720,13 +2725,13 @@ get_accepted(Ref) ->
     end.
 
 recv_until_close(Port) ->
-    case gen_tcp:recv(Port, 0, 100) of
+    case gen_tcp:recv(Port, 0, 200) of
         {error, closed} -> [];
         {ok, Data} -> [Data | recv_until_close(Port)]
     end.
 
 recv_until_timeout(Port) ->
-    case gen_tcp:recv(Port, 0, 100) of
+    case gen_tcp:recv(Port, 0, 200) of
         {error, timeout} -> [];
         {ok, Data} -> [Data | recv_until_timeout(Port)]
     end.
@@ -2758,6 +2763,8 @@ wait_for_closed(_Port, T) when T =< 0 -> error(not_closed);
 wait_for_closed(Port, T) ->
     case gen_tcp:recv(Port, 0, 0) of
         {error, closed} ->
+            ok;
+        {error, enotconn} -> % also valid in OTP-21
             ok;
         _ ->
             timer:sleep(100),
@@ -3166,6 +3173,13 @@ domain(Config) ->
 
 check_stub_error(Pattern) ->
     Local = [Args || {_, {vegur_stub, error_page, Args}, _Ret} <- meck:history(vegur_stub)],
-    ct:pal("Local: ~p~n", [Local]),
     Pattern = hd(lists:last(Local)).
+
+check_stub_errors(Patterns) ->
+    Local = [Args || {_, {vegur_stub, error_page, Args}, _Ret} <- meck:history(vegur_stub)],
+    Pattern = hd(lists:last(Local)),
+    case lists:member(Pattern, Patterns) of
+       true -> ok;
+       false -> error({Pattern, Patterns})
+    end.
 

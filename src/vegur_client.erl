@@ -533,6 +533,8 @@ stream_close(Client=#client{buffer=Buffer, response_body=undefined, bytes_recv=B
                      })};
                 {error, closed} ->
                     {done, Client};
+                {error, enotconn} -> % for OTP-21
+                    {done, Client};
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -610,7 +612,7 @@ parse_status(_Client, _StatusStr, _Version_) ->
     {error, invalid_status}.
 
 %% @doc Returns headers from the response one at a time, until done.
--spec stream_headers(client()) -> {ok, binary(), binary(), client()}
+-spec stream_headers(client()) -> {ok, [{binary(), binary()}], client()}
                                 | {done, client()}
                                 | {error, term()}.
 stream_headers(Client=#client{state=State})

@@ -56,6 +56,8 @@ websocket_handle({text, Msg}, _, State=#state{pid=Pid
     Pid ! {msg, Msg},
     {ok, State}.
 
+websocket_info(stop, _, State) ->
+    {close, <<>>, State};
 websocket_info(_, _, State) ->
     {ok, State}.
 

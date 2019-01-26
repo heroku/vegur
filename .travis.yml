@@ -8,6 +8,7 @@ cache:
 install: "true" # don't let travis run get-deps
 script: "./rebar3 do update, ct, dialyzer"
 otp_release:
+- 21.0
 - 19.1
 - 18.3
 notifications:
