@@ -30,6 +30,7 @@
 -module(vegur_utils).
 
 -define(APP, vegur).
+-define(APP_DYNAMIC, vegur_dynamic).
 
 -export([get_interface_module/1
          ,set_handler_state/2
@@ -321,15 +322,41 @@ mark_as_done(Req) ->
 
 % Config helpers
 config(Key, Default) ->
-    case application:get_env(?APP, Key) of
-        undefined -> Default;
-        {ok, Val} -> Val
+    %% For safety in case of hot code loading, set the values
+    %% in the 'dynamic' namespace; hot upgrades to an application
+    %% using relups reset all of the application's configuration
+    %% values to what can be found in sys.config/CLI args/app env
+    %%
+    %% For backwards compat and safety, we read from both
+    %% keys in a sequence; dynamic first, and falling back to
+    %% the default values otherwise.
+    case application:get_env(?APP_DYNAMIC, Key) of
+        undefined ->
+            case application:get_env(?APP, Key) of
+                undefined -> Default;
+                {ok, Val} -> Val
+            end;
+        {ok, Val} ->
+            Val
     end.
 
 config(Key) ->
-    case application:get_env(?APP, Key) of
-        undefined -> erlang:error({missing_config, Key});
-        {ok, Val} -> Val
+    %% For safety in case of hot code loading, set the values
+    %% in the 'dynamic' namespace; hot upgrades to an application
+    %% using relups reset all of the application's configuration
+    %% values to what can be found in sys.config/CLI args/app env
+    %%
+    %% For backwards compat and safety, we read from both
+    %% keys in a sequence; dynamic first, and falling back to
+    %% the default values otherwise.
+    case application:get_env(?APP_DYNAMIC, Key) of
+        undefined ->
+            case application:get_env(?APP, Key) of
+                undefined -> erlang:error({missing_config, Key});
+                {ok, Val} -> Val
+            end;
+        {ok, Val} ->
+            Val
     end.
 
 -spec get_via_value() -> binary().

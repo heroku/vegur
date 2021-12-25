@@ -134,7 +134,7 @@ default_middlewares() ->
       Key :: atom(),
       Val :: term().
 set_config(Key, Val) ->
-    application:set_env(vegur, Key, Val).
+    application:set_env(vegur_dynamic, Key, Val).
 
 -spec defaults() -> [proplists:property()].
 defaults() ->
